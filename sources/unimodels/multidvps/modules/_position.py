@@ -1,0 +1,76 @@
+"""
+Localizer is a module that takes a single-level feature map and returns the positions of objects
+"""
+
+from __future__ import annotations
+
+import typing as T
+
+import torch
+from torch import nn
+from typing_extensions import override
+from unipercept.modeling.layers import conv
+from unipercept.modeling.layers.weight import init_xavier_fill_
+
+if T.TYPE_CHECKING:
+    from unipercept.modeling.typings import ChannelModule
+
+__all__ = ["Localizer", "Locations"]
+
+
+class Locations(T.NamedTuple):
+    stuff_map: torch.Tensor
+    thing_map: torch.Tensor
+
+
+class Localizer(nn.Module):
+    """
+    Localizer is a module that takes a single-level feature map and returns the positions of objects
+    in the scene as a Gaussian score-map of center locations.
+    """
+
+    in_channels: T.Final[int]
+    stuff_channels: T.Final[int]
+    thing_channels: T.Final[int]
+
+    def __init__(
+        self,
+        encoder: ChannelModule[torch.Tensor],
+        stuff_channels: int,
+        thing_channels: int,
+        thing_bias_value: float = -2.19,
+    ):
+        super().__init__()
+
+        self.encoder = encoder
+
+        out_enc = encoder.out_channels
+
+        self.stuff_out = conv.Separable2d(out_enc, stuff_channels, kernel_size=3, bias=True, padding="same")
+        self.thing_out = conv.Separable2d(out_enc, thing_channels, kernel_size=3, bias=True, padding="same")
+        self.apply(init_xavier_fill_)
+
+        def apply_bias(m):
+            b = getattr(m, "bias", None)
+            if b is None:
+                return
+            nn.init.constant_(b, thing_bias_value)
+
+        self.thing_out.apply(apply_bias)
+
+        # nn.init.constant_(self.thing_out.bias, thing_bias_value)  # type: ignore
+
+        self.in_channels = self.encoder.in_channels
+        self.stuff_channels = stuff_channels
+        self.thing_channels = thing_channels
+
+    @override
+    def forward(self, feat) -> Locations:
+        x = self.encoder(feat)
+        x_stuff = self.stuff_out(x)
+        x_thing = self.thing_out(x)
+
+        return Locations(
+            stuff_map=x_stuff,
+            thing_map=x_thing,
+        )

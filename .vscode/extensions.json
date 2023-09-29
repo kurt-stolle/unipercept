@@ -1,0 +1,12 @@
+{
+    "recommendations": [
+        "ms-python.mypy-type-checker",
+        "ms-python.isort",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.pylint",
+        "ms-toolsai.jupyter",
+        "ms-toolsai.vscode-jupyter-powertoys"
+    ]
+}

@@ -1,0 +1,129 @@
+{
+    // Basic configuration for debugging UniPercept V3 with Visual Studio Code
+    "version": "0.2.0",
+    "configurations": [
+    
+        {
+            "name": "Resume Training: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "scripts/train.py",
+            "args": [
+                "--config",
+                "${file}",
+                "--num-gpus",
+                "${input:numGpus}",
+                "--resume",
+            ],
+            "envFile": ".env",
+            "console": "internalConsole",
+            "justMyCode": false
+        },
+        {
+            "name": "Training: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "scripts/train.py",
+            "args": [
+                "--config",
+                "${file}",
+                "--num-gpus",
+                "${input:numGpus}",
+                "dataloader.train.total_batch_size=2",
+                "dataloader.train.num_workers=0",
+                "model.vis_period=10",
+                "train.accumulation_steps=1",
+                "train.log_period=1",
+                "train.cudnn_benchmark=True",
+                "train.ddp.find_unused_parameters=True",
+                "train.output_dir=//output/debug/${input:sessionName}",
+            ],
+            "envFile": ".env",
+            "console": "internalConsole",
+            "justMyCode": false,
+        },
+        {
+            "name": "Evaluation: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "scripts/train.py",
+            "args": [
+                "--eval-only",
+                "--detect-anomalies",
+                "--config",
+                "${file}",
+                "--num-gpus",
+                "${input:numGpus}",
+                "train.output_dir=//output/debug/${input:sessionName}",
+            ],
+            "envFile": ".env",
+            "console": "internalConsole",
+            "justMyCode": false,
+        },
+        {
+            "name": "PyTest: Current file",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-v",
+                "-s",
+                "${file}"
+            ],
+            "env": {
+                "PYTEST_ADDOPTS": "--no-cov",
+            },
+            "console": "internalConsole",
+            "justMyCode": false
+        },
+        {
+            "name": "Sphinx Documentation",
+            "type": "python",
+            "request": "launch",
+            "module": "sphinx",
+            "args": [
+                "-a",
+                "-E",
+                "-j=1",
+                "-T",
+                "-b",
+                "html",
+                "${workspaceFolder}/docs/source",
+                "${workspaceFolder}/docs/build"
+            ],
+            "env": {
+                "SPHINXOPTS": "-vvv",
+                "PYTEST_ADDOPTS": "--no-cov",
+            },
+            "console": "internalConsole",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}/docs",
+        },
+    ],
+    "compounds": [
+        {
+            "name": "Compound",
+            "configurations": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "additionalArgs",
+            "type": "promptString",
+            "description": "Additional arguments",
+            "default": ""
+        },
+        {
+            "id": "numGpus",
+            "type": "promptString",
+            "description": "Number of GPUs",
+            "default": "1"
+        },
+        {
+            "id": "sessionName",
+            "type": "promptString",
+            "description": "Session name (enter * to use the current date/time)",
+            "default": "*"
+        }
+    ]
+}

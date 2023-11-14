@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubi8
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubi8
 
 # Set FORCE_CUDA because during `docker build` cuda is not accessible. Provide
 # a build argument for TORCH_CUDA_ARCH_LIST to specify the compute capabilities,
@@ -57,5 +57,4 @@ RUN sudo mkdir -p /srv/data /srv/output && sudo chown perciever:perciever /srv/d
 ENV UNICORE_DATASETS=/srv/data
 ENV UNICORE_OUPUT=/srv/output
 
-# Training command is the default entrypoint
-ENTRYPOINT ["$PYTHON", "scripts/train.py"]
+ENTRYPOINT ["$PYTHON", "-m", "unicli"]

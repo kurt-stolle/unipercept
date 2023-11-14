@@ -1,11 +1,22 @@
-# Scratch files
-./scratch/
+# WandB
+./wandb
+
+# SLURM
+slurm-*
+
+# Logs
+log.txt
 
 # Symlinked defaults
-./datasets/
-./output/
-./cache/
-./notebooks/
+./scratch
+./output
+./outputs
+./datasets
+./data
+./log
+./logs
+./cache
+./caches
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

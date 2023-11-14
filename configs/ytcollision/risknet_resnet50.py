@@ -7,12 +7,12 @@ from pathlib import Path
 from detectron2.layers import ShapeSpec
 from torch import nn
 from unimodels import risknet
-from uniutils.config import infer_project_name, infer_session_name
-from uniutils.config._lazy import bind as B
-from uniutils.config._lazy import call as L
-from uniutils.config._lazy import use_activation, use_norm
 
 import unipercept as up
+from unipercept.utils.config import get_project_name, get_session_name
+from unipercept.utils.config._lazy import bind as B
+from unipercept.utils.config._lazy import call as L
+from unipercept.utils.config._lazy import use_activation, use_norm
 
 from .data._risk import data
 
@@ -22,8 +22,8 @@ _INFO = up.data.read_info(data)
 
 trainer = B(up.trainer.Trainer)(
     config=L(up.trainer.config.TrainConfig)(
-        project_name=infer_project_name(__file__),
-        session_name=infer_session_name(),
+        project_name=get_project_name(__file__),
+        session_name=get_session_name(),
         train_epochs=50,
         eval_epochs=1,
         save_epochs=1,
@@ -39,7 +39,7 @@ trainer = B(up.trainer.Trainer)(
 )
 
 model = B(risknet.RiskNet)(
-    backbone=L(up.modeling.backbones.timm.TimmBackbone)(name="resnet50"),
+    backbone=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
     example_layer=L(nn.Linear)(
         in_features=2048,
         out_features=1,

@@ -1,26 +1,29 @@
 import deqflow2  # https://github.com/kurt-stolle/deq-flow
 from unimodels import deqflow
-from uniutils.config import infer_project_name, infer_session_name
-from uniutils.config._lazy import bind as B
-from uniutils.config._lazy import call as L
 
 import unipercept as up
+from unipercept.utils.config import get_project_name, get_session_name
+from unipercept.utils.config._lazy import bind as B
+from unipercept.utils.config._lazy import call as L
 
-from .data._dvps import data
+from .data._dvps import DATASET_INFO, DATASET_NAME, data
+
+__all__ = ["model", "data", "trainer"]
 
 trainer = B(up.trainer.Trainer)(
     config=L(up.trainer.config.TrainConfig)(
-        project_name=infer_project_name(__file__),
-        session_name=infer_session_name(),
-        # train_steps=120_000,
-        train_epochs=50,
+        project_name=get_project_name(__file__),
+        session_name=get_session_name(__file__),
+        train_batch_size=4,
+        train_epochs=10,
+        infer_batch_size=4,
         eval_epochs=1,
         save_epochs=1,
     ),
-    optimizer=L(up.trainer._optimizer.OptimizerFactory)(
+    optimizer=L(up.trainer.OptimizerFactory)(
         opt="adamw",
     ),
-    scheduler=L(up.trainer._scheduler.SchedulerFactory)(
+    scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
     ),

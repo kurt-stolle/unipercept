@@ -11,7 +11,8 @@ import torch.nn as nn
 from tensordict import TensorDict
 from typing_extensions import override
 from unicore.utils.tensorclass import Tensorclass
-from unipercept.modeling.layers.ops import dynamic_conv2d
+
+from unipercept.nn.layers.ops import dynamic_conv2d
 
 if T.TYPE_CHECKING:
     from torch import Tensor

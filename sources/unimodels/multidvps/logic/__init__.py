@@ -4,4 +4,3 @@ from __future__ import annotations
 
 from . import inference, training
 from ._structures import *
-from .visualizations import *

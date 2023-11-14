@@ -20,7 +20,8 @@ from detectron2.evaluation.evaluator import DatasetEvaluator
 from detectron2.utils import comm
 from omegaconf import DictConfig
 from pyparsing import Any
-from uniutils.time import get_timestamp
+
+from unipercept.utils.time import get_timestamp
 
 from ._cmd import command, logger
 from ._utils import load_dataset, load_model, prompt_confirm, setup_config

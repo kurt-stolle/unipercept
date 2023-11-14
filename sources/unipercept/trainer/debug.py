@@ -4,7 +4,8 @@ import collections
 import enum
 
 import torch
-from uniutils.logutils import get_logger
+
+from unipercept.utils.logutils import get_logger
 
 logger = get_logger(__name__)
 
@@ -110,10 +111,10 @@ class DebugUnderflowOverflow:
         self.save_frame()
 
     def register_forward_hook(self):
-        self.model.apply(self._register_forward_hook)
+        def __register(module):
+            module.register_forward_hook(self.forward_hook)
 
-    def _register_forward_hook(self, module):
-        module.register_forward_hook(self.forward_hook)
+        self.model.apply(__register)
 
     def forward_hook(self, module, input, output):
         # - input is a tuple of packed inputs (could be non-Tensors)
@@ -164,8 +165,12 @@ class DebugUnderflowOverflow:
 
 
 def get_abs_min_max(var, ctx):
-    abs_var = var.abs()
-    return f"{abs_var.min():8.2e} {abs_var.max():8.2e} {ctx}"
+    if var.numel() == 0:
+        min_max = "empty"
+    else:
+        abs_var = var.abs()
+        min_max = f"{abs_var.min():8.2e} {abs_var.max():8.2e}"
+    return f"{min_max:>17} {ctx}"
 
 
 def detect_overflow(var, ctx):

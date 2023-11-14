@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unipercept"
-description = "Unified Perception research project"
+description = "Unified perception research project"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = [
     "perception",
     "computer vision",
@@ -19,21 +19,18 @@ authors = [{ name = "Kurt Stolle", email = "k.h.w.stolle@gmail.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: Implementation :: CPython"
 ]
 dependencies = [
-    "torch >= 2.0.0",
-    "torchvision >= 0.15.1",
-    # "detectron2 >= 0.6",
-    "unitrack >= 4.6.9",
     "evaluators >= 1.0.1",
-    "tensordict >= 0.1.2",
-    "einops >= 0.6.1",
+    "tensordict >= 0.2.1",
+    "einops >= 0.7.0",
     "timm >= 0.6.14",
     "bullet >= 2.2.0",
-    "optuna"
+    "accelerate",
+    "statistics",
+    "h5py",
 ]
 dynamic = ["version"]
 
@@ -52,32 +49,33 @@ exclude = []
 docs = ["sphinx", "sphinx-rtd-theme"]
 tests = [
     "hypothesis",
-    "bandit[toml]==1.7.4",
-    "black==23.1.0",
-    "check-manifest==0.48",
+    "bandit[toml]",
+    "black>=23.10.0",
+    "check-manifest",
     "flake8",
     "flake8-bugbear",
     "flake8-docstrings",
     "flake8-formatter_junit_xml",
     "flake8-pyproject",
-    "pre-commit==3.3.1",
+    "pre-commit",
     "pylint",
     "pylint_junit",
     "pytest",
+    "pytest-sugar",
     "pytest-xdist",
     "pytest-benchmark",
     "pytest-cov",
     "pytest-mock",
     "pytest-runner",
     "pytest-github-actions-annotate-failures",
-    "shellcheck-py==0.9.0.2",
+    "shellcheck-py",
     "pylint",
     "mypy",
     "autoflake",
     "pydocstyle",
     "pyre-check",
     "pydocstringformatter",
-    "statistics"
+    "pyrefact",
 ]
 
 [tool.pydocstringformatter]
@@ -115,7 +113,7 @@ branch = true
 fail_under = 100
 
 [tool.flake8]
-max-complexity = 50
+# max-complexity = 50
 max-line-length = 120
 select = "F,E,W,B,B901,B902,B903"
 exclude = [
@@ -131,6 +129,7 @@ exclude = [
     "swagger_client",
     "*.pyi",
 ]
+extend-ignore = ["E203"]
 ignore = ["E722", "B001", "W503", "E203"]
 per-file-ignores = """
     __init__.py: F401, F403
@@ -209,6 +208,7 @@ limit-inference-results = 100
 persistent = "yes"
 suggestion-mode = "yes"
 unsafe-load-any-extension = "no"
+include = ["sources"]
 
 [tool.pylint.'MESSAGES CONTROL']
 enable = "c-extension-no-member"
@@ -318,16 +318,13 @@ deprecated-modules = "optparse,tkinter.tix"
 overgeneral-exceptions = ["BaseException", "Exception"]
 
 [tool.isort]
-multi_line_output = 5
-include_trailing_comma = true
-force_grid_wrap = 0
-line_length = 80
 profile = "black"
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
-disallow_untyped_defs = true
+disallow_untyped_defs = false
 warn_unused_ignores = true
-check_untyped_defs = true
+check_untyped_defs = false
 no_implicit_optional = true
+inclulde = ["sources"]

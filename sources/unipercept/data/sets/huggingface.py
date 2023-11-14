@@ -7,8 +7,10 @@ try:
 except ImportError:
     datasets = None
 
-from unipercept.data.sets._base import PerceptionDataset
+from ._base import PerceptionDataset, info_factory
 
 __all__ = []
 
-# TODO
+
+class HuggingfaceDataset(PerceptionDataset):
+    pass

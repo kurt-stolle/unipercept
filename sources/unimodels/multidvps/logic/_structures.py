@@ -6,19 +6,20 @@ from __future__ import annotations
 
 import typing as T
 
-import unipercept.data.points as data_points
 from tensordict import TensorDict, TensorDictBase
-from torch import Size, Tensor
+from torch import Tensor
 from unicore.utils.tensorclass import Tensorclass
 
-from ..modules import DepthPrediction, Detection
-from ..modules.supervision import Truths
+import unipercept as up
 
-__all__ = ["ThingInstances", "StuffInstances", "PanopticMap", "Context"]
+from ..modules import DepthPrediction
+
+__all__ = ["ThingInstances", "StuffInstances", "Context"]
 
 
 class ThingInstances(Tensorclass):
     kernels: TensorDict
+    logits: Tensor
     masks: Tensor
     categories: Tensor
     scores: Tensor
@@ -32,7 +33,7 @@ class ThingInstances(Tensorclass):
 
 class StuffInstances(Tensorclass):
     kernels: TensorDict
-    masks: Tensor
+    logits: Tensor
     categories: Tensor
     scores: Tensor
     depths: T.Optional[DepthPrediction]
@@ -42,35 +43,15 @@ class StuffInstances(Tensorclass):
         return self.batch_size[-1]
 
 
-class PanopticMap(Tensorclass):
-    semantic: Tensor
-    instance: Tensor
-    depth: Tensor
-
-
-class Labels(Tensorclass):
-    panseg: Truths
-    depth: Tensor | None
-
-
 class Context(Tensorclass):
+    """
+    Context object holds all the data that is needed for the pipeline to run.
+    """
+
+    captures: up.model.CaptureData
     detections: TensorDictBase
     embeddings: TensorDictBase
 
-
-class SampleID(T.NamedTuple):
-    image: int
-    sequence: int | None
-    frame: int | None
-
-
-class SampleShape(T.NamedTuple):
-    height: int
-    width: int
-
-
-class SampleInfo(T.NamedTuple):
-    id: SampleID
-    size: SampleShape
-    size: SampleShape
-    size: SampleShape
+    @property
+    def input_size(self) -> T.Sequence[int]:
+        return self.captures.images.shape[-2:]

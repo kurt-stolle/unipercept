@@ -13,10 +13,11 @@ import typing as T
 import torch
 import torch.nn as nn
 from typing_extensions import override
-from unipercept.data.points import InputData
+
+import unipercept as up
 
 
-class DEQFlowWrapper(nn.Module):
+class DEQFlowWrapper(up.model.ModelBase):
     """Wraps DEQFlow (v2) in a way that is compatible with the UniPercept API."""
 
     def __init__(self, deqflow: deqflow2.DEQFlow):
@@ -24,7 +25,7 @@ class DEQFlowWrapper(nn.Module):
         self.deqflow = deqflow
 
     @override
-    def forward(self, inputs: InputData) -> T.Dict[str, torch.Tensor]:
+    def forward(self, inputs: up.model.InputData) -> T.Dict[str, torch.Tensor]:
         assert not self.training, "DEQFlow training in the UniPercept API is untested, and disabled in code for now."
 
         image_pair = inputs.captures.images

@@ -17,6 +17,7 @@ def handle_request(args) -> T.Any:
         import json
 
         import yaml
+
         from unipercept.data.sets import get_dataset
 
         ds_cls = get_dataset(args.dataset)

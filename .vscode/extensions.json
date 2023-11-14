@@ -7,6 +7,7 @@
         "ms-python.black-formatter",
         "ms-python.pylint",
         "ms-toolsai.jupyter",
-        "ms-toolsai.vscode-jupyter-powertoys"
+        "ms-toolsai.vscode-jupyter-powertoys",
+        "ms-python.flake8"
     ]
 }

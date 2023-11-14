@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import dataclasses as D
 import enum
 import functools
 import itertools
@@ -8,22 +9,35 @@ import math
 import typing as T
 import warnings
 
-import accelerate
 import torch
 import torch.distributed as dist
 from torch.utils.data.sampler import Sampler
 from typing_extensions import override
-from uniutils.logutils import get_logger
-from uniutils.state import get_process_count, get_process_index
+
+from unipercept.utils.logutils import get_logger
+from unipercept.utils.state import get_process_count, get_process_index
 
 __all__ = ["TrainingSampler", "InferenceSampler", "SamplerFactory"]
 
 _logger = get_logger(__name__)
 
 
+@D.dataclass(slots=True)
+class ProcessInfo:
+    """
+    Tuple representing the total number of distributed processes and the index of the active process.
+    """
+
+    count: int
+    index: int
+
+    def __post_init__(self):
+        self.count = max(self.count, 1)
+
+
 class BaseSampler(Sampler, metaclass=abc.ABCMeta):
     @staticmethod
-    def get_dist_info(dist_num: int | None, dist_idx: int | None):
+    def get_dist_info(dist_num: int | None, dist_idx: int | None) -> ProcessInfo:
         """
         Returns the number of distributed processes (e.g. GPUs) and the index of the current process.
         If no value is provided, it is determined from the global state.
@@ -54,10 +68,10 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
             raise RuntimeError("Distributed data sampler requires torch.distributed to be available.")
 
         if isinstance(dist_num, int) and isinstance(dist_idx, int):
-            return dist_num, dist_idx
+            return ProcessInfo(count=dist_num, index=dist_idx)
 
         if dist_num is None and dist_idx is None:
-            return get_process_count() or 1, get_process_index() or 0
+            return ProcessInfo(count=get_process_count() or 1, index=get_process_index() or 0)
 
         raise ValueError(f"Both `dist_num` and `dist_idx` must be integers, but got {dist_num=} and {dist_idx=}.")
 
@@ -68,7 +82,9 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
         assert queue_size > 0, f"Queue size must be positive, but got {queue_size=}."
         assert epoch >= 0, f"Epoch must be non-negative, but got {epoch=}."
 
-        self._process_count, self._process_index = self.get_dist_info(process_index, process_count)
+        info = self.get_dist_info(process_index, process_count)
+
+        self._process_count, self._process_index = info.count, info.index
         self._queue_size = queue_size
         self._epoch = epoch
 
@@ -185,7 +201,7 @@ class TrainingSampler(BaseSampler):
 
     @override
     def __len__(self):
-        return self._selected_count
+        return min(self.sample_count, self._selected_count)
 
 
 class InferenceSampler(BaseSampler):
@@ -203,7 +219,7 @@ class InferenceSampler(BaseSampler):
         shard_sizes = [shard_len + int(r < shard_rem) for r in range(p_num)]
 
         i_start = sum(shard_sizes[:p_idx])
-        i_end = min(sum(shard_sizes[: p_idx + 1]), p_num)
+        i_end = min(sum(shard_sizes[: p_idx + 1]), size)
 
         return list(range(i_start, i_end))
 

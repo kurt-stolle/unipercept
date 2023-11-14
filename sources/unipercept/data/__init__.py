@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from . import collect, io, ops, points, types
+from unicore.utils.module import lazy_module_factory
+
 from ._config import *
 from ._helpers import *
 from ._loader import *
 from ._sampler import *
 
+__all__ = []
+__getattr__, __dir__ = lazy_module_factory(__name__, ["collect", "io", "ops", "tensors", "types", "sets"])
 
-def __getattr__(name: str):
-    import importlib
-
-    if name == "sets":
-        return importlib.import_module(f"{__name__}.sets")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+del lazy_module_factory

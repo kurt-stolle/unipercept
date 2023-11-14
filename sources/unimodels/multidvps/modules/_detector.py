@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import typing as T
 
-import tensordict
 import torch
 import torch.nn as nn
+from tensordict import TensorDict, TensorDictBase
 from typing_extensions import override
 from unicore.utils.tensorclass import Tensorclass
 
 __all__ = ["Detection", "Detector"]
 
 if T.TYPE_CHECKING:
-    from tensordict.tensordict import TensorDict, TensorDictBase
     from torch import Size, Tensor
 
     from ._encoder import Encoder
@@ -24,7 +23,7 @@ if T.TYPE_CHECKING:
 class Detection(Tensorclass):
     thing_map: torch.Tensor
     stuff_map: torch.Tensor
-    kernel_spaces: tensordict.TensorDict
+    kernel_spaces: TensorDict
 
     @property
     def hw(self) -> Size:
@@ -45,15 +44,15 @@ class Detector(nn.Module):
 
     @override
     def forward(self, feats: TensorDictBase) -> TensorDict:
-        return tensordict.TensorDict(
+        return TensorDict(
             {key: self._detect(feats.get(key)) for key in self.in_features},
             batch_size=feats.batch_size,
             device=feats.device,
         )
 
     def _detect(self, feat: Tensor) -> Detection:
-        loc = T.cast(Locations, self.localizer(feat))
-        k_spaces = T.cast(tensordict.TensorDict, self.kernelizer(feat))
+        loc = self.localizer(feat)
+        k_spaces = T.cast(TensorDict, self.kernelizer(feat))
 
         hw = loc.thing_map.shape[-2:]
         assert hw == loc.stuff_map.shape[-2:], (hw, loc.stuff_map.shape)

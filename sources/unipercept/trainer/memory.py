@@ -5,9 +5,10 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/trainer_u
 
 from __future__ import annotations
 
+import dataclasses as D
 import gc
-import inspect
 import threading
+import typing as T
 
 import psutil
 import torch
@@ -15,41 +16,44 @@ import torch
 __all__ = ["MemoryTracker"]
 
 
+MetricsDictType: T.TypeAlias = T.Dict[str, T.Any]
+MetricsTrainStage: T.TypeAlias = T.Literal["init", "train", "eval", "pred"]
+
+
+@D.dataclass(slots=True)
 class MemoryTracker:
-    stages = {
-        "__init__": "init",
-        "train": "train",
-        "_inner_training_loop": "train",
-        "evaluate": "eval",
-        "predict": "test",
-    }
+    """
+    Tracks process memory usage during the training process.
+    """
 
-    def __init__(self, skip_memory_metrics=False):
-        self.skip_memory_metrics = skip_memory_metrics
-
-        if self.skip_memory_metrics:
-            return
-
-        self.gpu = {}
-        self.process = psutil.Process()
-        self.cur_stage = None
-        self.cpu = {}
-        self.init_reported = False
-
-    def derive_stage(self):
-        """derives the stage/caller name automatically"""
-        caller = inspect.currentframe().f_back.f_back.f_code.co_name
-        if caller in self.stages:
-            return self.stages[caller]
-        else:
-            raise ValueError(f"was called from {caller}, but only expect to be called from one of {self.stages.keys()}")
+    skip_memory_metrics: bool = D.field(
+        default=False,
+        init=True,
+        metadata={
+            "help": "Whether to not run analysis that tracks memory usage metrics, i.e. this class will be a no-op."
+        },
+    )
+    process: psutil.Process = D.field(default_factory=psutil.Process, init=False)
+    cur_stage: T.Optional[str] = D.field(default=None, init=False)
+    cpu: MetricsDictType = D.field(default_factory=dict, init=False)
+    gpu: MetricsDictType = D.field(default_factory=dict, init=False)
+    init_reported: bool = D.field(default=False, init=False)
+    gpu_mem_used_at_start: T.Optional[int] = D.field(default=None, init=False)
+    gpu_mem_used_peak: T.Optional[int] = D.field(default=None, init=False)
+    gpu_mem_used_now: T.Optional[int] = D.field(default=None, init=False)
+    cpu_mem_used_at_start: T.Optional[int] = D.field(default=None, init=False)
+    cpu_mem_used_peak: T.Optional[int] = D.field(default=None, init=False)
+    cpu_mem_used_now: T.Optional[int] = D.field(default=None, init=False)
+    peak_monitoring: T.Optional[bool] = D.field(default=None, init=False)
 
     def cpu_mem_used(self):
         """get resident set size memory for the current process"""
         return self.process.memory_info().rss
 
-    def peak_monitor_func(self):
+    def peak_monitor_func(self, event: threading.Event):
         self.cpu_mem_used_peak = -1
+
+        event.set()
 
         while True:
             self.cpu_mem_used_peak = max(self.cpu_mem_used(), self.cpu_mem_used_peak)
@@ -60,12 +64,10 @@ class MemoryTracker:
             if not self.peak_monitoring:
                 break
 
-    def start(self):
-        """start tracking for the caller's stage"""
+    def start(self, stage: str):
         if self.skip_memory_metrics:
             return
 
-        stage = self.derive_stage()
         # deal with nested calls of eval during train - simply ignore those
         if self.cur_stage is not None and self.cur_stage != stage:
             return
@@ -79,14 +81,17 @@ class MemoryTracker:
 
         self.gpu_mem_used_at_start = torch.cuda.memory_allocated()
         self.cpu_mem_used_at_start = self.cpu_mem_used()
-
         self.peak_monitoring = True
-        peak_monitor_thread = threading.Thread(target=self.peak_monitor_func)
+        peak_monitor_event = threading.Event()
+        peak_monitor_thread = threading.Thread(target=self.peak_monitor_func, args=(peak_monitor_event,))
         peak_monitor_thread.daemon = True
         peak_monitor_thread.start()
+        peak_monitor_event.wait()
 
-    def stop(self, stage):
-        """stop tracking for the passed stage"""
+    def stop(self, stage: str):
+        """
+        Stop tracking and update the metrics.
+        """
 
         # deal with nested calls of eval during train - simply ignore those
         if self.cur_stage is not None and self.cur_stage != stage:
@@ -135,8 +140,18 @@ class MemoryTracker:
         # reset - cycle finished
         self.cur_stage = None
 
-    def update_metrics(self, stage, metrics):
-        """updates the metrics"""
+    def update_metrics(self, stage: int, metrics: dict[str, T.Any]):
+        """
+        Updates the metrics
+
+        Parameters
+        ----------
+        stage : str
+            The current stage of the training process
+        metrics : dict
+            The metrics to update
+
+        """
         if self.skip_memory_metrics:
             return
 
@@ -176,12 +191,19 @@ class MemoryTracker:
             # if torch is not None and self.gpu["init"]["end"] != self.gpu[stage]["begin"]:
             #     metrics[f"after_init_mem_gpu_delta"] = self.gpu[stage]["begin"] - self.gpu["init"]["end"]
 
-    def stop_and_update_metrics(self, metrics=None):
-        """combine stop and metrics update in one call for simpler code"""
+    def stop_and_update_metrics(self, stage: str, metrics=None):
+        """
+        Combine stop and metrics update in one call for simpler code
+
+        Parameters
+        ----------
+        metrics : dict, optional
+            The metrics to update, by default None
+
+        """
         if self.skip_memory_metrics:
             return
 
-        stage = self.derive_stage()
         self.stop(stage)
 
         # init doesn't have metrics to update so we just save that data for later stages to retrieve

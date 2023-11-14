@@ -1,9 +1,10 @@
-"""Defines the types of data that can be used in the data pipeline, consisting of mostly TypedDicts and Enums."""
+"""
+Defines the types of data that can be used in the data pipeline, consisting of mostly TypedDicts and Enums.
+"""
 
 from __future__ import annotations
 
-from . import utils
+from . import sanity
 from ._coco import *
 from ._info import *
 from ._manifest import *
-from ._semantics import *

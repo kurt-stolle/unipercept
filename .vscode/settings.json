@@ -9,7 +9,8 @@
         "--toml-config=pyproject.toml"
     ],
     "isort.args": [
-        "--settings-path=pyproject.toml"
+        "--settings-path=pyproject.toml",
+        "--profile=black"
     ],
     "isort.importStrategy": "fromEnvironment",
     // "editor.formatOnSave": true,

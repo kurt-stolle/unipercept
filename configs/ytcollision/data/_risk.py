@@ -5,12 +5,12 @@ YT Collision
 from __future__ import annotations
 
 import torchvision.transforms.v2 as transforms
-import unipercept.data.sets.cityscapes
 from detectron2.evaluation import DatasetEvaluators
-from uniutils.config._lazy import bind as B
-from uniutils.config._lazy import call as L
 
 import unipercept as up
+import unipercept.data.sets.cityscapes
+from unipercept.utils.config._lazy import bind as B
+from unipercept.utils.config._lazy import call as L
 
 __all__ = ["data"]
 

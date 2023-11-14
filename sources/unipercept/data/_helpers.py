@@ -2,17 +2,19 @@
 Tools for working with datasets, especially useful in configuration files and tests.
 """
 
+from __future__ import annotations
+
 import functools
 import typing as T
 
-from ._config import DataConfig
-from .types import Metadata
+if T.TYPE_CHECKING:
+    import unipercept as up
 
 __all__ = ["read_info"]
 
 
 @functools.lru_cache(maxsize=None)
-def read_info(dl: DataConfig | T.Any, entry="train") -> Metadata:
+def read_info(dl: up.data.DataConfig | T.Any, entry="train") -> up.data.sets.Metadata:
     """
     Return metadata about the dataset used for training or evaluation.
 
@@ -33,7 +35,7 @@ def read_info(dl: DataConfig | T.Any, entry="train") -> Metadata:
     TypeError
         If the dataset class has no `read_info` method.
     """
-    from uniutils.config._lazy import locate
+    from unipercept.utils.config._lazy import locate
 
     cls = locate(dl.loaders[entry].dataset._target_)  # type: ignore
 

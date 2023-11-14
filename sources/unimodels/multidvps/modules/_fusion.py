@@ -10,36 +10,62 @@ from tensordict.nn import TensorDictModule, TensorDictSequential
 from torch import Tensor, nn
 from typing_extensions import override
 
+import unipercept as up
+
 __all__ = ["KernelFusion", "ThingFusion", "StuffFusion"]
 
 
 class KernelFusion(nn.Module):
     """Baseclass for kernel fusion modules."""
 
-    def __init__(self, key: str, dims: int, mapping: dict[str, nn.Module]):
+    def __init__(
+        self,
+        key: str,
+        input_dims: int,
+        hidden_dims: int,
+        mapping: dict[str, up.nn.layers.MapMLP],
+        num_heads=4,
+        dropout=0.0,
+    ):
         super().__init__()
 
-        linear = nn.Linear(dims, dims, bias=True)
-        nn.init.orthogonal_(linear.weight)
-        nn.utils.parametrizations.orthogonal(linear, name="weight")
+        # linear = nn.Linear(dims, dims, bias=True)
+        # nn.init.orthogonal_(linear.weight)
+        # nn.utils.parametrizations.orthogonal(linear, name="weight")
 
         self.key = key
-        self.input = TensorDictModule(
-            linear,
-            in_keys=[key],
-            out_keys=[key],
+
+        self.attention = nn.MultiheadAttention(
+            input_dims, kdim=hidden_dims, vdim=hidden_dims, num_heads=num_heads, batch_first=True
         )
-        self.mapper = TensorDictSequential(
-            *[TensorDictModule(module, in_keys=[key], out_keys=[to]) for to, module in mapping.items()]
+        self.norm = nn.LayerNorm(input_dims)
+        self.dropout = nn.Dropout(dropout)
+
+        self.specific = nn.Linear(input_dims, hidden_dims)
+        self.mappings = nn.ModuleDict({to: mod for to, mod in mapping.items()})
+        self.identities = nn.ParameterDict(
+            {to: nn.Parameter(torch.randn((1, 1, hidden_dims))) for to in mapping.keys()}
         )
 
     @override
     def forward(
         self, kernels: TensorDict, categories: Tensor | None, scores: Tensor | None
     ) -> tuple[TensorDict, Tensor | None, Tensor | None]:
-        kernels = self.input(kernels)
-        kernels = self.mapper(kernels)  # todo: before or after?
+        # Map input kernel via `self.input` layer
+        k_input = kernels.get(self.key)
+        k_specific = self.specific(k_input)
 
+        # Map outputs via `self.mapper` layers
+        for to in self.mappings.keys():
+            k_id = self.identities[to].expand_as(k_specific)
+            k_attn, _ = self.attention(k_input, k_id, k_specific, need_weights=False)
+            k_to = self.norm(k_input + self.dropout(k_attn))
+
+            k_out = self.mappings[to](k_to)
+
+            kernels = kernels.set(to, k_out, inplace=not self.training)
+
+        # Perform fusion operation
         if not self.training:
             assert categories is not None
             assert scores is not None

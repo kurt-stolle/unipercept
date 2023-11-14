@@ -10,9 +10,13 @@ from bullet import Bullet, Input
 from omegaconf import DictConfig, OmegaConf
 from typing_extensions import override
 
+import unipercept as up
+
 __all__ = ["add_config_args"]
 
 NONINTERACTIVE_MODE = False
+
+up.data.sets.list_datasets()  # trigger dataset registration
 
 
 class ConfigLoad(argparse.Action):
@@ -27,7 +31,7 @@ class ConfigLoad(argparse.Action):
 
     @override
     def __call__(self, parser, namespace, values, option_string=None):
-        from detectron2.config import LazyConfig
+        from unipercept.utils.config import LazyConfig
 
         if values is None or len(values) == 0:
             if NONINTERACTIVE_MODE:
@@ -112,6 +116,7 @@ def add_config_args(
     parser: argparse.ArgumentParser, *, flags=("--config",), required=True, nargs="*", **kwargs_add_argument
 ) -> None:
     """Adds a configuration file group to the argument parser."""
+
     assert all(f.startswith("-") for f in flags), "Flags must start with `-`!"
 
     group_config = parser.add_argument_group("configuration")

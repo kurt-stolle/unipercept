@@ -8,13 +8,14 @@ import torch
 import torch.nn as nn
 from einops.layers.torch import Rearrange
 from typing_extensions import override
-from unipercept.modeling.layers._coord import CoordCat2d
-from unipercept.modeling.layers.conv import Conv2d, ModDeform2d
-from unipercept.modeling.layers.conv.utils import AvgPool2dSame
-from unipercept.modeling.layers.weight import init_xavier_fill_
+
+from unipercept.nn.layers._coord import CoordCat2d
+from unipercept.nn.layers.conv import Conv2d, ModDeform2d, Separable2d
+from unipercept.nn.layers.conv.utils import AvgPool2dSame
+from unipercept.nn.layers.weight import init_xavier_fill_
 
 if T.TYPE_CHECKING:
-    from unipercept.modeling.typings import Activation, Norm
+    from unipercept.nn.typings import Activation, Norm
 
 __all__ = ["Encoder"]
 
@@ -33,8 +34,8 @@ class Encoder(nn.Module):
         deform=False,
         coord: T.Optional[CoordCat2d] = None,
         norm: T.Optional[Norm] = None,
-        groups=1,
-        activation: T.Optional[Activation] = lambda: nn.SiLU(inplace=True),
+        groups: int = 1,
+        activation: T.Optional[Activation] = nn.GELU,
         **kwargs,
     ):
         """Groups and kernel size can be specified as a list for each layer or a single value for all layers."""
@@ -58,13 +59,20 @@ class Encoder(nn.Module):
         # Create `num_convs` conv modules.
         self.layers = nn.Sequential()
         for n in range(num_convs):
+            if n == 0:
+                cur_channels = in_channels
+                cur_groups = 1
+            else:
+                cur_channels = out_channels
+                cur_groups = groups
+
             c = conv_module(
-                in_channels if n == 0 else out_channels,
+                cur_channels,
                 out_channels,
                 kernel_size=3,
                 stride=1,
                 padding=1,
-                groups=groups,
+                groups=cur_groups,
                 bias=norm is None,
                 norm=norm if norm is not None else nn.Identity,
                 activation=activation if activation is not None else nn.Identity,
@@ -73,7 +81,7 @@ class Encoder(nn.Module):
 
             # Channel shuffle if groups > 0 to prevent information loss by
             # vanishing gradients.
-            if groups > 1 and groups != out_channels:
+            if cur_groups > 1 and cur_groups != out_channels:
                 shf = Rearrange("b (c1 c2) h w -> b (c2 c1) h w", c1=groups)
                 self.layers.add_module(f"shf_{n}", shf)
 

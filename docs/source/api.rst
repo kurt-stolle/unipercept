@@ -6,5 +6,5 @@ API
     :toctree: _generated
 
     unipercept.data
-    unipercept.modeling
-    uniutils
+    unipercept.nn
+    unipercept.utils

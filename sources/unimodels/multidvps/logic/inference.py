@@ -7,105 +7,49 @@ import typing as T
 import torch
 import torch.nn as nn
 from einops import rearrange, reduce, repeat
-from tensordict import TensorDictBase
+from tensordict import TensorDict
 from torch import Tensor
 from typing_extensions import override
-from unipercept.data import points as data_points
-from unipercept.modeling import layers as modules
-from uniutils.function import multi_apply
-from uniutils.tensor import cat_nonempty, topk_score
 
-from ..keys import KEY_DEPTH
+import unipercept as up
+from unipercept.utils.function import multi_apply
+from unipercept.utils.tensor import cat_nonempty, topk_score
+
 from ..modules import DepthPrediction, Detection
-from ._structures import (
-    Context,
-    PanopticMap,
-    SampleInfo,
-    StuffInstances,
-    ThingInstances,
-)
+from ._structures import Context, StuffInstances, ThingInstances
 
-if T.TYPE_CHECKING:
-    from unipercept.data.points import InputData
-
-
-__all__ = ["InferencePipeline", "InferenceResult"]
-
-InferenceResult: T.TypeAlias = T.Dict[str, T.Any]
+__all__ = ["InferencePipeline"]
 
 
 class InferencePipeline(nn.Module):
-    def __init__(self, *, inst_thres: float, output_keys: T.Optional[T.Sequence[str]] = None, **kwargs):
-        super().__init__(**kwargs)
-
-        self.output_keys = set(output_keys or ["panoptic_seg", "depth"])
-        assert len(self.output_keys) > 0, "Must request at least one output key."
-
+    def __init__(
+        self,
+        *,
+        inst_thres: float,
+        center_top_num: int,
+        center_thres: float,
+        sem_thres: float,
+        panoptic_overlap_thrs: float,
+        panoptic_stuff_limit: int,
+        panoptic_inst_thrs: float,
+    ):
+        super().__init__()
+        self.center_thres = center_thres
+        self.sem_thres = sem_thres
+        self.center_top_num = center_top_num
+        self.panoptic_overlap_thrs = panoptic_overlap_thrs
+        self.panoptic_stuff_limit = panoptic_stuff_limit
+        self.panoptic_inst_thrs = panoptic_inst_thrs
         self.inst_thres = inst_thres
+        self.center_top_num = center_top_num
+        self.force_predict = True
+
         assert 0 <= self.inst_thres <= 1, "inst_thres must be in range [0, 1]"
 
-    def __inference_batch_item(
+    def predict_things(
         self,
         ctx: Context,
-        ifo: SampleInfo,
-    ) -> dict[str, T.Any]:
-        # Upscale depth feature
-        if KEY_DEPTH in ctx.embeddings.keys():
-            feat_depth = ctx.embeddings.get(KEY_DEPTH)
-            feat_depth = self.__upscale_mask(ctx, ifo, feat_depth)
-
-            ctx.embeddings = ctx.embeddings.set(KEY_DEPTH, feat_depth)
-
-        # Infer individual object categoires (things)
-        things = self.__infer_thing(ctx)
-
-        # Infer background/static categories (stuff)
-        stuff = self.__infer_stuff(ctx)
-        # Combine stuff and things into a single panoptic segmentation
-        combined = self.__combine_merge(
-            ctx,
-            ifo,
-            things,
-            stuff,
-        )
-
-        # Compile result based on requested outputs
-        output = {}
-        for req in self.output_keys:
-            if req in output:
-                raise ValueError(f"Duplicate output key: {req}")
-
-            if req == "panoptic_labels":
-                res = (combined.semantic, combined.instance)
-            elif req == "depth":
-                res = data_points.DepthMap(combined.depth)
-            elif req == "instance":
-                res = data_points.Mask(combined.instance)
-            elif req == "semantic":
-                res = data_points.Mask(combined.semantic)
-            elif req == "panoptic":
-                semantic = combined.semantic
-                semantic[semantic == self.ignored_label] = -1
-                res = data_points.PanopticMap.from_parts(semantic, combined.instance)
-            # elif req == "panoptic_seg":
-            #     # Recent version of D2 support a label format that is equivalent
-            #     # to the canonical format, but with the ignored label being -1
-            #     panoptic_seg = combined.semantic * self.label_divisor
-            #     panoptic_seg += combined.instance
-            #     panoptic_seg[combined.semantic == self.ignored_label] = -1
-
-            #     res = (panoptic_seg, None)
-            else:
-                raise ValueError(f"Unknown output key: {req}")
-
-            output[req] = res
-
-        return output
-
-    def __infer_thing(
-        self,
-        ctx: Context,
-    ) -> ThingInstances | None:
+    ) -> tuple[TensorDict, Tensor, Tensor]:
         # Run inference for each stage
         pool_size = [3, 3, 3, 5, 5]
         (
@@ -114,14 +58,19 @@ class InferencePipeline(nn.Module):
             cats,
             scores,
         ) = multi_apply(
-            self.__infer_thing_level,
+            self._detect_things,
             ctx.detections.values(),
             pool_size,
         )
         # Aggregate Thing classes
         num = sum(nums)
         if num == 0:
-            return None
+            device = ctx.embeddings.device
+            return (
+                TensorDict({}, batch_size=[], device=device),
+                torch.empty(0, device=device),
+                torch.empty(0, device=device),
+            )
 
         cats = cat_nonempty(cats, dim=1)
         scores = cat_nonempty(scores, dim=1)
@@ -134,58 +83,9 @@ class InferencePipeline(nn.Module):
         for t in (cats, scores, kernels):
             torch.gather(t.clone(), dim=1, index=sort_index, out=t)
 
-        # Generate things
-        kernels, cats, scores = self.fusion_thing(kernels, cats, scores)
-        thing_masks = self.maskifier_thing(
-            features=ctx.embeddings,
-            kernels=kernels,
-        ).sigmoid_()
+        return kernels, cats, scores
 
-        # Generate depth for detected instances
-        if self.depth_mapper is not None:
-            dmap, means = self.depth_mapper(features=ctx.embeddings, kernels=kernels)
-            depth = DepthPrediction(maps=dmap, means=means, batch_size=kernels.batch_size, device=None).view(-1)
-        else:
-            depth = None
-
-        masks = thing_masks > self.inst_thres
-
-        score_factor = (thing_masks * masks.float()).sum((-2, -1))
-        score_factor /= masks.sum((-2, -1)).float().clamp(1e-8)
-        scores *= score_factor
-
-        things = ThingInstances(
-            kernels=kernels,
-            masks=thing_masks,
-            scores=scores,
-            categories=cats,
-            iids=torch.zeros_like(cats),
-            depths=depth,
-            batch_size=kernels.batch_size,
-        )
-
-        # Rebalance the score from the mask generator with the mask size
-
-        # Sorting index by score
-        sort_index = torch.argsort(things.scores, descending=True)
-        # things.apply(lambda x: torch.index_select(x, 0, sort_index), inplace=True)
-        things = things[sort_index]
-
-        # Keep only scores above a threshold
-        keep_mask = things.masks.scores >= 0.05
-        if not keep_mask.any():
-            return None
-
-        things = things.masked_select(keep_mask)
-
-        # Sort again and keep only the top instances
-        sort_index = torch.argsort(things.masks.scores, descending=True)
-        sort_index = sort_index[: self.center_top_num]
-        things = things[sort_index]
-
-        return things.contiguous()
-
-    def __infer_thing_level(self, det: Detection, pool_size: int):
+    def _detect_things(self, det: Detection, pool_size: int):
         """Find instances by a peak detection algorithm."""
 
         assert det.shape[0] == 1, "Only batch size 1 is supported during inference!"
@@ -229,7 +129,7 @@ class InferencePipeline(nn.Module):
         num = mask.sum()
 
         # Kernel sampling
-        index = index.to(device=self.device, dtype=torch.long)
+        index = index.to(device=centers.device, dtype=torch.long)
 
         def empty_kernels(k_space: Tensor) -> Tensor:
             """
@@ -267,7 +167,7 @@ class InferencePipeline(nn.Module):
             scores,
         )
 
-    def __infer_stuff(self, ctx: Context) -> StuffInstances:
+    def predict_stuff(self, ctx: Context, **kwargs) -> tuple[Tensor, Tensor, Tensor]:
         """Infer semantic segmentation from predicted regions and kernel weights."""
 
         (
@@ -275,10 +175,7 @@ class InferencePipeline(nn.Module):
             scores,
             categories,
             num,
-        ) = multi_apply(
-            self.__infer_stuff_level,
-            ctx.detections.values(),
-        )
+        ) = multi_apply(self._detect_stuff, ctx.detections.values(), **kwargs)
 
         # Aggregate Stuff classes
         num = sum(num)
@@ -287,35 +184,9 @@ class InferencePipeline(nn.Module):
         categories = cat_nonempty(categories, dim=1)
         kernels = cat_nonempty(kernels, dim=1)
 
-        # Fusion
-        kernels, categories, scores = self.fusion_stuff(kernels, categories, scores)
+        return kernels, categories, scores
 
-        # Generate semantic predictions
-        stuff_masks = self.maskifier_stuff(
-            features=ctx.embeddings,
-            kernels=kernels,
-            categories=categories,
-            scores=scores,
-        ).sigmoid_()
-        # Generate depth for detected instances
-        if self.depth_mapper is not None:
-            dmap, means = self.depth_mapper(features=ctx.embeddings, kernels=kernels)
-            assert dmap is not None
-            depth = DepthPrediction(maps=dmap, means=means, batch_size=kernels.batch_size).view(-1)
-        else:
-            depth = None
-
-        # Convert to results object, which requires removal of the fake batch dimension
-        stuff = StuffInstances(  # type: ignore
-            masks=stuff_masks.view(-1),
-            depths=depth,
-            batch_size=gen.batch_size,
-            device=gen.device,
-        )
-
-        return stuff.contiguous()
-
-    def __infer_stuff_level(self, det: modules.Detection):
+    def _detect_stuff(self, det: Detection, stuff_all_classes: bool = False, stuff_with_things: bool = False):
         # Region logits from the locations tensor
         regs = det.stuff_map.sigmoid()
 
@@ -323,8 +194,9 @@ class InferencePipeline(nn.Module):
 
         cats = regs.argmax(dim=1)
 
-        # Amount of stuff classes is the amount of unique categories in the
-        mask = nn.functional.one_hot(cats, num_classes=self.detector.localizer.stuff_channels)
+        # Amount of stuff classes is the amount of unique categories
+        stuff_channels = det.stuff_map.shape[1]  # B (C) H W
+        mask = nn.functional.one_hot(cats, num_classes=stuff_channels)
         mask = rearrange(mask, "batch h w cats -> batch cats h w").contiguous()
 
         # Select unique categories to find pixel amounts
@@ -347,7 +219,7 @@ class InferencePipeline(nn.Module):
         cats = cats[keep]
         mask = mask[keep]
 
-        if not self.stuff_all_classes and not self.stuff_with_things:
+        if not stuff_all_classes and not stuff_with_things:
             cats += 1
 
         # Alter dimensions for branched operations in sampling
@@ -389,36 +261,40 @@ class InferencePipeline(nn.Module):
             num,
         )
 
-    def __combine_merge(
+    def merge_predictions(
         self,
         ctx: Context,
-        ifo: SampleInfo,
-        things: T.Optional[ThingInstances],
+        things: ThingInstances,
         stuff: StuffInstances,
-    ) -> PanopticMap:
+        *,
+        stuff_all_classes: bool,
+        stuff_with_things: bool,
+        id_map_thing: T.Mapping[int, int],
+        id_map_stuff: T.Mapping[int, int],
+    ) -> tuple[up.data.tensors.PanopticMap, up.data.tensors.DepthMap, ThingInstances]:
         """Combine unbatched things and stuff."""
 
+        assert ctx.device is not None, f"Device should be configured in context"
         # First and only element of the 'batch' is the amount of thing/stuff detections
-        assert things is None or len(things.batch_size) == 1
+        assert len(things.batch_size) == 1
         assert len(stuff.batch_size) == 1
 
-        if self.stuff_with_things or self.stuff_all_classes:
-            stuff_num = self.detector.localizer.stuff_channels
-        else:
-            stuff_num = self.detector.localizer.stuff_channels + 1
+        stuff_num = len(id_map_stuff)
+        if not (stuff_with_things or stuff_all_classes):
+            stuff_num += 1
 
-        sem_logits = torch.zeros((stuff_num, *ifo.size), device=self.device)
+        sem_logits = torch.zeros((stuff_num, *ctx.input_size), device=stuff.device)  # type: ignore
         if stuff.num_instances > 0:  # if detections have been made
-            sem_logits[stuff.masks.categories] += self.__upscale_mask(ctx, ifo, stuff.masks.logits.unsqueeze(0))[0]
+            sem_logits[stuff.categories] += self.upscale_to_input_size(ctx, stuff.logits).squeeze_(0)
         sem_seg = sem_logits.argmax(dim=0)
 
         # Allocate memory for flat outputs
         out_ins = torch.zeros_like(sem_seg, dtype=torch.int32)
         out_sem = torch.full_like(
             sem_seg,
-            self.ignored_label,
+            up.data.tensors.PanopticMap.IGNORE,
             dtype=torch.int32,
-            device=self.device,
+            device=ctx.device,
         )
         out_depth = torch.zeros_like(sem_seg, dtype=torch.float32)
 
@@ -430,17 +306,18 @@ class InferencePipeline(nn.Module):
 
         # Filter instances below threshold value for score
         if things is not None and things.num_instances > 0:
-            things = T.cast(ThingInstances, things.get_sub_tensordict(things.masks.scores >= self.panoptic_inst_thrs))
+            things_thrs = things.scores > self.panoptic_inst_thrs
+            things = T.cast(ThingInstances, things.get_sub_tensordict(things_thrs))
 
         # Filter instances by thresholding score
         if things is not None and things.num_instances > 0:
             # Upsample instance masks and logits
-            thing_logits = self.__upscale_mask(ctx, ifo, things.masks.logits.unsqueeze(0))[0]
+            thing_logits = self.upscale_to_input_size(ctx, things.logits)[0]
             thing_masks = thing_logits > self.inst_thres
 
             # Add instances one-by-one, checking for overlaps with existing
             for idx in range(things.num_instances):
-                out_free = out_sem == self.ignored_label
+                out_free = out_sem == up.data.tensors.PanopticMap.IGNORE
 
                 mask = thing_masks[idx]
                 mask_area = mask.sum().item()
@@ -458,9 +335,9 @@ class InferencePipeline(nn.Module):
 
                 # Instance ID is set to the index plus one, since zero indices
                 # a stuff or crowd label
-                ins_cat_train = things.masks.categories[idx].item()  # type: ignore
+                ins_cat_train = things.categories[idx].item()  # type: ignore
                 assert isinstance(ins_cat_train, int), type(ins_cat_train)
-                ins_cat = self.id_map_thing[ins_cat_train]
+                ins_cat = id_map_thing[ins_cat_train]
                 ins_idx = idx + 1
 
                 # Translate train ID to contiguous ID for outputs
@@ -475,8 +352,7 @@ class InferencePipeline(nn.Module):
                     ins_depth = torch.zeros_like(mask, dtype=torch.float32)
 
                 # Append
-                # if self.force_predict:
-                if True:
+                if self.force_predict:
                     pan_logits.append(thing_logits[idx])
                     pan_ins.append(ins_idx)
                     pan_sem.append(ins_cat)
@@ -488,23 +364,23 @@ class InferencePipeline(nn.Module):
 
         for cat_st_train in sem_cats:
             # cat_st_train = cat_st_train.item()
-            cat_st = self.id_map_stuff[cat_st_train]
+            cat_st = id_map_stuff[cat_st_train]
 
             # Check skipping conditions based on model config
-            if self.stuff_with_things and cat_st_train == 0:
+            if stuff_with_things and cat_st_train == 0:
                 continue  # 0 is a special 'thing' class
-            if self.stuff_all_classes and (cat_st in self.id_map_thing.values()):
-                continue  # Skip semantic classes that are also things
+            # if stuff_all_classes and (cat_st in id_map_thing.values()):
+            #     continue  # Skip semantic classes that are also things
 
             # Select only pixels that belong to the current class and are not
             # already present in the output panpotic segmentation
-            out_free = (out_sem == self.ignored_label) | (out_sem == cat_st_train)
+            out_free = (out_sem == up.data.tensors.PanopticMap.IGNORE) | (out_sem == cat_st_train)
 
             mask = (sem_seg == cat_st_train) & out_free
             mask_area = mask.sum().item()
 
             # Determine area threshold based on configuration
-            if cat_st not in self.id_map_thing.values():
+            if cat_st not in id_map_thing.values():
                 # Mask is a STUFF class
                 if mask_area < self.panoptic_stuff_limit:
                     continue  # Enforce minimal stuff area
@@ -520,7 +396,7 @@ class InferencePipeline(nn.Module):
                 continue
 
             # Gather stuff depth mask as the mean value over all detected channels
-            stuff_cats_idx = stuff.masks.categories == cat_st_train
+            stuff_cats_idx = stuff.categories == cat_st_train
             if stuff.depths is None:
                 sem_depth = torch.zeros_like(mask, dtype=torch.float32)
             else:
@@ -533,8 +409,8 @@ class InferencePipeline(nn.Module):
             out_depth[mask] = sem_depth[mask]
 
             # Append lists
-            # if self.force_predict:
-            if True:
+            if self.force_predict:
+                # if True:
                 pan_logits.append(sem_logits[cat_st_train])
                 pan_sem.append(cat_st)
                 pan_ins.append(0)
@@ -542,25 +418,28 @@ class InferencePipeline(nn.Module):
 
         # Return if there are no detections
         if len(pan_logits) == 0:
-            return PanopticMap(
-                semantic=out_sem,
-                instance=out_ins,
-                depth=out_depth,
-                batch_size=out_sem.shape,
-                device=self.device,
+            return (
+                up.data.tensors.PanopticMap.from_parts(out_sem, out_ins),
+                out_depth.as_subclass(up.data.tensors.DepthMap),
+                things,
             )
 
         # Gather final depth mapping using overall argmax
-        pan_logits = torch.stack(pan_logits).to(self.device)
+        pan_logits = torch.stack(pan_logits).to(ctx.device)  # type: ignore
         pan_select = pan_logits.argmax(dim=0)
-        pan_depths = torch.stack(pan_depths).to(self.device)
+        pan_depths = torch.stack(pan_depths).to(ctx.device)  # type: ignore
+
+        # Old version: select depth at specific mask
         out_depth = torch.gather(pan_depths, dim=0, index=pan_select.unsqueeze(0)).squeeze(0)
+
+        # New version: select depth by using a weighted mean of the depth logits
+        # out_depth = torch.sum(pan_depths * pan_logits.softmax(dim=-1), dim=0)
 
         if self.force_predict:
             # In force predict mode, we always outptu a prediction, even if the
             # label is void
-            pan_sem = torch.as_tensor(pan_sem, dtype=torch.int32, device=self.device)
-            pan_ins = torch.as_tensor(pan_ins, dtype=torch.int32, device=self.device)
+            pan_sem = torch.as_tensor(pan_sem, dtype=torch.int32, device=ctx.device)
+            pan_ins = torch.as_tensor(pan_ins, dtype=torch.int32, device=ctx.device)
 
             # Overwrite semantic and instances using panoptic logit-based argmax
             out_sem = pan_sem[pan_select]
@@ -578,95 +457,46 @@ class InferencePipeline(nn.Module):
         ins_keep = (ins_uniq[ins_uniq > 0] - 1).tolist()
 
         if things is None or len(ins_keep) == 0:
-            return PanopticMap(
-                semantic=out_sem, instance=out_ins, depth=out_depth, batch_size=out_sem.shape, device=self.device
+            return (
+                up.data.tensors.PanopticMap.from_parts(out_sem, out_ins),
+                out_depth.as_subclass(up.data.tensors.DepthMap),
+                things,
             )
         else:
             # Infer the instance ID via a tracking algorithm
             things = things.get_sub_tensordict([ins_keep])
-            things.iids = self.__assign_tracks(ctx, ifo, things).type_as(things.iids)
 
-            out_ins_tracked = torch.zeros_like(out_ins)
-            for idx, id_ in enumerate(things.iids):
-                idx = idx + 1
-                out_ins_tracked[out_ins == idx] = id_.type_as(out_ins_tracked)
-
-            return PanopticMap(
-                semantic=out_sem,
-                instance=out_ins_tracked,
-                depth=out_depth,
-                batch_size=out_sem.shape,
-                device=self.device,
-            )
-
-    def __assign_tracks(
-        self,
-        ctx: Context,
-        ifo: SampleInfo,
-        things: ThingInstances,
-    ) -> Tensor:
-        # Mock tracker that assigns an image-level unique ID to each instance.
-        if self.tracker is None:
-            num = things.num_instances
             return (
-                torch.tensor(
-                    list(range(num)),
-                    device=self.device,
-                )
-                + 1
+                up.data.tensors.PanopticMap.from_parts(
+                    out_sem,
+                    out_ins,
+                ),
+                out_depth.as_subclass(up.data.tensors.DepthMap),
+                things,
             )
 
-        if ifo.id.sequence is None or ifo.id.frame is None:
-            raise ValueError(f"Cannot track instances without sequence/frame ID. Got {ifo.id}.")
-
-        # Actual tracking
-        return self.tracker(ctx, things, key=ifo.id.sequence, frame=ifo.id.frame)
-
-    def __upscale_mask(
+    def upscale_to_input_size(
         self,
         ctx: Context,
-        ifo: SampleInfo,
         mask: Tensor,
     ) -> Tensor:
-        return upscale_mask(ctx, ifo, mask, self.common_stride)
+        """Upscale a mask to the input size of the model."""
 
-    @override
-    def forward(self, input: InputData) -> TensorDictBase:
-        raise NotImplementedError("Pipeline is not callable directly.")
+        if mask.ndim == 3:
+            mask = mask.unsqueeze(0)
 
+        mask_up = nn.functional.interpolate(
+            mask,
+            ctx.captures.images.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+            antialias=True,
+        )
 
-def upscale_mask(
-    ctx: Context,
-    ifo: SampleInfo,
-    mask: Tensor,
-    scale: int,
-) -> Tensor:
-    img_shape = ctx.size
-    ori_shape = ifo.size
+        if mask_up.ndim > mask.ndim:
+            mask_up.squeeze_(0)
+            assert (
+                mask_up.ndim == mask.ndim
+            ), f"Mask has wrong number of dimensions: {list(mask_up.shape)} vs {list(mask.shape)}"
 
-    # Upscale segmentation mask using interpolation, using a scale
-    # factor equal to the common stride of the downsampling layers in
-    # the backbone network.
-    mask_up = nn.functional.interpolate(
-        mask,
-        scale_factor=scale,
-        mode="bilinear",
-        align_corners=False,
-        antialias=True,
-    )[..., : img_shape[0], : img_shape[1]]
-
-    # Interpolate the upscaled segmentation mask to match the original
-    # shape of the input.
-    mask_up = nn.functional.interpolate(
-        mask_up,
-        size=ori_shape,
-        mode="bilinear",
-        align_corners=False,
-        antialias=True,
-    )
-
-    if mask_up.ndim > mask.ndim:
-        mask_up.squeeze_(0)
-        assert mask_up.ndim == mask.ndim, f"Mask has wrong number of dimensions: {mask_up.ndim} vs {mask.ndim}"
-
-    return mask_up
+        return mask_up

@@ -68,7 +68,10 @@ class CameraParameters(NamedTuple):
 
 
 FILE_NAME_PATTERN = re.compile(
-    r"(?P<city>[A-Za-z]+)_" r"(?P<drive>\d\d\d\d\d\d)_" r"(?P<frame>\d\d\d\d\d\d)_" r"(?P<ext>.+)\..+$"  # noqa: 501
+    r"(?P<city>[A-Za-z]+)_"
+    r"(?P<drive>\d\d\d\d\d\d)_"
+    r"(?P<frame>\d\d\d\d\d\d)_"
+    r"(?P<ext>.+)\..+$"  # noqa: 501
 )
 
 

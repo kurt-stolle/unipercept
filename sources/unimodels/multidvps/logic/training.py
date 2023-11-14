@@ -10,13 +10,15 @@ import torch.nn as nn
 from einops import einsum, rearrange, reduce, repeat
 from tensordict import TensorDict, TensorDictBase
 from typing_extensions import override
-from unipercept.modeling import losses
-from uniutils.function import multi_apply, to_2tuple
+from unimodels.multidvps.keys import KEY_REID
 
-from ._structures import Context, Labels, SampleInfo
+from unipercept.nn import losses
+from unipercept.utils.function import multi_apply, to_2tuple
+
+from ._structures import Context
 
 if T.TYPE_CHECKING:
-    from unipercept.data.points import InputData
+    from unipercept.model import InputData
 
     from ..modules import DepthHead, Detection
     from ..modules.supervision import Stuff, Things, TruthGenerator, Truths
@@ -25,6 +27,15 @@ if T.TYPE_CHECKING:
 __all__ = ["TrainingPipeline", "TrainingResult"]
 
 TrainingResult: T.TypeAlias = T.Dict[str, torch.Tensor]  # losses
+
+
+class ThingDepthLosses(T.TypedDict):
+    depth_thing_mean: torch.Tensor
+    depth_thing_value: torch.Tensor
+
+
+class StuffDepthLosses(T.TypedDict):
+    depth_stuff_value: torch.Tensor
 
 
 class TrainingPipeline(nn.Module):
@@ -38,11 +49,11 @@ class TrainingPipeline(nn.Module):
         loss_location_stuff: losses.SigmoidFocalLoss,
         loss_segment_thing: losses.WeightedThingDiceLoss,
         loss_segment_stuff: losses.WeightedStuffDiceLoss,
-        loss_track_embedding: nn.TripletMarginWithDistanceLoss,
+        loss_reid: nn.TripletMarginLoss,
         loss_depth_values: nn.Module,
         loss_depth_means: nn.Module,
-        loss_pgt: losses.PanopticGuidedTripletLoss,
-        loss_dgp: losses.DepthGuidedPanopticLoss,
+        loss_pgt: losses.PGTLoss,
+        loss_dgp: losses.DGPLoss,
         truth_generator: TruthGenerator,
         stuff_channels: int,
     ):
@@ -69,12 +80,9 @@ class TrainingPipeline(nn.Module):
         self.loss_dgp = loss_dgp
 
         # Tracking loss
-        self.loss_track_embedding = loss_track_embedding
+        self.loss_reid: nn.TripletMarginWithDistanceLoss = loss_reid  # type: ignore
 
         # Truth generator for training
-        # self.truth_generator = torch.compile(
-        #     truth_generator, dynamic=True, backend="eager", fullgraph=True, mode="reduce-overhead"
-        # )
         self.truth_generator = truth_generator
 
         # Mask for semantic segmentation classes that are stuff
@@ -90,18 +98,114 @@ class TrainingPipeline(nn.Module):
             for id_embed in self.truth_generator.thing_embeddings.keys():
                 self.stuff_mask[id_embed] = False
 
-    @torch.jit.export
-    @torch.inference_mode()
-    @torch.no_grad()
-    def true_segmentation(self, inputs: InputData, ctx: Context) -> Truths:
-        assert inputs.captures.segmentations is not None
+    @classmethod
+    def from_metadata(cls, name: str, **kwargs) -> T.Self:
+        """
+        Initialize from a dataset/datainfo name using the Metadata object.
+        """
+        from unipercept.data.sets import Metadata, get_info
 
-        hw_image: torch.Size = inputs.captures.images.shape[-2:]  # type: ignore
-        hw_embedding: torch.Size = next(ctx.embeddings.values()).shape[-2:]
-        hw_detections: T.Dict[str, torch.Size] = {key: d.shape[-2:] for key, d in ctx.detections.items()}
+        info: Metadata = get_info(name)
+        return cls(stuff_channels=info.stuff_amount, **kwargs)
+
+    @torch.jit.export
+    def losses_tracking(
+        self,
+        kernels: torch.Tensor,
+        weights: torch.Tensor,
+        *,
+        index_mask: torch.Tensor,
+        labels: torch.Tensor,
+        instance_num: int,
+        weight_num: int,
+    ) -> torch.Tensor:
+        """
+        Computes the tracking embedding loss using a TripletMarginWithDistanceLoss.
+
+        Parameters
+        ----------
+        kernels
+            The kernels to compute the loss on.
+        weights
+            The instance weights for each kernel.
+        index_mask
+            A mask that indices which kernels have a valid ground turth instance.
+        labels
+            The ground truth labels for each kernel.
+        instance_num
+            The number of instances per image.
+        weight_num
+            The number of weighted instances per image.
+        """
+        batch_size, _, dims = kernels.shape  # n, instance_num * weighted_num, kernel_dims
+
+        # Create the lists of anchors, positive and negative examples.
+        # The anchor mask is a boolean mask indicating which kernels are a valid anchor
+        # The positive and negative indices are the indices of the positive and negative examples for each anchor
+        with torch.no_grad():
+            labels = rearrange(labels, "(b p) n c -> b (p n) c", p=2)
+            categories = labels[..., 0]
+            ids = labels[..., 1]
+            valid_mask = index_mask.reshape_as(ids)
+
+            # Create triplets
+            anc_mask, pos_idx, neg_idx = _create_instance_triplets(ids, categories, valid_mask)
+
+            # Translate the indices such that they can later index the embeddings tensor at the correct position
+            # idx_flat = torch.arange(batch_size * instance_num, device=ids.device).reshape(batch_size, instance_num)
+            # idx_flat[~index_mask] = -1
+            # idx_flat = idx_flat.reshape_as(anc_mask)
+
+            mask_flat = index_mask.flatten()
+            idx_flat = torch.zeros(batch_size * instance_num, device=ids.device, dtype=torch.float)
+            idx_flat[mask_flat] = 1.0
+            idx_flat.cumsum_(0).sub_(1.0)
+            idx_flat[~mask_flat] = -1.0
+            idx_flat = idx_flat.long().reshape_as(anc_mask)
+
+            anc_idx = idx_flat[anc_mask]
+            pos_idx = torch.gather(idx_flat, dim=-1, index=pos_idx)[anc_mask]
+            neg_idx = torch.gather(idx_flat, dim=-1, index=neg_idx)[anc_mask]
+
+            assert (
+                anc_idx.shape == pos_idx.shape == neg_idx.shape
+            ), f"Shapes of index tensors do not match: {anc_idx.shape} != {pos_idx.shape} != {neg_idx.shape}"
+            assert torch.all(anc_idx >= 0), "Invalid anchor indices"
+            assert torch.all(pos_idx >= 0), "Invalid positive indices"
+            assert torch.all(neg_idx >= 0), "Invalid negative indices"
+
+        # Reshape the kernels and weights to [batch_size, instance_num, weighted_num, dims] and then select the
+        # valid entires using the index mask
+        kernels = kernels.reshape(batch_size, instance_num, weight_num, dims)
+        kernels = kernels[index_mask, ...]
+
+        weights = weights.float()
+        weights = weights[index_mask, ...]
+        weights = weights / weights.sum(dim=-1, keepdim=True).clamp(1e-6)
+
+        # Compute the weighted kernels as the weighted sum of kernels [n, weight_num, dims] and weights [n, weight_num]
+        embeddings = einsum(kernels, weights, "m w d, m w -> m d")
+
+        # Compute the triplet loss
+        anc = embeddings[anc_idx]
+        pos = embeddings[pos_idx]
+        neg = embeddings[neg_idx]
+
+        triplet_loss = self.loss_reid(anc, pos, neg)
+
+        return triplet_loss
+
+    @torch.jit.export
+    @torch.no_grad()
+    def true_segmentation(self, ctx: Context) -> Truths:
+        assert ctx.captures.segmentations is not None
+
+        hw_image: torch.Size = ctx.captures.images.shape[-2:]  # type: ignore
+        hw_embedding: torch.Size = next(e for e in ctx.embeddings.values()).shape[-2:]
+        hw_detections: T.Dict[str, torch.Size] = {key: d.stuff_map.shape[-2:] for key, d in ctx.detections.items()}
 
         gt = self.truth_generator.generate_panoptic(
-            inputs.captures.segmentations,
+            ctx.captures.segmentations,
             hw_image=hw_image,
             hw_embedding=hw_embedding,
             hw_detections=hw_detections,
@@ -110,15 +214,15 @@ class TrainingPipeline(nn.Module):
         return gt
 
     @torch.jit.export
-    @torch.inference_mode()
+    # @torch.inference_mode()
     @torch.no_grad()
-    def true_depths(self, inputs: InputData, ctx: Context) -> torch.Tensor:
-        assert inputs.captures.depths is not None
+    def true_depths(self, ctx: Context) -> torch.Tensor:
+        assert ctx.captures.depths is not None
 
-        hw_embedding = next(ctx.embeddings.values()).shape[-2:]  # TODO: DRY
+        hw_embedding = next(e for e in ctx.embeddings.values()).shape[-2:]  # TODO: DRY
 
         gt: torch.Tensor = self.truth_generator.generate_depth(
-            inputs.captures.depths,
+            ctx.captures.depths,
             hw_embedding=hw_embedding,
         )
 
@@ -160,7 +264,7 @@ class TrainingPipeline(nn.Module):
         weighted_num: int,
         true_things: torch.Tensor,
         true_depths: torch.Tensor,
-    ) -> T.Dict[str, torch.Tensor]:
+    ) -> ThingDepthLosses:
         result = {}
 
         h, w = true_things.shape[-2:]
@@ -171,7 +275,7 @@ class TrainingPipeline(nn.Module):
         thing_depth_true = thing_depth_true * select_mask
 
         # Thing means
-        if self.loss_depth_means is not None and self.thing_depth_mean.requires_grad:
+        if self.loss_depth_means is not None and thing_depth_mean.requires_grad:
             thing_depth_mean = rearrange(thing_depth_mean, "b (nt nw) () -> b nt nw () ()", nw=weighted_num)
 
             thing_depth_mean_true_raw = reduce(thing_depth_true, "nt () h w -> nt () () ()", "sum")
@@ -185,7 +289,7 @@ class TrainingPipeline(nn.Module):
             thing_depth_mean = thing_depth_mean.reshape(thing_mask.shape[0], 1, -1)
             thing_mask = thing_mask.reshape(thing_mask.shape[0], 1, -1)
 
-            result["loss_depth/thing/mean"] = self.loss_depth_means(
+            result["depth_thing_mean"] = self.loss_depth_means(
                 thing_depth_mean_true,
                 thing_depth_mean,
                 mask=thing_mask,
@@ -194,13 +298,13 @@ class TrainingPipeline(nn.Module):
         # Repeat things depth GT for the amount of weighted instances
         thing_depth_true = thing_depth_true.repeat(1, weighted_num, 1, 1)
 
-        result["loss_depth/thing/value"] = self.loss_depth_values(
+        result["depth_thing_value"] = self.loss_depth_values(
             thing_depth_true,
             thing_dmap,
             mask=thing_depth_true > 0,
         )
 
-        return result
+        return result  # type: ignore
 
     @torch.autocast("cuda", dtype=torch.float32)
     def losses_depth_stuff(
@@ -218,9 +322,9 @@ class TrainingPipeline(nn.Module):
         true_panseg.type_as_(true_stuff)
 
         gt_sem_one_hot = [gt.scoremap.sum(dim=(-1, -2)) > 0 for gt in true_panseg.stuff.values()]
-        stuff_mask = [stuff_mask.unsqueeze(0) & s for s in gt_sem_one_hot]
+        stuff_mask = [self.stuff_mask.unsqueeze(0) & s for s in gt_sem_one_hot]
         gt_sem_one_hot = torch.cat(gt_sem_one_hot, dim=1)
-        stuff_mask = torch.cat(self.stuff_mask, dim=1)
+        stuff_mask = torch.cat(stuff_mask, dim=1)
 
         select_st = [true_stuff[_idx][select_st] * depth_valid[_idx] for _idx, select_st in enumerate(true_stuff_idx)]
         keep = [(s.sum(dim=(1, 2)) > 0) & sm[gs > 0] for s, sm, gs in zip(select_st, stuff_mask, gt_sem_one_hot)]
@@ -237,7 +341,7 @@ class TrainingPipeline(nn.Module):
         # Concatenate stuff and thing depths to compute overall depth
         stuff_depth_true = stuff_depth_true * select_st
 
-        result["loss_depth/stuff/value"] = self.loss_depth_values(
+        result["depth_stuff"] = self.loss_depth_values(
             stuff_depth_true,
             stuff_dmap.unsqueeze(1),
             mask=stuff_depth_true > 0,
@@ -246,7 +350,7 @@ class TrainingPipeline(nn.Module):
         return result
 
     @override
-    def forward(self, inputs: InputData) -> dict[str, torch.Tensor]:
+    def forward(self, ctx: Context, spec: torch.Size) -> dict[str, torch.Tensor]:
         raise NotImplementedError("Pipeline is not callable directly.")
 
 
@@ -280,7 +384,7 @@ def detect_things(
             mode="bilinear",
             align_corners=False,
         ).type_as(det.thing_map)
-        keep = (guided_inst > 1e-2) & (guided_inst < ignored_label)
+        keep = (guided_inst > 1e-2) & (guided_inst > ignored_label)
         guidence = torch.zeros_like(guided_inst)
 
     # For each batch item, select the score maps that correspond to the categories
@@ -370,3 +474,82 @@ def detect_stuff(
     assert stuff_kernels.shape[:2] == (det.shape[0], stuff_num)  # type: ignore
 
     return stuff_kernels, stuff_num
+
+
+_multinomial_batched = torch.vmap(torch.multinomial, in_dims=(0, None, None), out_dims=0, randomness="different")
+
+
+@torch.no_grad()
+def _create_instance_triplets(
+    ids: torch.Tensor, categories: torch.Tensor, valid_mask: torch.Tensor = None
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Creates triplets of anchor, positive and negative examples for each instance in the batch.
+
+    NOTE: Returns randomised postive and negative examples for each index that is not an anchor (e.g. entries that are
+    false in the anchor mask).
+
+    Parameters
+    ----------
+    ids
+        The instance IDs for each kernel.
+    categories
+        The semantic categories for each kernel.
+
+    Returns
+    -------
+    anchor_mask
+        A boolean mask indicating which kernels are anchors.
+    (positive_indices, negative_indices)
+        The indices of the positive and negative examples for each anchor.
+    """
+
+    assert ids.shape == categories.shape, f"Invalid shape for ids and categories: {ids.shape} != {categories.shape}"
+    assert ids.ndim >= 2, "ids must be a 2d tensor (batch, ids)"
+
+    # Create the matrices of equal and not equal pairs with respect to the their ids
+    ids_eq = ids.unsqueeze(-2) == ids.unsqueeze(-1)
+    ids_ne = ~ids_eq
+
+    # Create a validity indicating mask
+    if valid_mask is None:
+        valid_mask = torch.ones_like(ids_eq, dtype=torch.float)
+    else:
+        valid_mask = (valid_mask.unsqueeze(-2) & valid_mask.unsqueeze(-1)).float()
+
+    # Convert to floating point such that we can sum the indices and use them as weights in a multinomial distribution
+    ids_eq = ids_eq.float()
+    ids_eq.diagonal(dim1=-2, dim2=-1).fill_(0.0)
+    ids_ne = ids_ne.float()
+
+    # Mask out invalid entries
+    ids_eq *= valid_mask
+    ids_ne *= valid_mask
+
+    ids_eq_count = ids_eq.sum(dim=-1)
+    ids_ne_count = ids_ne.sum(dim=-1)
+
+    # Check whether it can be paired with some positive and negative example
+    anchor_mask = (ids_eq_count >= 1) & (ids_ne_count >= 1)
+
+    # We will draw indices from a multinomial distribution with the weights being the float-valued indices of the
+    # positive and negative examples.
+    # For the cases where no triplet is possible, add a dummy '1' in the ids_eq and ids_ne matrices such that we can
+    # still draw a sample from the multinomial distribution without having to index, which breaks the vmap.
+    dummy_weights = (~anchor_mask).unsqueeze(-1).float()
+    ids_eq += dummy_weights
+    ids_ne += dummy_weights
+
+    # We want to additionally add some weight to the negative examples that have the same category as the anchor.
+    cat_eq = (categories.unsqueeze(-2) == categories.unsqueeze(-1)).float()
+    cat_eq.diagonal(dim1=-2, dim2=-1).fill_(0.0)
+    cat_eq *= valid_mask
+
+    ids_ne += cat_eq
+
+    # For each anchor, we randomly sample a positive and negative example using `multinomial` with the weights being
+    # the float-valued indices of the positive and negative examples.
+    positive_indices = _multinomial_batched(ids_eq, 1, True).squeeze_(-1)
+    negative_indices = _multinomial_batched(ids_ne, 1, True).squeeze_(-1)
+
+    return anchor_mask, positive_indices, negative_indices

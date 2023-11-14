@@ -6,19 +6,38 @@ from __future__ import annotations
 
 import typing as T
 
+import torch
 import torch.nn as nn
 from tensordict import TensorDict, TensorDictBase
 from typing_extensions import override
 
-__all__ = ["FeatureEncoder"]
+__all__ = ["FeatureSelector", "FeatureEncoder"]
+
+
+class FeatureSelector(nn.Module):
+    """
+    Selects a feature map from the given feature maps dict.
+    """
+
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+
+    @override
+    def forward(self, feats: TensorDictBase) -> torch.Tensor:
+        return feats.get(self.name)
 
 
 class FeatureEncoder(nn.Module):
-    def __init__(self, merger: nn.Module, heads: dict[str, nn.Module], encoder: T.Optional[nn.Module] = None):
+    """
+    Encodes the given feature maps into multiple feature embeddings.
+    """
+
+    def __init__(self, merger: nn.Module, heads: dict[str, nn.Module], shared_encoder: T.Optional[nn.Module] = None):
         super().__init__()
 
         self.merger = merger
-        self.encoder = encoder
+        self.shared_encoder = shared_encoder
         self.heads = nn.ModuleDict(heads)
 
     def keys(self) -> T.Sequence[str]:
@@ -33,8 +52,8 @@ class FeatureEncoder(nn.Module):
 
         merged = self.merger(feats)
 
-        if self.encoder is not None:
-            merged = self.encoder(merged)
+        if self.shared_encoder is not None:
+            merged = self.shared_encoder(merged)
 
         fe_emb = {key: head(merged) for key, head in self.heads.items()}
 

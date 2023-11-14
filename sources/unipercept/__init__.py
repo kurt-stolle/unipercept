@@ -1,10 +1,30 @@
 """UniPercept: A Python package for the analysis of perceptual data and the training of deep neural networks in PyTorch."""
 from __future__ import annotations
 
-__version__ = "3.2.2"
+from unicore.utils.module import lazy_module_factory
 
-from . import data, modeling, trainer
+from ._api import *
 from ._patch_tensordict_pytree import *
 
-if __name__ == "__main__":
-    from ..unicli import __main__ as _
+__version__ = "3.2.2"
+__all__ = [
+    # Submodules
+    "data",
+    "model",
+    "nn",
+    "render",
+    "trainer",
+    "utils",
+    "evaluators",
+    # API exports (see: ./_api.py)
+    "read_config",
+    "load_checkpoint",
+    "create_model",
+    "prepare_dataset",
+    "create_inputs",
+    "prepare_images",
+    "read_image",
+]
+__getattr__, __dir__ = lazy_module_factory(__name__, __all__)
+
+del lazy_module_factory

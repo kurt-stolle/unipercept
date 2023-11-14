@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import torch
 
+__all__ = ["build_pinhole_intrinsics", "build_pinhole_extrinsics"]
 
-@torch.inference_mode()
+
 def build_pinhole_intrinsics(fx, fy, u0, v0) -> torch.Tensor:
     K = torch.zeros((4, 4), dtype=torch.float32)
     K[0, 0] = fx
@@ -18,7 +19,6 @@ def build_pinhole_intrinsics(fx, fy, u0, v0) -> torch.Tensor:
     return K
 
 
-@torch.inference_mode()
 def build_pinhole_extrinsics(
     yaw: float,
     pitch: float,

@@ -12,6 +12,7 @@ class COCOAnnotation(TypedDict):
 
     id: int
     category_id: int
+    file_name: NotRequired[str]
     iscrowd: NotRequired[int]
     area: NotRequired[int]
     bbox: NotRequired[Sequence[int]]  # default format is XYWH

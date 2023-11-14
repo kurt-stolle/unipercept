@@ -9,11 +9,12 @@ import typing as T
 import torch
 from torch import nn
 from typing_extensions import override
-from unipercept.modeling.layers import conv
-from unipercept.modeling.layers.weight import init_xavier_fill_
+
+from unipercept.nn.layers import conv
+from unipercept.nn.layers.weight import init_xavier_fill_
 
 if T.TYPE_CHECKING:
-    from unipercept.modeling.typings import ChannelModule
+    from unipercept.nn.typings import ChannelModule
 
 __all__ = ["Localizer", "Locations"]
 

@@ -13,7 +13,7 @@ class RiskNet(nn.Module):
     def __init__(
         self,
         *,
-        backbone: up.modeling.backbones.Backbone,
+        backbone: up.nn.backbones.Backbone,
         example_layer: nn.Module,
         example_loss: nn.Module,
     ):
@@ -24,7 +24,7 @@ class RiskNet(nn.Module):
         self.example_loss = example_loss
 
     @override
-    def forward(self, inputs: up.data.points.InputData) -> T.Dict[str, torch.Tensor] | T.List[T.Dict[str, T.Any]]:
+    def forward(self, inputs: up.tensors.InputData) -> T.Dict[str, torch.Tensor] | T.List[T.Dict[str, T.Any]]:
         backbone_outputs = self.backbone(inputs.captures.images)
 
         example_fpn_reduce = torch.stack(

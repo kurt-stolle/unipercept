@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import enum as E
 import functools
 import logging
 import os
@@ -14,13 +15,14 @@ import accelerate
 import unicore.file_io
 from matplotlib.pyplot import step
 from typing_extensions import override
-from uniutils.logutils import LOG_LEVELS, get_logger
-from uniutils.state import (
+
+from unipercept.utils.logutils import LOG_LEVELS, get_logger
+from unipercept.utils.state import (
     check_main_process,
     get_process_index,
     local_main_process_first,
 )
-from uniutils.time import get_timestamp
+from unipercept.utils.time import get_timestamp
 
 from .debug import DebugMode
 
@@ -30,13 +32,24 @@ logger = get_logger(__name__)
 _T = T.TypeVar("_T")
 
 
+class InferencePrecision(E.StrEnum):
+    """
+    Defines the different modes of FP16 inference.
+    """
+
+    DEFAULT = E.auto()
+    FULL_FP16 = E.auto()
+    FULL_BF16 = E.auto()
+
+
 @dataclass(slots=True, unsafe_hash=True, match_args=False, kw_only=True, weakref_slot=True)
 class TrainConfig:
     project_name: str
     session_name: str = field(default_factory=get_timestamp)
     root: str = "//output/{project_name}/{session_name}"
 
-    batch_size: int = 32
+    train_batch_size: int = 8
+    infer_batch_size: int = 1
     full_determinism: bool = False
     seed: int = 42
 
@@ -45,11 +58,21 @@ class TrainConfig:
         metadata={"help": "Number of updates steps to accumulate before performing a backward/update pass."},
     )
 
-    max_grad_norm: float = field(default=1.0, metadata={"help": "Max gradient norm."})
+    max_grad_norm: float = field(default=5.0, metadata={"help": "Max gradient norm."})
+
+    # Experiment trackers
+    trackers = ["wandb"]
+
+    # FP16 modes during inference
+    inference_precision: InferencePrecision = InferencePrecision.DEFAULT
 
     ########################################
     # Training
     ########################################
+
+    train_sum_losses: bool = field(
+        default=False, metadata={"help": "Whether to sum the losses instead of directly passing them to backward."}
+    )
 
     train_steps: int | None = field(
         default=None,
@@ -114,6 +137,16 @@ class TrainConfig:
             )
         },
     )
+    eval_write_visuals: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to save visuals during evaluation. If `True`, the visuals will be saved in the "
+                "`visuals` directory of the project."
+            )
+        },
+    )
+    eval_delay: int = 0  # steps
 
     def get_eval_interval_steps(self, steps_per_epoch: int) -> int | None:
         """
@@ -174,7 +207,6 @@ class TrainConfig:
         default=None,
         metadata={"help": "Number of predictions steps to accumulate before moving the tensors to the CPU."},
     )
-    eval_delay: T.Optional[float] = None
 
     ########################################
     # Logging
@@ -208,9 +240,10 @@ class TrainConfig:
     )
     logging_first_step: bool = field(default=False, metadata={"help": "Log the first global_step"})
     logging_steps: int = field(
-        default=20,
-        metadata={"help": ("Log every X updates steps.")},
+        default=100,
+        metadata={"help": ("Log every X training steps.")},
     )
+    logging_history: int = field(default=10, metadata={"help": "Number of past logs to keep in the state."})
     logging_nan_inf_filter: bool = field(default=True, metadata={"help": "Filter nan and inf losses for logging."})
 
     #################################################
@@ -329,7 +362,7 @@ class TrainConfig:
     # Debugging and profiling
     ###############################
     debug: DebugMode = field(
-        default=DebugMode.UNDERFLOW_OVERFLOW,
+        default=DebugMode.NONE,
         metadata={
             "help": (
                 "Whether or not to enable debug mode. Current options: "

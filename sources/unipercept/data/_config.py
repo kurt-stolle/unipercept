@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 import typing as T
 from dataclasses import dataclass
 
-from ._loader import DataLoaderFactory
+if T.TYPE_CHECKING:
+    from evaluators import Evaluator
+
+    from unipercept.data import DataLoaderFactory
+
+__all__ = ["DataConfig"]
 
 
 @dataclass
 class DataConfig:
     loaders: T.Dict[str, DataLoaderFactory]
-    evaluator: T.Optional[T.Any] = None
+    evaluators: T.Optional[T.Sequence[Evaluator]] = None

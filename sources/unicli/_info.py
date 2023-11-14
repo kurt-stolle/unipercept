@@ -8,7 +8,8 @@ import argparse
 
 import unicore.catalog
 from typing_extensions import override
-from uniutils.function import to_sequence
+
+from unipercept.utils.function import to_sequence
 
 __all__ = ["add_metadata_args"]
 

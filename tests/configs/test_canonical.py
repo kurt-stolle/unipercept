@@ -2,6 +2,7 @@ import pytest
 import torch
 from detectron2.config import instantiate
 from omegaconf import DictConfig
+from unicore import file_io
 
 
 def test_instantiate_model(cfg):
@@ -21,16 +22,19 @@ def test_instantiate_trainer(cfg):
 @pytest.mark.parametrize("loader_key", ["train", "test"])
 def test_instantiate_loader(cfg, loader_key):
     import torch.utils.data
+
     from unipercept.data import DataLoaderFactory
-    from unipercept.data.points import InputData
+    from unipercept.model import InputData
 
     lf = instantiate(cfg.data.loaders[loader_key])
     assert lf is not None
     assert isinstance(lf, DataLoaderFactory), type(lf)
 
-    ld = lf(1)
-
-    id, item = next(iter(ld))
+    try:
+        ld = lf(1)
+        id, item = next(iter(ld))
+    except FileNotFoundError:
+        pytest.xfail("Dataset is not installed: {lf}")
 
     assert id is not None, type(id)
     assert isinstance(item, InputData), type(item)

@@ -7,7 +7,7 @@ help:
 	@echo "  test       to run the tests"
 
 install:
-	python -m pip install -e .
+	./scripts/install.sh
 
 test:
 	python -m pytest -s -v -n auto --dist=loadfile --junitxml=tests.xml --no-cov --benchmark-disable

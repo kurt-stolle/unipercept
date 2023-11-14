@@ -1,6 +1,10 @@
 """
 Cityscapes DPS and VPS datasets.
 """
+
+from __future__ import annotations
+
+import dataclasses as D
 import operator
 import re
 import typing as T
@@ -8,20 +12,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Literal, Mapping, NamedTuple, Sequence
 
-import torch
-import unipercept.data.io as data_io
-import unipercept.data.points as data_points
-import unipercept.data.types as data_types
-from tensordict import TensorDict
 from typing_extensions import override
-from unicore import catalog, datapipes, file_io
+from unicore import datapipes, file_io
 from unicore.utils.dataserial import serializable
 from unicore.utils.formatter import formatter
 
-from ._base import PerceptionDataset
-from ._meta import generate_metadata
+from ._base import RGB, PerceptionDataset, SClass, SType, info_factory
 
-__all__ = ["Base", "DVPS"]
+if T.TYPE_CHECKING:
+    import unipercept as up
+
+__all__ = ["CityscapesDataset", "CityscapesVPSDataset"]
 
 
 # ---------------- #
@@ -29,25 +30,42 @@ __all__ = ["Base", "DVPS"]
 # ---------------- #
 
 
-class FileID(NamedTuple):
+@D.dataclass(frozen=True)
+class FileID:
+    __slots__ = ("city", "drive", "frame")
+
     city: str
     drive: str
     frame: str
 
+    pattern: T.ClassVar[re.Pattern[str]] = re.compile(
+        r"(?P<city>[A-Za-z]+)_"
+        r"(?P<drive>\d\d\d\d\d\d)_"
+        r"(?P<frame>\d\d\d\d\d\d)_"
+        r"(?P<ext>.+)\..+$"  # noqa: 501
+    )
 
-FILE_NAME_PATTERN = re.compile(
-    r"(?P<city>[A-Za-z]+)_" r"(?P<drive>\d\d\d\d\d\d)_" r"(?P<frame>\d\d\d\d\d\d)_" r"(?P<ext>.+)\..+$"  # noqa: 501
-)
+    @classmethod
+    def attach_id(cls, path: str) -> tuple[T.Self, str]:
+        """
+        Transforms a path into an ID and a dictionary of paths indexed by key.
+        """
 
+        match = cls.pattern.search(path)
+        assert match is not None
+        return cls(match.group("city"), match.group("drive"), match.group("frame")), path
 
-def attach_id(path: str) -> tuple[FileID, str]:
-    """
-    Transforms a path into an ID and a dictionary of paths indexed by key.
-    """
+    def __lt__(self, other: FileID) -> bool:
+        return D.astuple(self) < D.astuple(other)
 
-    match = FILE_NAME_PATTERN.search(path)
-    assert match is not None
-    return FileID(match.group("city"), match.group("drive"), match.group("frame")), path
+    def __le__(self, other: FileID) -> bool:
+        return D.astuple(self) <= D.astuple(other)
+
+    def __gt__(self, other: FileID) -> bool:
+        return D.astuple(self) > D.astuple(other)
+
+    def __ge__(self, other: FileID) -> bool:
+        return D.astuple(self) >= D.astuple(other)
 
 
 def get_primary_key(seq_key: str, idx: int) -> str:
@@ -93,9 +111,9 @@ class CameraCalibration:
 
     extrinsic: CameraExtrinsic
     intrinsic: CameraIntrinsic
-    size: data_types.HW
+    size: "up.data.types.HW"
 
-    def to_canonical(self) -> data_types.PinholeModelParameters:
+    def to_canonical(self) -> up.data.types.PinholeModelParameters:
         """
         Transforms the calibration to the canonical format.
         """
@@ -120,35 +138,33 @@ CAMERA = CameraCalibration(
 # Static info #
 # ----------- #
 
+CLASSES: T.Final[T.Sequence[SClass]] = [
+    SClass(color=RGB(128, 64, 128), kind=SType.VOID, dataset_id=255, unified_id=-1, name="void"),
+    SClass(color=RGB(128, 64, 128), kind=SType.STUFF, dataset_id=7, unified_id=0, name="road"),
+    SClass(color=RGB(244, 35, 232), kind=SType.STUFF, dataset_id=8, unified_id=1, name="sidewalk"),
+    SClass(color=RGB(70, 70, 70), kind=SType.STUFF, dataset_id=11, unified_id=2, name="building"),
+    SClass(color=RGB(102, 102, 156), kind=SType.STUFF, dataset_id=12, unified_id=3, name="wall"),
+    SClass(color=RGB(190, 153, 153), kind=SType.STUFF, dataset_id=13, unified_id=4, name="fence"),
+    SClass(color=RGB(153, 153, 153), kind=SType.STUFF, dataset_id=17, unified_id=5, name="pole"),
+    SClass(color=RGB(250, 170, 30), kind=SType.STUFF, dataset_id=19, unified_id=6, name="traffic light"),
+    SClass(color=RGB(220, 220, 0), kind=SType.STUFF, dataset_id=20, unified_id=7, name="traffic sign"),
+    SClass(color=RGB(107, 142, 35), kind=SType.STUFF, dataset_id=21, unified_id=8, name="vegetation"),
+    SClass(color=RGB(152, 251, 152), kind=SType.STUFF, dataset_id=22, unified_id=9, name="terrain"),
+    SClass(color=RGB(70, 130, 180), kind=SType.STUFF, dataset_id=23, unified_id=10, name="sky", depth_fixed=1.0),
+    SClass(color=RGB(220, 20, 60), kind=SType.THING, dataset_id=24, unified_id=11, name="person"),
+    SClass(color=RGB(255, 0, 0), kind=SType.THING, dataset_id=25, unified_id=12, name="rider"),
+    SClass(color=RGB(0, 0, 142), kind=SType.THING, dataset_id=26, unified_id=13, name="car"),
+    SClass(color=RGB(0, 0, 70), kind=SType.THING, dataset_id=27, unified_id=14, name="truck"),
+    SClass(color=RGB(0, 60, 100), kind=SType.THING, dataset_id=28, unified_id=15, name="bus"),
+    SClass(color=RGB(0, 80, 100), kind=SType.THING, dataset_id=31, unified_id=16, name="train"),
+    SClass(color=RGB(0, 0, 230), kind=SType.THING, dataset_id=32, unified_id=17, name="motorcycle"),
+    SClass(color=RGB(119, 11, 32), kind=SType.THING, dataset_id=33, unified_id=18, name="bicycle"),
+]
+
 
 def get_info():
-    from ..types import RGB, SClass, SType
-
-    sem_list = [
-        SClass(color=RGB(128, 64, 128), kind=SType.VOID, dataset_id=255, unified_id=-1, name="void"),
-        SClass(color=RGB(128, 64, 128), kind=SType.STUFF, dataset_id=7, unified_id=0, name="road"),
-        SClass(color=RGB(244, 35, 232), kind=SType.STUFF, dataset_id=8, unified_id=1, name="sidewalk"),
-        SClass(color=RGB(70, 70, 70), kind=SType.STUFF, dataset_id=11, unified_id=2, name="building"),
-        SClass(color=RGB(102, 102, 156), kind=SType.STUFF, dataset_id=12, unified_id=3, name="wall"),
-        SClass(color=RGB(190, 153, 153), kind=SType.STUFF, dataset_id=13, unified_id=4, name="fence"),
-        SClass(color=RGB(153, 153, 153), kind=SType.STUFF, dataset_id=17, unified_id=5, name="pole"),
-        SClass(color=RGB(250, 170, 30), kind=SType.STUFF, dataset_id=19, unified_id=6, name="traffic light"),
-        SClass(color=RGB(220, 220, 0), kind=SType.STUFF, dataset_id=20, unified_id=7, name="traffic sign"),
-        SClass(color=RGB(107, 142, 35), kind=SType.STUFF, dataset_id=21, unified_id=8, name="vegetation"),
-        SClass(color=RGB(152, 251, 152), kind=SType.STUFF, dataset_id=22, unified_id=9, name="terrain"),
-        SClass(color=RGB(70, 130, 180), kind=SType.STUFF, dataset_id=23, unified_id=10, name="sky"),
-        SClass(color=RGB(220, 20, 60), kind=SType.THING, dataset_id=24, unified_id=11, name="person"),
-        SClass(color=RGB(255, 0, 0), kind=SType.THING, dataset_id=25, unified_id=12, name="rider"),
-        SClass(color=RGB(0, 0, 142), kind=SType.THING, dataset_id=26, unified_id=13, name="car"),
-        SClass(color=RGB(0, 0, 70), kind=SType.THING, dataset_id=27, unified_id=14, name="truck"),
-        SClass(color=RGB(0, 60, 100), kind=SType.THING, dataset_id=28, unified_id=15, name="bus"),
-        SClass(color=RGB(0, 80, 100), kind=SType.THING, dataset_id=31, unified_id=16, name="train"),
-        SClass(color=RGB(0, 0, 230), kind=SType.THING, dataset_id=32, unified_id=17, name="motorcycle"),
-        SClass(color=RGB(119, 11, 32), kind=SType.THING, dataset_id=33, unified_id=18, name="bicycle"),
-    ]
-
-    return generate_metadata(
-        sem_list,
+    return info_factory(
+        CLASSES,
         depth_max=80.0,
         fps=17.0,
     )
@@ -159,8 +175,7 @@ def get_info():
 # -------------------- #
 
 
-@catalog.register_dataset("cityscapes")
-class Base(PerceptionDataset, info=get_info):
+class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
     """
     Cityscapes dataset with all data sourced from the official distribution.
 
@@ -176,7 +191,7 @@ class Base(PerceptionDataset, info=get_info):
     path_camera = formatter("{self.root}/camera/{self.split}")
 
     meta_panoptic: T.ClassVar = {"format": "cityscapes"}
-    meta_depth: T.ClassVar = {"format": "depth_int16"}
+    meta_depth: T.ClassVar = {"format": "disparity_int16"}
 
     def _get_next_frame(self, frame: int) -> int:
         """
@@ -187,13 +202,14 @@ class Base(PerceptionDataset, info=get_info):
         """
         return frame + 1
 
-    def _get_id2sources(self) -> Mapping[FileID, data_types.CaptureSources]:
-        sources_map: dict[FileID, data_types.CaptureSources] = {}
+    def _get_id2sources(self) -> Mapping[FileID, up.data.types.CaptureSources]:
+        sources_map: dict[FileID, up.data.types.CaptureSources] = {}
+
         # Create mapping of ID -> dt.CaptureSources
         for id, file_path in map(
-            attach_id, datapipes.UniCoreFileLister(self.path_image, masks="*.png", recursive=True)
+            FileID.attach_id, datapipes.UniCoreFileLister(self.path_image, masks="*.png", recursive=True)
         ):
-            partial_sources: data_types.CaptureSources = {
+            partial_sources: up.data.types.CaptureSources = {
                 "image": {
                     "path": file_path,
                 },
@@ -209,17 +225,15 @@ class Base(PerceptionDataset, info=get_info):
         if file_io.isdir(self.path_depth):
             sources_dict["depth"] = datapipes.UniCoreFileLister(self.path_depth, masks="*.png", recursive=True)
 
-        # camera=datapipes.UniCoreFileLister(self.path_camera, masks="*.png"),
-
         for source_key, files in sources_dict.items():
-            for id, file_path in map(attach_id, files):
+            for id, file_path in map(FileID.attach_id, files):
                 if id not in sources_map:
                     raise ValueError(
                         f"File {file_path} (ID: {id}) does not have a corresponding image file, keys: "
                         + ", ".join([str(k) for k in sources_map.keys()])
                     )
 
-                resource: data_types.FileResourceWithMeta = {"path": file_path, "meta": {}}
+                resource: up.data.types.FileResourceWithMeta = {"path": file_path, "meta": {}}
                 match source_key:
                     case "panoptic":
                         resource["meta"] = self.meta_panoptic
@@ -272,24 +286,15 @@ class Base(PerceptionDataset, info=get_info):
         return sequence_map
 
     @override
-    def _build_manifest(self) -> data_types.Manifest:
+    def _build_manifest(self) -> up.data.types.Manifest:
         sources_map = self._get_id2sources()
         sequence_map = self._get_seq2ids(sorted(sources_map.keys()))
 
         # Convert to mapping of string -> dt.CaptureRecord
-        sequences: Mapping[str, data_types.ManifestSequence] = {}
+        sequences: Mapping[str, up.data.types.ManifestSequence] = {}
         for seq_key, ids in sequence_map.items():
             camera = CAMERA.to_canonical()  # TODO: read from json
-            # captures: list[data_types.CaptureRecord] = list(
-            #     map(
-            #         lambda enum_id: {
-            #             "primary_key": get_primary_key(seq_key, enum_id[0]),
-            #             "sources": sources_map[enum_id[1]],
-            #         },
-            #         enumerate(ids),
-            #     )
-            # )
-            captures: list[data_types.CaptureRecord] = [
+            captures: list[up.data.types.CaptureRecord] = [
                 {
                     "primary_key": get_primary_key(seq_key, i),
                     "sources": sources_map[id],
@@ -298,53 +303,17 @@ class Base(PerceptionDataset, info=get_info):
             ]
 
             # Create sequence item
-            seq_item: data_types.ManifestSequence = {
+            seq_item: up.data.types.ManifestSequence = {
                 "camera": camera,
                 "fps": 17 / self._get_next_frame(0),
                 "captures": captures,
             }
             sequences[seq_key] = seq_item
 
-        return data_types.Manifest(timestamp=datetime.utcnow().isoformat(), version="1.0", sequences=sequences)
-
-    @classmethod
-    @override
-    def _load_capture_data(
-        cls, sources: Sequence[data_types.CaptureSources], info: data_types.Metadata
-    ) -> data_points.CaptureData:
-        num_caps = len(sources)
-        times = torch.linspace(0, num_caps / info["fps"], num_caps)
-
-        return data_points.CaptureData(
-            times=times,
-            images=data_io.utils.multi_read(
-                data_io.read_image,
-                key="image",
-                no_entries="error",
-            )(sources),
-            segmentations=data_io.utils.multi_read(
-                data_io.read_panoptic_map,
-                "panoptic",
-                no_entries="none",
-            )(sources, info),
-            depths=data_io.utils.multi_read(
-                data_io.read_depth_map,
-                "depth",
-                no_entries="none",
-            )(sources),
-            batch_size=[num_caps],
-        )
-
-    @classmethod
-    @override
-    def _load_motion_data(
-        cls, sources: Sequence[data_types.MotionSources], info: data_types.Metadata
-    ) -> data_points.MotionData:
-        raise NotImplementedError("Cityscapes does not implement motion sources!")
+        return {"timestamp": datetime.utcnow().isoformat(), "version": "1.0", "sequences": sequences}
 
 
-@catalog.register_dataset("cityscapes/vps")
-class DVPS(Base, info=get_info):
+class CityscapesVPSDataset(CityscapesDataset, info=get_info, id="cityscapes/vps"):
     """
     Cityscapes dataset with the following modifications:
 

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import typing as T
 
+from regex import W
 from typing_extensions import override
-from uniutils.logutils import get_logger
 
-from . import types as data_types
+import unipercept.data.types as data_types
+from unipercept.utils.logutils import get_logger
 
 __all__ = ["GroupAdjacentTime", "ExtractIndividualFrames", "QueueGeneratorType", "KnownCaptureSources"]
 
@@ -37,6 +38,7 @@ class GroupAdjacentTime:
         required_capture_sources: set[KnownCaptureSources | str]
         | T.Sequence[set[KnownCaptureSources | str]]
         | None = None,
+        verbose: bool = False,
     ):
         if num_frames <= 0:
             raise ValueError(f"Length must be positive definite, got {num_frames}!")
@@ -54,6 +56,7 @@ class GroupAdjacentTime:
 
         self._num_frames = num_frames
         self._use_typecheck = use_typecheck
+        self._verbose = verbose
 
         _logger.debug(
             f"Using adjacent collector ({num_frames} frames) with required sources {self._required_capture_sources}"
@@ -79,7 +82,7 @@ class GroupAdjacentTime:
 
     def __call__(self, mfst: data_types.Manifest, /) -> QueueGeneratorType:
         if self._use_typecheck:
-            data_types.utils.check_typeddict(mfst, data_types.Manifest)
+            data_types.sanity.check_typeddict(mfst, data_types.Manifest)
 
         success = 0
 
@@ -97,9 +100,12 @@ class GroupAdjacentTime:
                     isinstance(caps[n], dict) and self._required_capture_sources[n].issubset(caps[n].keys())
                     for n in range(self._num_frames)
                 ):
-                    wants = list(tuple(r) for r in self._required_capture_sources)
-                    has = list(tuple(c.keys()) for c in caps)
-                    _logger.debug(f"Skipping sequence {seq} due to missing capture sources! Wants {wants}, got {has}!")
+                    if self._verbose:
+                        wants = list(tuple(r) for r in self._required_capture_sources)
+                        has = list(tuple(c.keys()) for c in caps)
+                        _logger.debug(
+                            f"Skipping sequence {seq} due to missing capture sources! Wants {wants}, got {has}!"
+                        )
                     continue
 
                 item: data_types.QueueItem = {

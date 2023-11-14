@@ -1,0 +1,11 @@
+name: unipercept
+channels:
+  - nvidia/label/cuda-12.1.1
+  - defaults
+dependencies:
+  - python=3.11
+  - cuda
+  - cuda-toolkit
+  - opencv
+
+

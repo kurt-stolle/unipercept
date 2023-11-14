@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import multiprocessing as M
 import typing as T
 from os import kill
 
@@ -16,13 +17,13 @@ from torch.utils.data import (
     get_worker_info,
 )
 from typing_extensions import override
-from uniutils.logutils import get_logger
-from uniutils.state import get_process_count
 
-from ._sampler import SamplerFactory
-from .ops import CloneOp, Op, apply_dataset
-from .points import InputData
-from .sets import PerceptionDataset
+from unipercept.data.ops import Op, apply_dataset
+from unipercept.utils.logutils import get_logger
+from unipercept.utils.state import get_process_count
+
+if T.TYPE_CHECKING:
+    import unipercept as up
 
 __all__ = ["DataLoaderConfig", "DataLoaderFactory", "DatasetInterface"]
 
@@ -31,12 +32,11 @@ _logger = get_logger(__name__)
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class DataLoaderConfig:
-    batch_size: int = 1
     drop_last: bool = False
     pin_memory: bool = True
-    num_workers: int = 4
-    prefetch_factor: int | None = 2
-    persistent_workers: bool | None = True
+    num_workers: int = max(1, M.cpu_count() // 4)
+    prefetch_factor: int | None = 16
+    persistent_workers: bool | None = False
 
 
 # V2
@@ -62,9 +62,9 @@ class DataLoaderFactory:
 
     """
 
-    dataset: PerceptionDataset
+    dataset: "up.data.sets.PerceptionDataset"
     actions: T.Sequence[Op]
-    sampler: SamplerFactory
+    sampler: "up.data.SamplerFactory"
     config: DataLoaderConfig = dataclasses.field(default_factory=DataLoaderConfig)
     make_dataset_iterable: bool = dataclasses.field(
         default=False,
@@ -77,6 +77,10 @@ class DataLoaderFactory:
     )
 
     def __call__(self, batch_size: int | None = None, /) -> DataLoader:
+        from unipercept.data import SamplerFactory
+        from unipercept.data.sets import PerceptionDataset
+        from unipercept.model import InputData
+
         assert isinstance(self.dataset, PerceptionDataset), type(self.dataset)
         assert isinstance(self.sampler, SamplerFactory), type(self.sampler)
         assert isinstance(self.config, DataLoaderConfig), type(self.config)

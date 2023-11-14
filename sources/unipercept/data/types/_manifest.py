@@ -2,85 +2,82 @@
 
 from __future__ import annotations
 
-from enum import StrEnum, auto
-from typing import (
-    Generic,
-    Mapping,
-    NotRequired,
-    Sequence,
-    TypeAlias,
-    TypedDict,
-    TypeVar,
-    final,
-)
+import typing as T
+
+if T.TYPE_CHECKING:
+    from ..tensors import DepthFormat, LabelsFormat
+else:
+    DepthFormat = T.Any
+    LabelsFormat = T.Any
+
+__all__ = [
+    "Manifest",
+    "ManifestSequence",
+    "Manifest",
+    "ManifestSequence",
+    "QueueItem",
+    "CaptureRecord",
+    "CaptureSources",
+    "MotionRecord",
+    "MotionSources",
+    "PinholeModelParameters",
+    "FileResource",
+    "FileResourceWithMeta",
+]
+
 
 # ----------------- #
 # Resources on disk #
 # ----------------- #
 
 
-class FileResource(TypedDict):
+class FileResource(T.TypedDict):
     """Describes a datapoint on the disk."""
 
     path: str
 
 
-_MetaType = TypeVar("_MetaType", contravariant=True)
+_MetaType = T.TypeVar("_MetaType", bound=T.TypedDict, contravariant=True)
 
 
-class FileResourceWithMeta(FileResource, Generic[_MetaType]):
+class FileResourceWithMeta(FileResource, T.Generic[_MetaType]):
     """Describes a datapoint on the disk, with metadata."""
 
     meta: _MetaType
 
 
-_FormatType = TypeVar("_FormatType", contravariant=True)
+_FormatType = T.TypeVar("_FormatType", contravariant=True)
 
 
-class FormatMeta(TypedDict, Generic[_FormatType]):
-    format: _FormatType
+class FormatMeta(T.TypedDict, T.Generic[_FormatType]):
+    format: _FormatType | str
+
+
+class DepthMeta(FormatMeta[DepthFormat]):
+    focal_length: T.NotRequired[float]
 
 
 # --------------------------- #
 # Capture sources and formats #
 # --------------------------- #
 
-
-class LabelsFormat(StrEnum):
-    """
-    Enumerates the different formats of labels that are supported. Uses the name of
-    the dataset that introduced the format.
-    """
-
-    CITYSCAPES = auto()
-    CITYSCAPES_VPS = auto()
-    KITTI = auto()
-    VISTAS = auto()
-    WILD_DASH = auto()
-    TORCH = auto()
+PanopticResource: T.TypeAlias = FileResourceWithMeta[FormatMeta[LabelsFormat]]
+DepthResource: T.TypeAlias = FileResourceWithMeta[FormatMeta[DepthFormat]]
 
 
-PanopticResource: TypeAlias = FileResourceWithMeta[FormatMeta[LabelsFormat]]
-
-
-class DepthFormat(StrEnum):
-    DEPTH_INT16 = auto()
-
-
-DepthResource: TypeAlias = FileResourceWithMeta[FormatMeta[DepthFormat]]
-
-
-@final
-class CaptureSources(TypedDict):
+@T.final
+class CaptureSources(T.TypedDict):
     """Paths to where files for this dataset may be found."""
 
     image: FileResource
-    panoptic: NotRequired[FileResourceWithMeta[FormatMeta[LabelsFormat]]]
-    depth: NotRequired[FileResourceWithMeta[FormatMeta[DepthFormat]]]
+    panoptic: T.NotRequired[FileResourceWithMeta[FormatMeta[LabelsFormat]]]
+    instance: T.NotRequired[FileResourceWithMeta[FormatMeta[LabelsFormat]]]
+    semantic: T.NotRequired[FileResourceWithMeta[FormatMeta[LabelsFormat]]]
+    depth: T.NotRequired[FileResourceWithMeta[DepthMeta]]
 
 
-@final
-class CaptureRecord(TypedDict):
+@T.final
+class CaptureRecord(T.TypedDict, T.Generic[_MetaType]):
     """
     A record of captured data that is part of a temporal sequence.
 
@@ -97,7 +94,9 @@ class CaptureRecord(TypedDict):
 
     primary_key: str
     sources: CaptureSources
-    observer: NotRequired[str]
+    time: T.NotRequired[float]
+    observer: T.NotRequired[str]
+    meta: T.NotRequired[_MetaType]
 
 
 # -------------------------- #
@@ -105,8 +104,8 @@ class CaptureRecord(TypedDict):
 # -------------------------- #
 
 
-@final
-class MotionSources(TypedDict):
+@T.final
+class MotionSources(T.TypedDict):
     """
     Paths to where files for this dataset may be found.
 
@@ -123,11 +122,11 @@ class MotionSources(TypedDict):
 
     optical_flow: FileResource
     transforms: FileResource
-    observer: NotRequired[str]
+    observer: T.NotRequired[str]
 
 
-@final
-class MotionRecord(TypedDict):
+@T.final
+class MotionRecord(T.TypedDict):
     """
     A record of motion data in a temporal sequence.
 
@@ -148,8 +147,10 @@ class MotionRecord(TypedDict):
 # ----------------- #
 
 
-class PinholeModelParameters(TypedDict):
-    """Currently only supports Pinhole camera models."""
+class PinholeModelParameters(T.TypedDict):
+    """
+    Pinhole camera model
+    """
 
     focal_length: tuple[float, float]  # (fx, fy)
     principal_point: tuple[float, float]  # (cx, cy)
@@ -158,15 +159,15 @@ class PinholeModelParameters(TypedDict):
     image_size: tuple[int, int]  # (height, width)
 
 
-CameraModelParameters: TypeAlias = PinholeModelParameters
+CameraModelParameters: T.TypeAlias = PinholeModelParameters
 
 # ------------------- #
 # Manifest of records #
 # ------------------- #
 
 
-@final
-class ManifestSequence(TypedDict):
+@T.final
+class ManifestSequence(T.TypedDict):
     """
     Represents data about a single sequence in the manifest.
 
@@ -184,14 +185,14 @@ class ManifestSequence(TypedDict):
         Remember that each motion references a range of frames, and thus the order of the motions is not important.
     """
 
-    camera: CameraModelParameters
-    fps: float
-    captures: Sequence[CaptureRecord]
-    motions: NotRequired[Sequence[MotionRecord]]
+    camera: CameraModelParameters | None
+    fps: float | None
+    captures: list[CaptureRecord]
+    motions: T.NotRequired[list[MotionRecord]]
 
 
-@final
-class Manifest(TypedDict):
+@T.final
+class Manifest(T.TypedDict):
     """
     A manifest of the dataset, before gathering the individual capture and motion records into
     the queued format that ought to be converted to the input data of the model.
@@ -204,11 +205,13 @@ class Manifest(TypedDict):
         Timestamp of when this manifest was created (for caching and invalidation purposes).
     version
         Version of Unipercept that was used to create this manifest (for caching and invalidation purposes).
+    sequences
+        Sequences that are part of the manifest. Organized as a mapping from the sequence key to the sequence.
     """
 
     timestamp: str
     version: str
-    sequences: Mapping[str, ManifestSequence]
+    sequences: dict[str, ManifestSequence]
 
 
 # ---------------- #
@@ -216,7 +219,7 @@ class Manifest(TypedDict):
 # ---------------- #
 
 
-class QueueItem(TypedDict):
+class QueueItem(T.TypedDict):
     """
     An item in the queue of the dataset, after gathering the individual capture and motion records into
     the format that ought to be converted to the input data of the model.
@@ -244,7 +247,7 @@ class QueueItem(TypedDict):
     sequence: str
     frame: int
     fps: float
-    observer: NotRequired[str]
+    observer: T.NotRequired[str]
     camera: CameraModelParameters
-    captures: Sequence[CaptureSources]
-    motions: NotRequired[Sequence[MotionSources]]
+    captures: list[CaptureSources]
+    motions: T.NotRequired[list[MotionSources]]

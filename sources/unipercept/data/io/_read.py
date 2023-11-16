@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typing as T
-
+import functools
 import torch
 from torchvision.io import ImageReadMode
 from torchvision.io import read_image as _read_image
@@ -15,7 +15,9 @@ if T.TYPE_CHECKING:
 
 __all__ = ["read_image", "ImageReadMode", "read_segmentation", "read_optical_flow", "read_depth_map"]
 
+MAX_CACHE: T.Final = 1000
 
+@functools.lru_cache(maxsize=MAX_CACHE)
 @file_io.with_local_path(force=True)
 def read_image(path: str, *, mode=ImageReadMode.RGB) -> up.data.tensors.Image:
     """Read an image from the disk."""
@@ -26,6 +28,7 @@ def read_image(path: str, *, mode=ImageReadMode.RGB) -> up.data.tensors.Image:
     return img.as_subclass(Image)
 
 
+@functools.lru_cache(maxsize=MAX_CACHE)
 @deprecated("Use PanopticMap.read instead.")
 def read_segmentation(
     path: str, info: up.data.sets.Metadata | None, /, **meta_kwds: T.Any
@@ -35,6 +38,7 @@ def read_segmentation(
     return PanopticMap.read(path, info, **meta_kwds)
 
 
+@functools.lru_cache(maxsize=MAX_CACHE)
 @file_io.with_local_path(force=True)
 def read_optical_flow(path: str) -> torch.Tensor:
     from flowops import Flow

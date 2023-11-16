@@ -328,6 +328,7 @@ class Trainer:
         )
 
     @status(TrainerStatus.EVALUATION)
+    @torch.inference_mode()
     def evaluate(
         self,
         model_factory: ModelFactory[Trial, nn.Module],
@@ -361,6 +362,7 @@ class Trainer:
 
     @status.assert_status(~(TrainerStatus.TRAINING | TrainerStatus.EVALUATION))
     @status(TrainerStatus.INFERENCE)
+    @torch.inference_mode()
     def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("pred")
@@ -447,6 +449,7 @@ class Trainer:
 
         self._xlr.wait_for_everyone()
 
+    @torch.inference_mode(False)
     def _train_loop(
         self,
         loader: torch.utils.data.DataLoader,

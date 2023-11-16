@@ -33,7 +33,7 @@ from unicore.utils.status import StatusDescriptor
 from unicore.utils.tensorclass import Tensorclass
 
 from ..utils.logutils import get_logger
-from ..utils.seed import enable_full_determinism, set_seed
+from ..utils.seed import set_seed
 from ._optimizer import OptimizerFactory
 from ._scheduler import SchedulerFactory
 from ._trial import SearchBackend, Trial
@@ -295,7 +295,7 @@ class Trainer:
         )
 
         # Instantiate a model through the model factory
-        model = model_factory(trial).to(self._xlr.device)
+        model = model_factory(trial)
         scheduled_epochs = self._config.get_train_epochs(steps_per_epoch)
         optimizer = self._get_optimizer(model)
         scheduler, train_epochs = self._get_scheduler(optimizer, scheduled_epochs, updates_per_epoch)
@@ -381,10 +381,7 @@ class Trainer:
         """
         Seed the random number generators.
         """
-        if self._config.full_determinism:
-            enable_full_determinism(self._config.seed)
-        else:
-            set_seed(self._config.seed)
+        set_seed(self._config.seed, fully_deterministic=self._config.full_determinism)
 
     def _event(self, event: Event, **kwargs) -> None:
         """
@@ -984,6 +981,9 @@ class Trainer:
         # Clear the past memory
         self._past = None
 
+        # Wait for everyone to finish writing
+        self._xlr.wait_for_everyone()
+
         # Run metric computations
         metrics: dict[str, float | str | int | bool] = {}
         visuals: dict[str, pil_image.Image] = {}
@@ -1020,8 +1020,9 @@ class Trainer:
             self._store_visualizations(visuals, prefix=prefix)
 
         # Remove the memmap file
-        del results_mem
         self._xlr.wait_for_everyone()
+
+        del results_mem
         if self._xlr.is_main_process:
             assert results_prefix is not None
             shutil.rmtree(results_prefix, ignore_errors=True)

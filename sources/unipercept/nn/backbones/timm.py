@@ -121,7 +121,7 @@ def build_extractor(
     else:
         idxs = tuple(out_indices)
 
-    return timm.models.FeatureGraphNet(mdl, out_indices=idxs)
+    return torch.jit.script(timm.models.FeatureGraphNet(mdl, out_indices=idxs))
 
     ## TODO: This is the old code, which is not compatible with the new timm version
     # m = timm.create_model(name, features_only=True, pretrained=pretrained)

@@ -1,17 +1,17 @@
 """Implements a generalized Feature Pyramid Network, with strong defaults."""
 
-from __future__ import annotations
+# from __future__ import annotations
 
 import enum
-import functools
 import itertools
 import logging
 import typing as T
 
 import torch
 import torch.nn as nn
-from tensordict import TensorDict, TensorDictBase
-from torch.utils.checkpoint import checkpoint, checkpoint_sequential
+import functools
+from tensordict import TensorDictBase
+from torch.utils.checkpoint import checkpoint
 from typing_extensions import override
 
 import unipercept.nn.layers as _ML
@@ -33,6 +33,26 @@ __all__ = [
 # _DEFAULT_ACTIVATION = functools.partial(nn.ReLU, inplace=True)
 _DEFAULT_ACTIVATION = nn.GELU
 _DEFAULT_NORM = _ML.norm.GroupNorm32
+
+
+class NodeConfig(T.TypedDict):
+    """
+    A dictionary that specifies the inputs and weight method for a feature pyramid network (FPN) node.
+
+    Attributes:
+        level (int): The level of the feature map, from the perspective of the backbone.
+        in_offsets (List[int]): The offsets of the input feature maps.
+        weight_method (str): The method used to weight the input feature maps.
+    """
+
+    level: int
+    in_offsets: list[int]
+    weight_method: str
+
+
+class Routing(T.TypedDict):
+    num_levels: int
+    nodes: T.Sequence[NodeConfig]
 
 
 class _Resample(nn.Sequential):
@@ -300,26 +320,6 @@ class FeaturePyramidNetworkLayer(nn.Module):
         return x[-self.num_levels : :]
 
 
-class NodeConfig(T.TypedDict):
-    """
-    A dictionary that specifies the inputs and weight method for a feature pyramid network (FPN) node.
-
-    Attributes:
-        level (int): The level of the feature map, from the perspective of the backbone.
-        in_offsets (List[int]): The offsets of the input feature maps.
-        weight_method (str): The method used to weight the input feature maps.
-    """
-
-    level: int
-    in_offsets: list[int]
-    weight_method: str
-
-
-class Routing(T.TypedDict):
-    num_levels: int
-    nodes: T.Sequence[NodeConfig]
-
-
 class FeaturePyramidNetwork(nn.Module):
     """Generic feature pyramid network."""
 
@@ -427,7 +427,7 @@ class FeaturePyramidNetwork(nn.Module):
 
         # Result
         for i, input in enumerate(inputs):
-            features.set(f"fpn.{i+1}", input, inplace=True)
+            features.set(f"fpn.{i+1}", input, inplace=not self.training)
 
         return features
         # return TensorDict(

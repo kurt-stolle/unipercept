@@ -158,7 +158,9 @@ def _wrap_init(
     return wrapper  # type: ignore
 
 
-def _wrap_forward(forward: T.Callable[[T, torch.Tensor], torch.Tensor]) -> T.Callable[[T, torch.Tensor], torch.Tensor]:
+def _wrap_forward(
+    forward: T.Callable[[_T, torch.Tensor], torch.Tensor]
+) -> T.Callable[[_T, torch.Tensor], torch.Tensor]:
     @functools.wraps(forward)
     def wrapper(self, x: torch.Tensor) -> torch.Tensor:
         if self.padding_dynamic:
@@ -177,9 +179,9 @@ def _pad_same_amount(x: int, kernel_size: int, stride: int, dilation: int) -> in
 
 def _pad_same(
     input: torch.Tensor,
-    kernel_size: T.Tuple[int, int],
-    stride: T.Tuple[int, int],
-    dilation: T.Tuple[int, int] = (1, 1),
+    kernel_size: T.Tuple[int, ...],
+    stride: T.Tuple[int, ...],
+    dilation: T.Tuple[int, ...] = (1, 1),
     value: float = 0.0,
 ) -> torch.Tensor:
     ih, iw = input.size()[-2:]
@@ -237,7 +239,7 @@ def with_padding_support(cls: type[_T]) -> type[_T]:
 
 
 class PaddingMixin:
-    padding_dynamic: T.Final[bool]
+    __constants__ = "padding_dynamic"
 
     @override
     def __init_subclass__(cls, **kwargs) -> None:
@@ -252,7 +254,7 @@ class PaddingMixin:
 
         return parsed
 
-    def _padding_forward(self, x: torch.Tensor, ks: T.Tuple[int, int], ss: T.Tuple[int, int], dl: T.Tuple[int, int]):
+    def _padding_forward(self, x: torch.Tensor, ks: T.Tuple[int, ...], ss: T.Tuple[int, ...], dl: T.Tuple[int, ...]):
         if self.padding_dynamic:
             x = _pad_same(x, ks, ss, dl)
         return x

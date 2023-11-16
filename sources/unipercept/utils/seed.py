@@ -4,10 +4,12 @@ Seed utilities for reproducible behavior during training.
 Based on PyTorch Lightning.
 """
 
+import torch
+import os
+import numpy as np
+import random
 
-from __future__ import annotations
-
-__all__ = ["seed_worker", "enable_full_determinism", "set_seed"]
+__all__ = ["seed_worker", "set_seed"]
 
 
 def seed_worker(_):
@@ -20,29 +22,20 @@ def seed_worker(_):
     set_seed(worker_seed)
 
 
-def enable_full_determinism(seed: int, warn_only: bool = False):
-    import os
-
-    import numpy as np
-    import torch
-
-    set_seed(seed)
-
-    # Enable PyTorch deterministic mode. This potentially requires either the environment
-    # variable 'CUDA_LAUNCH_BLOCKING' or 'CUBLAS_WORKSPACE_CONFIG' to be set,
-    # depending on the CUDA version, so we set them both here
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    torch.use_deterministic_algorithms(True, warn_only=warn_only)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-
-def set_seed(seed: int):
-    import random
-
-    import numpy as np
-    import torch
+def set_seed(seed: int, fully_deterministic: bool = False):
+    if fully_deterministic:
+        os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+        torch.use_deterministic_algorithms(True, warn_only=False)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+    else:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     random.seed(seed)
     np.random.seed(seed)

@@ -14,7 +14,7 @@ from .registry import pixel_maps
 __all__ = ["PanopticMap", "LabelsFormat"]
 
 if T.TYPE_CHECKING:
-    from ..types import Metadata
+    from ..sets import Metadata
 
 BYTE_OFFSET: T.Final[T.Literal[256]] = 256
 
@@ -45,7 +45,7 @@ class PanopticMap(_Mask):
     IGNORE: T.ClassVar[int] = -1
 
     @classmethod
-    @torch.inference_mode()
+    @torch.no_grad()
     def read(cls, path: str, info: Metadata | None, /, **meta_kwds) -> T.Self:
         """Read a panoptic map from a file."""
         from .helpers import get_kwd, read_pixels
@@ -79,7 +79,6 @@ class PanopticMap(_Mask):
                 labels = cls.from_combined(map_, divisor)
                 labels.translate_semantic_(
                     translation=info["translations_dataset"],
-                    ignore_label=ignore_label,
                 )
             case LabelsFormat.CITYSCAPES_VPS:
                 assert info is not None
@@ -96,6 +95,9 @@ class PanopticMap(_Mask):
                 labels = cls.from_parts(sem, ids)
 
             case LabelsFormat.KITTI:
+                assert info is not None
+                # KITTI STEP used as reference
+
                 img = read_pixels(path, color=True)
                 sem = img[:, :, 0]  # R-channel
                 ids = torch.add(
@@ -104,6 +106,7 @@ class PanopticMap(_Mask):
                 )
 
                 labels = cls.from_parts(sem, ids)
+                labels.translate_semantic_(info.translations_dataset)
             case LabelsFormat.VISTAS:
                 assert info is not None
                 divisor = info["label_divisor"]

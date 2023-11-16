@@ -1,74 +1,52 @@
-from __future__ import annotations
+# from __future__ import annotations
 
-from typing import Optional, Tuple
-
+import typing as T
 import torch
 import torch.nn as nn
-from torch import Tensor
 from typing_extensions import override
 
 from unipercept.utils.mask import masks_to_boxes
 
-from .loss_utils import NumStableLoss
+from .mixins import StableLossMixin, ScaledLossMixin
+from .functional import scale_invariant_logarithmic_error, relative_absolute_squared_error
 
 __all__ = [
-    "compute_sile",
-    "compute_rel",
     "DepthLoss",
     "DepthSmoothLoss",
     "PEDLoss",
     "SimpleSmoothnessLoss",
     "ScaleAndShiftInvariantLoss",
     "compute_smoothness_loss",
-    "mse_loss",
-    "gradient_loss",
     "MSELoss",
     "GradientLoss",
 ]
 
 
-def compute_sile(x: Tensor, y: Tensor, num: int, eps=1e-8) -> Tensor:
-    """Scale invariant logarithmic error."""
-    log_err = torch.log(x + eps) - torch.log(y + eps)
+class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
+    weights: torch.Tensor
 
-    sile_1 = log_err.square().sum() / num
-    sile_2 = log_err.sum().square() / (num**2)
-
-    return sile_1 - sile_2
-
-
-def compute_rel(x: Tensor, y: Tensor, num: int, eps=1e-8) -> tuple[Tensor, Tensor]:
-    """Square relative error and absolute relative error."""
-    err = x - y
-    err_rel = err / y.clamp(eps)
-    are = err_rel.abs().sum() / num
-
-    sre = err_rel.square().sum() / num
-    sre = sre.clamp(eps).sqrt()
-
-    return are, sre
-
-
-class DepthLoss(nn.Module):
-    def __init__(self, weight_sile=2.0, weight_are=1.0, weight_sre=1.0, **kwargs):
+    def __init__(self, *, scale=1.0, weight_sile=2.0, weight_are=1.0, weight_sre=1.0, **kwargs):
         super().__init__(**kwargs)
 
-        self.weight_sile = weight_sile
-        self.weight_are = weight_are
-        self.weight_sre = weight_sre
+        self.register_buffer(
+            "weights", torch.tensor([weight_sile, weight_are, weight_sre], dtype=torch.float, requires_grad=False)
+        )
 
     @override
+    @torch.jit.script_if_tracing
     def forward(
         self,
         true: torch.Tensor,
         pred: torch.Tensor,
         *,
         mask: torch.Tensor,
-    ) -> Tensor:
+    ) -> torch.Tensor:
         assert mask.dtype == torch.bool, mask.dtype
         assert mask.ndim >= 3, mask.ndim
 
-        mask = mask & (true > 0)
+        true = true.float()
+        pred = pred.float()
+        mask = mask & (true > self.eps)
         if not mask.any():
             return pred.sum() * 0.0
 
@@ -76,20 +54,21 @@ class DepthLoss(nn.Module):
         pred = pred[mask]
         n = true.numel()
 
-        sile = compute_sile(pred, true, n)
-        are, sre = compute_rel(pred, true, n)
+        sile = self._compute_sile(pred, true, n)
+        are, sre = self._compute_rel(pred, true, n)
 
-        loss = sile * self.weight_sile + are * self.weight_are + sre * self.weight_sre
+        loss = torch.stack([sile, are, sre]) * self.weights
 
-        return loss
+        return loss.sum() * self.scale
+
+    def _compute_sile(self, pred: torch.Tensor, true: torch.Tensor, num: int) -> torch.Tensor:
+        return scale_invariant_logarithmic_error(pred, true, num, self.eps)
+
+    def _compute_rel(self, pred: torch.Tensor, true: torch.Tensor, num: int) -> T.Tuple[torch.Tensor, torch.Tensor]:
+        return relative_absolute_squared_error(pred, true, num, self.eps)
 
 
-# Aliases for legacy code
-DepthInstanceLoss = DepthLoss
-DepthFlatLoss = DepthLoss
-
-
-class DepthSmoothLoss(NumStableLoss):
+class DepthSmoothLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     """
     Compute the depth smoothness loss, defined as the weighted smoothness
     of the inverse depth.
@@ -100,7 +79,8 @@ class DepthSmoothLoss(NumStableLoss):
         self.padded = False
 
     @override
-    def forward(self, images: Tensor, depths: Tensor, mask: Tensor | None) -> Tensor:
+    @torch.jit.script_if_tracing
+    def forward(self, images: torch.Tensor, depths: torch.Tensor, mask: torch.Optional[torch.Tensor]) -> torch.Tensor:
         if len(images) == 0:
             return depths.sum()
 
@@ -111,21 +91,21 @@ class DepthSmoothLoss(NumStableLoss):
         # idepths = 1 / (depths / self.depth_max).clamp(self.eps)
         # idepths = depths.float() / self.depth_max
         # idepths = depths
-        idepths = 1 / self._nsb(depths, is_small=True)
+        idepths = 1 / depths.clamp(self.eps)
 
         # compute the gradients
-        idepth_dx: Tensor = self._gradient_x(idepths)
-        idepth_dy: Tensor = self._gradient_y(idepths)
-        image_dx: Tensor = self._gradient_x(images)
-        image_dy: Tensor = self._gradient_y(images)
+        idepth_dx: torch.Tensor = self._gradient_x(idepths)
+        idepth_dy: torch.Tensor = self._gradient_y(idepths)
+        image_dx: torch.Tensor = self._gradient_x(images)
+        image_dy: torch.Tensor = self._gradient_y(images)
 
         # compute image weights
-        weights_x: Tensor = torch.exp(-torch.mean(torch.abs(image_dx) + self.eps, dim=1, keepdim=True))
-        weights_y: Tensor = torch.exp(-torch.mean(torch.abs(image_dy) + self.eps, dim=1, keepdim=True))
+        weights_x: torch.Tensor = torch.exp(-torch.mean(torch.abs(image_dx) + self.eps, dim=1, keepdim=True))
+        weights_y: torch.Tensor = torch.exp(-torch.mean(torch.abs(image_dy) + self.eps, dim=1, keepdim=True))
 
         # apply image weights to depth
-        smoothness_x: Tensor = torch.abs(idepth_dx * weights_x)
-        smoothness_y: Tensor = torch.abs(idepth_dy * weights_y)
+        smoothness_x: torch.Tensor = torch.abs(idepth_dx * weights_x)
+        smoothness_y: torch.Tensor = torch.abs(idepth_dy * weights_y)
 
         # compute shifted masks
         if self.padded:
@@ -161,12 +141,12 @@ class DepthSmoothLoss(NumStableLoss):
 
         return loss_x + loss_y
 
-    def _gradient_x(self, img: Tensor) -> Tensor:
+    def _gradient_x(self, img: torch.Tensor) -> torch.Tensor:
         if len(img.shape) != 4:
             raise AssertionError(img.shape)
         return img[:, :, :, :-1] - img[:, :, :, 1:]
 
-    def _gradient_y(self, img: Tensor) -> Tensor:
+    def _gradient_y(self, img: torch.Tensor) -> torch.Tensor:
         if len(img.shape) != 4:
             raise AssertionError(img.shape)
         return img[:, :, :-1, :] - img[:, :, 1:, :]
@@ -209,9 +189,9 @@ def compute_smoothness_loss(output, target):
 
     Parameters
     ----------
-    output : torch.Tensor
+    output
         Predicted disparity map.
-    target : torch.Tensor
+    target
         Input image (RGB or grayscale)
     """
 

@@ -1,31 +1,33 @@
-from __future__ import annotations
+"""
+An implementation of the DICE loss function for segmentation based on a padded tensor for separate background 
+and foreground classes.
+"""
 
-from typing import Optional
+# from __future__ import annotations
+
+import typing as T
 
 import torch
-from torch import Tensor, nn
+import torch.nn as nn
 from typing_extensions import override
 
-from .loss_utils import NumStableLoss, ReducableLoss
+from .mixins import StableLossMixin, ScaledLossMixin
 
 
-class WeightedStuffDiceLoss(NumStableLoss, ReducableLoss):
-    def __init__(self, *, reduction="sum", **kwargs):
+class WeightedStuffDiceLoss(StableLossMixin, ScaledLossMixin, nn.Module):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.reduction = reduction
-
-        assert reduction != "none"
-
     @override
+    @torch.jit.script_if_tracing
     def forward(
         self,
-        x: Tensor,
-        y: Tensor,
+        x: torch.Tensor,
+        y: torch.Tensor,
         y_num: int,
-        y_mask: Tensor | None,
-        index_mask: Tensor,
-    ) -> Tensor:
+        y_mask: torch.Optional[torch.Tensor],
+        index_mask: torch.Tensor,
+    ) -> torch.Tensor:
         if y_num == 0:
             return x.mean() * 0.0
 
@@ -43,43 +45,45 @@ class WeightedStuffDiceLoss(NumStableLoss, ReducableLoss):
             y_mask = y_mask.reshape(-1, h, w)[index_mask, ...]
             y_mask = y_mask.reshape(int(y_num), h * w)
 
-        return self._dice(x=x, y=y, y_valid=y_mask, weights=None)
+        return self._dice(x, y, y_mask, None)
 
     @torch.jit.export
+    @torch.jit.script_if_tracing
     def _dice(
         self,
-        x: Tensor,
-        y: Tensor,
-        y_valid: Tensor | None,
-        weights: Tensor | None,
-    ) -> Tensor:
+        x: torch.Tensor,
+        y: torch.Tensor,
+        y_valid: torch.Optional[torch.Tensor] = None,
+        weights: torch.Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         if y_valid is not None:
             invalid = torch.zeros_like(x)
             x = torch.where(y_valid, x, invalid)
             y = torch.where(y_valid, y, invalid)
 
         loss_part = (x**2).sum(dim=-1) + (y**2).sum(dim=-1)
-        loss = 1.0 - 2.0 * (y * x).sum(dim=-1) / self._nsb(loss_part)
+        loss = 1.0 - 2.0 * (y * x).sum(dim=-1) / loss_part.clamp(self.eps)
 
         if weights is not None:
             loss = loss * weights
 
-        return self._reduce(loss)
+        return loss.sum() * self.scale
 
 
 class WeightedThingDiceLoss(WeightedStuffDiceLoss):
     @override
+    @torch.jit.script_if_tracing
     def forward(
         self,
-        x: Tensor,
-        y: Tensor,
+        x: torch.Tensor,
+        y: torch.Tensor,
         y_num: int,
-        y_mask: Tensor | None,
-        index_mask: Tensor,
+        y_mask: torch.Optional[torch.Tensor],
+        index_mask: torch.Tensor,
         instance_num: int,
         weight_num: int,
-        weights: Tensor,
-    ) -> Tensor:
+        weights: torch.Tensor,
+    ) -> torch.Tensor:
         if y_num == 0:
             return x.sigmoid().mean() * 0.0
 
@@ -94,7 +98,7 @@ class WeightedThingDiceLoss(WeightedStuffDiceLoss):
         y = y.reshape(-1, weight_num, h, w)[index_mask, ...]
 
         weights = weights.reshape(-1, weight_num)[index_mask, ...]
-        weights = weights / self._nsb(weights.sum(dim=-1, keepdim=True))
+        weights = weights / weights.sum(dim=-1, keepdim=True).clamp(self.eps)
 
         x = torch.sigmoid(x)
 
@@ -106,4 +110,4 @@ class WeightedThingDiceLoss(WeightedStuffDiceLoss):
             y_mask = y_mask.reshape(-1, weight_num, h, w)[index_mask, ...]
             y_mask = y_mask.reshape(int(y_num), weight_num, h * w)
 
-        return self._dice(x=x, y=y, y_valid=y_mask, weights=weights)
+        return self._dice(x, y, y_mask, weights)

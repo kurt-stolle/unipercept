@@ -150,8 +150,11 @@ def draw_image(img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None) -> 
     Shows the given images.
     """
 
-    assert len(img.shape) == 3, f"Expected image with 3HW dimensions, got {img.shape}!"
-    assert img.shape[0] == 3, f"Expected image with 3 channels, got {img.shape[0]}!"
+    if img.ndim > 3:
+        img = img.squeeze(0)
+
+    assert len(img.shape) == 3, f"Expected image with CHW dimensions, got {img.shape}!"
+    assert img.shape[0] in (1, 3), f"Expected image with 1 or 3 channels, got {img.shape[0]}!"
 
     img = F.to_pil_image(img.detach())
 
@@ -206,8 +209,10 @@ def draw_image_depth(
 
     import seaborn as sns
 
-    while dep.ndim > 2:
+    if dep.ndim > 2:
         dep = dep.squeeze(0)
+    if dep.ndim > 2:
+        dep = dep.squeeze_(0)
 
     assert dep.ndim == 2, f"Expected image with HW dimensions, got {dep.shape}!"
 

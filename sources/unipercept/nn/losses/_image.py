@@ -27,14 +27,19 @@ class SSIMLoss(nn.Module):
     """
     Calculate the Structural Similarity Error between two vectors
 
-    Note:
-        SSIM(x,y) = [l(x,y)]^a * [c(x,y)]^b * [s(x,y)]^y, where l:luminance, c:contrast, s:structure
-        According to [1], we set a=b=y=1, and then SSIM(x,y) = (2*m_x*m_y+c1)(2*s_xy+c2)/(m_x^2 + m_y^2 + c1)(s_x_2 _s_y^2 + c2)
+    $$ SSIM(x,y) = [l(x,y)]^a * [c(x,y)]^b * [s(x,y)]^y $$
 
-    References:
-        Wang, Zhou, Eero P. Simoncelli, and Alan C. Bovik. "Multiscale structural similarity for image quality assessment."
+    where l:luminance, c:contrast, s:structure
+
+    According to [1], we set a=b=y=1, and then SSIM(x,y) = (2*m_x*m_y+c1)(2*s_xy+c2)/(m_x^2 + m_y^2 + c1)(s_x_2 _s_y^2 + c2)
+
+    References
+    ----------
+    [1] Wang, Zhou, Eero P. Simoncelli, and Alan C. Bovik. "Multiscale structural similarity for image quality assessment."
         Signals, Systems and Computers, 2004.
     """
+
+    __constants__ = ("c1", "c2")
 
     def __init__(self):
         super().__init__()
@@ -82,7 +87,5 @@ class SSIMLoss(nn.Module):
         clamp_norm_ssim = torch.clamp(
             norm_ssim, min=0, max=1
         )  # applies when denominator becomes small resulting in precision issues.
-        ### return torch.mean(input=clamp_norm_ssim, dim=(1,2,3), keepdim=True)
-        ## return torch.mean(input=clamp_norm_ssim, dim=(1,2,3), keepdim=True).mean()
-        # return torch.mean(input=clamp_norm_ssim, dim=1, keepdim=True) # (mean over 3 channels) # (N, 1, H, W)
+
         return clamp_norm_ssim

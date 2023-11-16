@@ -252,6 +252,7 @@ def prepare_images(
     from torch.utils.data import DataLoader
 
     from .model import InputData
+
     # List the images using a Glob pattern, such that we can determine whether we are dealing with a flat directory of
     # images or a directory of subdirectories of images.
     images_root = file_io.Path(images_dir).resolve().expanduser()
@@ -287,7 +288,7 @@ def prepare_images(
     seq_num = 0
     sequence_frame_indices = {}
     image_intseq = []
-    for (path, (seq, _)) in image_ordered:
+    for path, (seq, _) in image_ordered:
         if seq not in sequence_frame_indices:
             seq_num += 1
         frame_num = sequence_frame_indices.setdefault(seq, -1) + 1

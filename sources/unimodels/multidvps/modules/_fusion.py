@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typing as T
+from cycler import K
 
 import torch
 from tensordict import TensorDict
@@ -12,47 +13,50 @@ from typing_extensions import override
 
 import unipercept as up
 
-__all__ = ["KernelFusion", "ThingFusion", "StuffFusion"]
+__all__ = ["KernelFusion", "ThingFusion", "StuffFusion", "KernelMapper"]
 
 
-class KernelFusion(nn.Module):
-    """Baseclass for kernel fusion modules."""
+class KernelMapper(nn.Module):
+    """
+    Common kernel mapper for weight sharing between tasks.
+    """
+
+    input_key: T.Final[str]
+    input_dims: T.Final[int]
 
     def __init__(
         self,
-        key: str,
+        input_key: str,
         input_dims: int,
-        hidden_dims: int,
-        mapping: dict[str, up.nn.layers.MapMLP],
-        num_heads=4,
+        attention_heads: int,
+        attention_dims: int,
+        mapping: dict[str, nn.Module],
         dropout=0.0,
     ):
         super().__init__()
 
-        # linear = nn.Linear(dims, dims, bias=True)
-        # nn.init.orthogonal_(linear.weight)
-        # nn.utils.parametrizations.orthogonal(linear, name="weight")
-
-        self.key = key
+        self.input_key = input_key
+        self.input_dims = input_dims
 
         self.attention = nn.MultiheadAttention(
-            input_dims, kdim=hidden_dims, vdim=hidden_dims, num_heads=num_heads, batch_first=True
+            input_dims, kdim=attention_dims, vdim=attention_dims, num_heads=attention_heads, batch_first=True
         )
         self.norm = nn.LayerNorm(input_dims)
         self.dropout = nn.Dropout(dropout)
 
-        self.specific = nn.Linear(input_dims, hidden_dims)
+        self.specific = nn.Linear(input_dims, attention_dims)
+
+        # Mapping from multi to task-specific kernels
         self.mappings = nn.ModuleDict({to: mod for to, mod in mapping.items()})
+
+        # Initialize identity embeddings
         self.identities = nn.ParameterDict(
-            {to: nn.Parameter(torch.randn((1, 1, hidden_dims))) for to in mapping.keys()}
+            {to: nn.Parameter(torch.ones((1, 1, attention_dims))) for to in mapping.keys()}
         )
 
-    @override
-    def forward(
-        self, kernels: TensorDict, categories: Tensor | None, scores: Tensor | None
-    ) -> tuple[TensorDict, Tensor | None, Tensor | None]:
+    def forward(self, kernels: TensorDict) -> TensorDict:
         # Map input kernel via `self.input` layer
-        k_input = kernels.get(self.key)
+        k_input = kernels.get(self.input_key)
         k_specific = self.specific(k_input)
 
         # Map outputs via `self.mapper` layers
@@ -65,6 +69,19 @@ class KernelFusion(nn.Module):
 
             kernels = kernels.set(to, k_out, inplace=not self.training)
 
+        return kernels
+
+
+class KernelFusion(nn.Module):
+    """Baseclass for kernel fusion modules."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @override
+    def forward(
+        self, kernels: TensorDict, categories: Tensor | None, scores: Tensor | None
+    ) -> tuple[TensorDict, Tensor | None, Tensor | None]:
         # Perform fusion operation
         if not self.training:
             assert categories is not None
@@ -127,9 +144,14 @@ class StuffFusion(KernelFusion):
 class ThingFusion(KernelFusion):
     """Fuses kernels that are similar to each other."""
 
-    def __init__(self, *args, fusion_threshold: float, mask_categories=True, **kwargs):
-        super().__init__(*args, **kwargs)
+    fusion_key: T.Final[str]
+    fusion_threshold: T.Final[float]
+    mask_categories: T.Final[bool]
 
+    def __init__(self, *, fusion_key: str, fusion_threshold: float, mask_categories=True, **kwargs):
+        super().__init__(**kwargs)
+
+        self.fusion_key = fusion_key
         self.fusion_threshold = fusion_threshold
         self.mask_categories = mask_categories
         self.similarity = CosineSelfSimilarity()
@@ -141,7 +163,7 @@ class ThingFusion(KernelFusion):
         Kernel weights are considered identical if the cosine similarity surpasses threshold ``self.sim_thres``.
         """
 
-        sim_emb = kernels.get(self.key)
+        sim_emb = kernels.get(self.fusion_key)
         sim_matrix = self.similarity(sim_emb, 1)
 
         # The method `Tensor.trui` returns the upper triagonal part
@@ -179,6 +201,8 @@ class ThingFusion(KernelFusion):
 
 class CosineSelfSimilarity(nn.Module):
     """Measures the cosine similarity between all pairs of kernels."""
+
+    eps: T.Final[float]
 
     def __init__(self, eps=1e-8):
         super().__init__()

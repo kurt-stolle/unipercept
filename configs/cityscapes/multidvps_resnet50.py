@@ -30,7 +30,7 @@ trainer = B(up.trainer.Trainer)(
         eval_epochs=4,
         save_epochs=4,
     ),
-    optimizer=L(up.trainer.OptimizerFactory)(opt="adamw", lr=1e-3, fused=True),
+    optimizer=L(up.trainer.OptimizerFactory)(opt="sgd", lr=1e-2),
     scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
@@ -142,40 +142,31 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             ),
         },
     ),
-    fusion_thing=L(multidvps.modules.ThingFusion)(
-        key=multidvps.KEY_MULTI,
+    kernel_mapper=L(multidvps.modules.KernelMapper)(
+        input_key=multidvps.KEY_MULTI,
         input_dims=MULTI_DIMS,
-        hidden_dims=FUSION_DIMS,
-        fusion_threshold=0.97,
-        dropout=0.1,
+        attention_dims=FUSION_DIMS,
+        attention_heads=4,
+        dropout=0.0,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(
-                in_channels=T.cast(int, "${...input_dims}"), out_channels=MASK_DIMS, dropout=0.1
+                in_channels=T.cast(int, "${...input_dims}"), out_channels=MASK_DIMS, dropout=0.0,
             ),
             multidvps.KEY_DEPTH: L(up.nn.layers.MapMLP)(
-                in_channels=T.cast(int, "${...input_dims}"), out_channels=DEPTH_DIMS, dropout=0.1
+                in_channels=T.cast(int, "${...input_dims}"), out_channels=DEPTH_DIMS, dropout=0.0,
             ),
-            multidvps.KEY_REID: L(up.nn.layers.MapMLP)(
+            multidvps.KEY_REID: L(up.nn.layers.EmbedMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
                 out_channels=REID_DIMS,
-                dropout=0.1,
+                dropout=0.0,
             ),
         },
     ),
-    fusion_stuff=L(multidvps.modules.StuffFusion)(
-        key=multidvps.KEY_MULTI,
-        input_dims=MULTI_DIMS,
-        hidden_dims=FUSION_DIMS,
-        dropout=0.1,
-        mapping={
-            multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(
-                in_channels=T.cast(int, "${...input_dims}"), out_channels=MASK_DIMS, dropout=0.1
-            ),
-            multidvps.KEY_DEPTH: L(up.nn.layers.MapMLP)(
-                in_channels=T.cast(int, "${...input_dims}"), out_channels=DEPTH_DIMS, dropout=0.1
-            ),
-        },
+    fusion_thing=L(multidvps.modules.ThingFusion)(
+        fusion_key=multidvps.KEY_MASK,
+        fusion_threshold=0.95,
     ),
+    fusion_stuff=L(multidvps.modules.StuffFusion)(),
     maskifier_thing=L(multidvps.modules.MaskHead)(
         key=multidvps.KEY_MASK,
     ),
@@ -200,7 +191,14 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     ),
     training_pipeline=L(multidvps.logic.training.TrainingPipeline.from_metadata)(
         name=DATASET_NAME,
-        loss_location_weight=[6.0, 4.0],  # [thing, stuff]
+        truth_generator=L(multidvps.modules.supervision.TruthGenerator.from_metadata)(
+            name=DATASET_NAME,
+            ignore_val=-1,
+            common_stride=4,
+            min_overlap=0.7,
+            gaussian_sigma=3,
+        ),
+        loss_location_weight=[8.0, 6.0],  # [thing, stuff]
         loss_location_thing=L(up.nn.losses.SigmoidFocalLoss)(
             alpha=0.33,
             gamma=1.8,
@@ -209,40 +207,13 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             alpha=0.25,
             gamma=1.8,
         ),
-        loss_segment_thing=L(up.nn.losses.WeightedLoss)(
-            loss=L(up.nn.losses.WeightedThingDiceLoss)(),
-            weight=20.0,
-        ),  # type: ignore
-        loss_segment_stuff=L(up.nn.losses.WeightedLoss)(
-            loss=L(up.nn.losses.WeightedStuffDiceLoss)(),
-            weight=15.0,
-        ),  # type: ignore
-        loss_depth_means=L(up.nn.losses.WeightedLoss)(
-            loss=L(up.nn.losses.DepthLoss)(),
-            weight=1.0,
-        ),
-        loss_depth_values=L(up.nn.losses.WeightedLoss)(
-            loss=L(up.nn.losses.DepthLoss)(),
-            weight=4.0,
-        ),
-        truth_generator=L(multidvps.modules.supervision.TruthGenerator.from_metadata)(
-            name=DATASET_NAME,
-            ignore_val=-1,
-            common_stride=4,
-            min_overlap=0.7,
-            gaussian_sigma=3,
-        ),
-        loss_reid=L(up.nn.losses.WeightedLoss)(
-            loss=L(nn.TripletMarginLoss)(),
-            weight=1.0,
-        ),
-        loss_dgp=L(up.nn.losses.WeightedLoss)(
-            loss=L(up.nn.losses.DGPLoss)(),
-            weight=1.0,
-        ),
-        loss_pgt=L(up.nn.losses.WeightedLoss)(
-            loss=L(up.nn.losses.PGTLoss)(),
-            weight=1.0,
-        ),
+        loss_segment_thing=L(up.nn.losses.WeightedThingDiceLoss)(scale=14.0),
+        loss_segment_stuff=L(up.nn.losses.WeightedStuffDiceLoss)(scale=8.0),
+        loss_depth_means=L(up.nn.losses.DepthLoss)(scale=1.0),
+        loss_depth_values=L(up.nn.losses.DepthLoss)(scale=4.0),
+        loss_reid=L(up.nn.losses.TripletMarginSimilarityLoss)(),
+        loss_dgp=L(up.nn.losses.DGPLoss)(scale=0.5),
+        loss_pgt=L(up.nn.losses.PGTLoss)(scale=0.5),
+        loss_pgs=L(up.nn.losses.PGSLoss)(scale=0.5),
     ),
 )

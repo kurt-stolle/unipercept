@@ -37,7 +37,7 @@ data = B(up.data.DataConfig)(
             sampler=L(up.data.SamplerFactory)(sampler="training"),
             config=L(up.data.DataLoaderConfig)(
                 # num_workers=36,
-                prefetch_factor=10,
+                prefetch_factor=4,
                 drop_last=True,
                 pin_memory=True,
             ),
@@ -62,7 +62,7 @@ data = B(up.data.DataConfig)(
             config=L(up.data.DataLoaderConfig)(
                 pin_memory=True,
                 drop_last=False,
-                prefetch_factor=10,
+                prefetch_factor=4,
                 # num_workers=36,
             ),
         ),

@@ -46,6 +46,7 @@ class InferencePipeline(nn.Module):
 
         assert 0 <= self.inst_thres <= 1, "inst_thres must be in range [0, 1]"
 
+    @torch.jit.script_if_tracing
     def predict_things(
         self,
         ctx: Context,
@@ -67,7 +68,7 @@ class InferencePipeline(nn.Module):
         if num == 0:
             device = ctx.embeddings.device
             return (
-                TensorDict({}, batch_size=[], device=device),
+                kernels[0],
                 torch.empty(0, device=device),
                 torch.empty(0, device=device),
             )

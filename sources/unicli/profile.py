@@ -117,6 +117,16 @@ def main(args):
     _logger.info("Preparing dataset")
     loader, info = up.prepare_dataset(config, variant=args.loader, batch_size=1)
 
+    # Profile with snapshot
+    _logger.info("Profiling model with snapshot")
+    torch.cuda.memory._record_memory_history()
+
+    for _ in tqdm(range(args.iterations)):
+        data = _fetch_data(loader, args.device, args.fp16)
+        handler(model, data)
+
+    torch.cuda.memory._dump_snapshot(str(path_export / "cuda_snapshot.pkl"))
+
     # Run the profiler
     _logger.info("Profiling model")
     with torch.profiler.profile(
@@ -162,6 +172,7 @@ def profile(subparser: argparse.ArgumentParser):
         default="self_cpu_memory_usage",
         help="sort by this column when showing output in console",
     )
+    subparser.add_argument("--memory", "-m", action="store_true", help="profile memory", default=True)
 
     mode = subparser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--training", "-T", action="store_true", help="profile training")

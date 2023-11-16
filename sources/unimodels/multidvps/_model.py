@@ -31,6 +31,7 @@ if T.TYPE_CHECKING:
         MaskHead,
         StuffFusion,
         ThingFusion,
+        KernelMapper,
     )
     from unipercept.nn.backbones import Backbone
     from unipercept.nn.layers.tracking import StatefulTracker
@@ -56,6 +57,7 @@ class MultiDVPS(up.model.ModelBase):
         weighted_num: int,
         backbone: Backbone,
         detector: Detector,
+        kernel_mapper: KernelMapper,
         fusion_thing: ThingFusion,
         fusion_stuff: StuffFusion,
         feature_encoder: FeatureEncoder,
@@ -91,6 +93,7 @@ class MultiDVPS(up.model.ModelBase):
         self.training_pipeline = training_pipeline
         self.inference_pipeline = inference_pipeline
         self.detector = detector
+        self.kernel_mapper = kernel_mapper
         self.fusion_thing = fusion_thing
         self.fusion_stuff = fusion_stuff
         self.feature_encoder = feature_encoder
@@ -172,6 +175,7 @@ class MultiDVPS(up.model.ModelBase):
             logic.training.detect_things, multidets, true_thing, weighted_num=self.weighted_num
         )
         thing_kernels: TensorDict = torch.cat(thing_kernels_multi, dim=1)  # type: ignore
+        thing_kernels = self.kernel_mapper(thing_kernels)
         thing_kernels, _, _ = self.fusion_thing(thing_kernels, None, None)
         thing_num = sum(thing_nums)
         thing_weights = torch.cat(thing_weights, dim=1)
@@ -184,6 +188,7 @@ class MultiDVPS(up.model.ModelBase):
         )
         # stuff_num = sum(stuff_nums)
         stuff_kernels: TensorDict = torch.cat(stuff_kernels_multi, dim=1)  # type: ignore
+        stuff_kernels = self.kernel_mapper(stuff_kernels)
         stuff_kernels, _, _ = self.fusion_stuff(stuff_kernels, None, None)
 
         # ================== #
@@ -505,6 +510,7 @@ class MultiDVPS(up.model.ModelBase):
         kernels, cats, scores = self.inference_pipeline.predict_things(ctx)
 
         # Generate things
+        kernels = self.kernel_mapper(kernels)
         kernels, cats, scores = self.fusion_thing(kernels, cats, scores)
         thing_logits = self.maskifier_thing(
             features=ctx.embeddings,
@@ -562,6 +568,7 @@ class MultiDVPS(up.model.ModelBase):
         )
 
         # Fusion
+        kernels = self.kernel_mapper(kernels)
         kernels, categories, scores = self.fusion_stuff(kernels, categories, scores)
 
         # Generate semantic predictions

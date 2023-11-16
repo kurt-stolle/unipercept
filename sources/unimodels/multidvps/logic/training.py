@@ -49,11 +49,12 @@ class TrainingPipeline(nn.Module):
         loss_location_stuff: losses.SigmoidFocalLoss,
         loss_segment_thing: losses.WeightedThingDiceLoss,
         loss_segment_stuff: losses.WeightedStuffDiceLoss,
-        loss_reid: nn.TripletMarginLoss,
+        loss_reid: losses.TripletMarginSimilarityLoss,
         loss_depth_values: nn.Module,
         loss_depth_means: nn.Module,
         loss_pgt: losses.PGTLoss,
         loss_dgp: losses.DGPLoss,
+        loss_pgs: losses.PGSLoss,
         truth_generator: TruthGenerator,
         stuff_channels: int,
     ):
@@ -68,19 +69,20 @@ class TrainingPipeline(nn.Module):
         assert self.loss_location_stuff_weight >= 0.0 and math.isfinite(self.loss_location_stuff_weight)
 
         # Segmentation loss
-        self.loss_segment_things = loss_segment_thing
-        self.loss_segment_stuff = loss_segment_stuff
+        self.loss_segment_things = torch.jit.script(loss_segment_thing)
+        self.loss_segment_stuff = torch.jit.script(loss_segment_stuff)
 
         # Depth loss
-        self.loss_depth_means = loss_depth_means
-        self.loss_depth_values = loss_depth_values
+        self.loss_depth_means = torch.jit.script(loss_depth_means)
+        self.loss_depth_values = torch.jit.script(loss_depth_values)
 
         # PGT loss
         self.loss_pgt = loss_pgt
         self.loss_dgp = loss_dgp
+        self.loss_pgs = loss_pgs
 
         # Tracking loss
-        self.loss_reid: nn.TripletMarginWithDistanceLoss = loss_reid  # type: ignore
+        self.loss_reid = loss_reid
 
         # Truth generator for training
         self.truth_generator = truth_generator

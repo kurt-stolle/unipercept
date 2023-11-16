@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import enum
-
+import typing as T
 import torch
 import torch.nn as nn
-from einops import rearrange
 from tensordict import TensorDict
-from timm.layers import trunc_normal_
 from torch import Tensor
 from typing_extensions import override
 from unicore.utils.tensorclass import Tensorclass
 
-from unipercept.nn.layers import MapMLP
 from unipercept.nn.layers.ops import dynamic_conv2d
-from unipercept.nn.layers.weight import init_trunc_normal_
 
 __all__ = ["DepthPrediction", "DepthHead"]
 
@@ -52,6 +47,7 @@ class DepthHead(nn.Module):
         self.register_buffer(
             "max_depth", torch.tensor(max_depth, dtype=torch.float32, requires_grad=False), persistent=False
         )
+        self.register_buffer("min_depth", torch.tensor(1, dtype=torch.float32, requires_grad=False), persistent=False)
 
         self.attention = nn.MultiheadAttention(normal_dims, num_heads=num_heads, batch_first=True)
 
@@ -89,8 +85,27 @@ class DepthHead(nn.Module):
         m = self.to_mean(a).sigmoid() * self.max_depth
         r = self.to_range(a).sigmoid().log1p() * self.max_depth
 
-        # Ensure range is positive
         return m, r
+
+    def _convert_to_absolute_depth(self, disparity: torch.Tensor) -> T.Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Convert network output ([0,1]) into depth prediction ([0,max_depth])
+        """
+        min_disp = 1 / self.max_depth
+        max_disp = 1 / self.min_depth
+        scaled_disp = min_disp + (max_disp - min_disp) * disparity
+        depth = 1 / scaled_disp
+        return scaled_disp, depth
+
+    def _convert_to_normalized_disparity(self, depth: torch.Tensor) -> T.Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Convert depth prediction ([0,max_depth]) into network output ([0,1])
+        """
+        min_disp = 1 / self.max_depth
+        max_disp = 1 / self.min_depth
+        scaled_disp = 1 / depth
+        disparity = (scaled_disp - min_disp) / (max_disp - min_disp)
+        return scaled_disp, disparity
 
     @override
     def forward(
@@ -115,6 +130,6 @@ class DepthHead(nn.Module):
 
         # Ensure values are in range
         # d = d.clamp(min=0.0).clamp(max=self.max_depth)
-        d = d.relu()
+        d = d.clamp(self.min_depth, self.max_depth)
 
         return d, m if return_means else None

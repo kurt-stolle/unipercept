@@ -23,7 +23,8 @@ class DepthHead(nn.Module):
     Generates a depth map from a kernel embeddding and feature space
     """
 
-    max_depth: Tensor
+    max_depth: T.Final[float]
+    min_depth: T.Final[float]
 
     def __init__(
         self,
@@ -31,30 +32,27 @@ class DepthHead(nn.Module):
         kernel_keys: list[str] | tuple[str, str],
         kernel_dims: list[int] | tuple[int, int],
         max_depth: float,
-        num_heads=4,
+        min_depth: float = 1.0,
+        num_heads: int=4,
         normal_dims: int = 16,
+        dropout=0.0
     ):
         super().__init__()
 
         if len(kernel_keys) != 2:
             raise ValueError("Depth head requires two kernels.")
-        # elif len(kernel_dims) != 2:
-        #     raise ValueError("Depth head requires two kernel dimensions.")
+        elif len(kernel_dims) != 2:
+            raise ValueError("Depth head requires two kernel dimensions.")
 
         self.feature_key = feature_key
         self.kernel_keys = kernel_keys
 
-        self.register_buffer(
-            "max_depth", torch.tensor(max_depth, dtype=torch.float32, requires_grad=False), persistent=False
-        )
-        self.register_buffer("min_depth", torch.tensor(1, dtype=torch.float32, requires_grad=False), persistent=False)
+        self.max_depth = max_depth
+        self.min_depth = min_depth
 
-        self.attention = nn.MultiheadAttention(normal_dims, num_heads=num_heads, batch_first=True)
-
-        self.proj_q = nn.Linear(kernel_dims[0], normal_dims)
-        self.proj_k = nn.Linear(kernel_dims[1], normal_dims)
-        self.proj_v = nn.Linear(kernel_dims[0], normal_dims)
-
+        self.project = nn.Linear(kernel_dims[0], normal_dims)
+        self.attention = nn.MultiheadAttention(normal_dims, kdim=kernel_dims[0], vdim=kernel_dims[1], dropout=dropout, num_heads=num_heads, batch_first=True)
+        self.norm = nn.LayerNorm(normal_dims)
         self.to_mean = nn.Linear(normal_dims, 1)
         self.to_range = nn.Linear(normal_dims, 1)
 
@@ -76,10 +74,10 @@ class DepthHead(nn.Module):
         Mean (batch x 1), range (batch x 1)
         """
         # Compute attention
-        q = self.proj_q(k_depth)
-        k = self.proj_k(k_mask)
-        v = self.proj_v(k_depth)
-        a, w = self.attention(q, k, v)
+        n = self.project(k_depth)
+        a, _ = self.attention(n, k_depth, k_mask, needs_weights=False)
+        n = self.norm(n + a)
+
 
         # Compute mean and range
         m = self.to_mean(a).sigmoid() * self.max_depth

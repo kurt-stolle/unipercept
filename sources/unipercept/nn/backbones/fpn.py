@@ -31,7 +31,7 @@ __all__ = [
 ]
 
 # _DEFAULT_ACTIVATION = functools.partial(nn.ReLU, inplace=True)
-_DEFAULT_ACTIVATION = nn.GELU
+_DEFAULT_ACTIVATION = nn.SiLU
 _DEFAULT_NORM = _ML.norm.GroupNorm32
 
 

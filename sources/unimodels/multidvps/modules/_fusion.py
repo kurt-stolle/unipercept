@@ -29,7 +29,6 @@ class KernelMapper(nn.Module):
         input_key: str,
         input_dims: int,
         attention_heads: int,
-        attention_dims: int,
         mapping: dict[str, nn.Module],
         dropout=0.0,
     ):
@@ -39,35 +38,31 @@ class KernelMapper(nn.Module):
         self.input_dims = input_dims
 
         self.attention = nn.MultiheadAttention(
-            input_dims, kdim=attention_dims, vdim=attention_dims, num_heads=attention_heads, batch_first=True
+            input_dims, num_heads=attention_heads, batch_first=True, dropout=dropout
         )
         self.norm = nn.LayerNorm(input_dims)
-        self.dropout = nn.Dropout(dropout)
-
-        self.specific = nn.Linear(input_dims, attention_dims)
 
         # Mapping from multi to task-specific kernels
         self.mappings = nn.ModuleDict({to: mod for to, mod in mapping.items()})
 
         # Initialize identity embeddings
         self.identities = nn.ParameterDict(
-            {to: nn.Parameter(torch.ones((1, 1, attention_dims))) for to in mapping.keys()}
+            {to: nn.Parameter(torch.randn((1, 1, input_dims))) for to in mapping.keys()}
         )
 
+    @override
     def forward(self, kernels: TensorDict) -> TensorDict:
         # Map input kernel via `self.input` layer
-        k_input = kernels.get(self.input_key)
-        k_specific = self.specific(k_input)
+        k_in = kernels.get(self.input_key)
 
         # Map outputs via `self.mapper` layers
         for to in self.mappings.keys():
-            k_id = self.identities[to].expand_as(k_specific)
-            k_attn, _ = self.attention(k_input, k_id, k_specific, need_weights=False)
-            k_to = self.norm(k_input + self.dropout(k_attn))
+            t = self.identities[to].expand_as(k_in)
+            a, _ = self.attention(k_in, t, k_in, need_weights=False)
+            k_to = self.norm(k_in + a)
+            k_to = self.mappings[to](k_to)
 
-            k_out = self.mappings[to](k_to)
-
-            kernels = kernels.set(to, k_out, inplace=not self.training)
+            kernels = kernels.set(to, k_to, inplace=not self.training)
 
         return kernels
 

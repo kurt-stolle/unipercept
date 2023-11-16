@@ -169,7 +169,7 @@ def create_model(
 
 
 def prepare_dataset(
-    config: ConfigParam, variant: str = "test", batch_size: int = 1, return_loader: bool = False
+    config: ConfigParam, variant: str = "test", batch_size: int = 1, return_loader: bool = True 
 ) -> tuple[T.Iterator[InputData], Metadata]:
     """
     Create an iterator of a dataloader as specified in a configuration file.

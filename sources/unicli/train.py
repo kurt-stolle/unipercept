@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import typing as T
 
+import torch
 import torch.nn as nn
 
 import unipercept as up
@@ -17,6 +18,10 @@ _config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.trainer
 
 
 def main(args):
+    if args.anomalies:
+        _logger.info("Enabling anomaly detection in autograd")
+        torch.autograd.set_detect_anomaly(True)
+
     cfg: _config_t = args.config
 
     # Print a Python representation of the config

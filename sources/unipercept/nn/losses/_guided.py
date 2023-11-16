@@ -75,7 +75,7 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         loss = torch.masked_select(loss, mask)  # N x C x P'
 
         # Calculate overall loss
-        total_loss = torch.sum(loss) / loss.shape[0]
+        total_loss = torch.sum(loss) / max(loss.shape[0], 1)
         return total_loss * self.scale
 
 

@@ -13,7 +13,7 @@ from typing_extensions import override
 
 import unipercept as up
 
-__all__ = ["KernelFusion", "ThingFusion", "StuffFusion", "KernelMapper"]
+__all__ = ["BaseKernelFusion", "ThingFusion", "StuffFusion", "KernelMapper"]
 
 
 class KernelMapper(nn.Module):
@@ -37,26 +37,24 @@ class KernelMapper(nn.Module):
         self.input_key = input_key
         self.input_dims = input_dims
 
-        self.attention = nn.MultiheadAttention(
-            input_dims, num_heads=attention_heads, batch_first=True, dropout=dropout
-        )
+        self.attention = nn.MultiheadAttention(input_dims, num_heads=attention_heads, batch_first=True, dropout=dropout)
         self.norm = nn.LayerNorm(input_dims)
 
         # Mapping from multi to task-specific kernels
         self.mappings = nn.ModuleDict({to: mod for to, mod in mapping.items()})
 
         # Initialize identity embeddings
-        self.identities = nn.ParameterDict(
-            {to: nn.Parameter(torch.randn((1, 1, input_dims))) for to in mapping.keys()}
-        )
+        self.identities = nn.ParameterDict({to: nn.Parameter(torch.randn((1, 1, input_dims))) for to in mapping.keys()})
 
     @override
-    def forward(self, kernels: TensorDict) -> TensorDict:
+    def forward(self, kernels: TensorDict, embedding_keys: T.List[str]) -> TensorDict:
         # Map input kernel via `self.input` layer
         k_in = kernels.get(self.input_key)
 
         # Map outputs via `self.mapper` layers
         for to in self.mappings.keys():
+            if to not in embedding_keys:
+                continue
             t = self.identities[to].expand_as(k_in)
             a, _ = self.attention(k_in, t, k_in, need_weights=False)
             k_to = self.norm(k_in + a)
@@ -67,11 +65,11 @@ class KernelMapper(nn.Module):
         return kernels
 
 
-class KernelFusion(nn.Module):
+class BaseKernelFusion(nn.Module):
     """Baseclass for kernel fusion modules."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self):
+        super().__init__()
 
     @override
     def forward(
@@ -108,11 +106,11 @@ class KernelFusion(nn.Module):
         raise NotImplementedError()
 
 
-class StuffFusion(KernelFusion):
+class StuffFusion(BaseKernelFusion):
     """Fuse kernels that belong to the same category."""
 
     @override
-    def _kernel_fusion(self, kernels: TensorDict, categories: Tensor, scores: Tensor):
+    def _kernel_fusion(self, *, kernels: TensorDict, categories: Tensor, scores: Tensor):
         """Fuse all kernels that belong to the same category for stuff."""
         uniq = torch.unique(categories)
 
@@ -136,7 +134,7 @@ class StuffFusion(KernelFusion):
         return kernels, uniq, scores
 
 
-class ThingFusion(KernelFusion):
+class ThingFusion(BaseKernelFusion):
     """Fuses kernels that are similar to each other."""
 
     fusion_key: T.Final[str]

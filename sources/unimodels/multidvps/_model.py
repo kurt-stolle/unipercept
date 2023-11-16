@@ -44,11 +44,13 @@ __all__ = ["MultiDVPS"]
 class MultiDVPS(up.model.ModelBase):
     """Depth-Aware Video Panoptic Segmentation model using dynamic convolutions."""
 
-    id_map_thing: T.Final[T.Mapping[int, int]]
-    id_map_stuff: T.Final[T.Mapping[int, int]]
+    id_map_thing: T.Final[T.Dict[int, int]]
+    id_map_stuff: T.Final[T.Dict[int, int]]
     stuff_with_things: T.Final[bool]
     stuff_all_classes: T.Final[bool]
-    depth_fixed: T.Final[dict[int, float]]
+    depth_fixed: T.Final[T.Dict[int, float]]
+    thing_embeddings: T.Final[T.List[str]]
+    stuff_embeddings: T.Final[T.List[str]]
 
     def __init__(
         self,
@@ -70,6 +72,8 @@ class MultiDVPS(up.model.ModelBase):
         stuff_with_things: bool,
         stuff_all_classes: bool,
         depth_mapper: T.Optional[DepthHead],
+        thing_embeddings: T.List[str],
+        stuff_embeddings: T.List[str],
         depth_fixed: T.Optional[dict[int, float]] = None,
         tracker: T.Optional[StatefulTracker] = None,
     ) -> None:
@@ -84,6 +88,10 @@ class MultiDVPS(up.model.ModelBase):
         self.id_map_stuff = {int(k): int(v) for k, v in id_map_stuff.items()}
         self.stuff_with_things = stuff_with_things
         self.stuff_all_classes = stuff_all_classes
+
+        # Keys that are used for the thing and stuff embeddings
+        self.thing_embeddings = thing_embeddings
+        self.stuff_embeddings = stuff_embeddings
 
         # Categories for which the depth always has a fixed value, e.g. the sky.
         self.depth_fixed = {} if depth_fixed is None else depth_fixed
@@ -151,6 +159,12 @@ class MultiDVPS(up.model.ModelBase):
             device=captures_flat.device,
         )
 
+    def _map_thing_kernels(self, kernels: TensorDict) -> TensorDict:
+        return self.kernel_mapper(kernels, self.thing_embeddings)
+
+    def _map_stuff_kernels(self, kernels: TensorDict) -> TensorDict:
+        return self.kernel_mapper(kernels, self.stuff_embeddings)
+
     # ---------------- #
     # Training methods #
     # ---------------- #
@@ -175,7 +189,7 @@ class MultiDVPS(up.model.ModelBase):
             logic.training.detect_things, multidets, true_thing, weighted_num=self.weighted_num
         )
         thing_kernels: TensorDict = torch.cat(thing_kernels_multi, dim=1)  # type: ignore
-        thing_kernels = self.kernel_mapper(thing_kernels)
+        thing_kernels = self._map_thing_kernels(thing_kernels)
         thing_kernels, _, _ = self.fusion_thing(thing_kernels, None, None)
         thing_num = sum(thing_nums)
         thing_weights = torch.cat(thing_weights, dim=1)
@@ -188,7 +202,7 @@ class MultiDVPS(up.model.ModelBase):
         )
         # stuff_num = sum(stuff_nums)
         stuff_kernels: TensorDict = torch.cat(stuff_kernels_multi, dim=1)  # type: ignore
-        stuff_kernels = self.kernel_mapper(stuff_kernels)
+        stuff_kernels = self._map_stuff_kernels(stuff_kernels)
         stuff_kernels, _, _ = self.fusion_stuff(stuff_kernels, None, None)
 
         # ================== #
@@ -510,7 +524,7 @@ class MultiDVPS(up.model.ModelBase):
         kernels, cats, scores = self.inference_pipeline.predict_things(ctx)
 
         # Generate things
-        kernels = self.kernel_mapper(kernels)
+        kernels = self._map_thing_kernels(kernels)
         kernels, cats, scores = self.fusion_thing(kernels, cats, scores)
         thing_logits = self.maskifier_thing(
             features=ctx.embeddings,
@@ -568,7 +582,7 @@ class MultiDVPS(up.model.ModelBase):
         )
 
         # Fusion
-        kernels = self.kernel_mapper(kernels)
+        kernels = self._map_stuff_kernels(kernels)
         kernels, categories, scores = self.fusion_stuff(kernels, categories, scores)
 
         # Generate semantic predictions

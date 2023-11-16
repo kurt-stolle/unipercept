@@ -111,8 +111,8 @@ def segmentation_guided_triplet_loss(
 
     # Split both depth estimated output and panoptic label into NxN patches
     # P ~= (H * W) / (5 * 5)
-    seg_patch = split_into_patches(seg_true, (patch_height, patch_width))  # N x 1 x P x 5 x 5
-    dep_patch = split_into_patches(dep_feat, (patch_height, patch_width))  # N x C x P x 5 x 5
+    seg_patch = split_into_patches(seg_true, (patch_height, patch_width), (patch_height, patch_width))  # N x 1 x P x 5 x 5
+    dep_patch = split_into_patches(dep_feat, (patch_height, patch_width), (patch_height, patch_width))  # N x C x P x 5 x 5
 
     # Discard patches that have a panoptic value below 0 (ignore) or that all have the same class (no panoptic contours)
     # patch_min = reduce(seg_patch, "n c p h w -> n c p () ()", "min")
@@ -142,8 +142,8 @@ def segmentation_guided_triplet_loss(
     target_neg_num = mask_neg.count_nonzero(dim=(-2, -1)).float()  # N x C x P x 1 x 1
 
     # Distance terms for all patches
-    distance_pos = torch.norm(output_anchor * mask_pos - output_pos, p=2, dim=(-2, -1)) / target_pos_num
-    distance_neg = torch.norm(output_anchor * mask_neg - output_neg, p=2, dim=(-2, -1)) / target_neg_num
+    distance_pos = torch.norm(output_anchor * mask_pos - output_pos, p=2, dim=(-2, -1)) / target_pos_num.clamp(1)
+    distance_neg = torch.norm(output_anchor * mask_neg - output_neg, p=2, dim=(-2, -1)) / target_neg_num.clamp(1)
 
     # Total loss for all patches
     patch_losses = torch.maximum(

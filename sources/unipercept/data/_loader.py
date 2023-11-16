@@ -34,8 +34,8 @@ _logger = get_logger(__name__)
 class DataLoaderConfig:
     drop_last: bool = False
     pin_memory: bool = True
-    num_workers: int = max(1, M.cpu_count() // 4)
-    prefetch_factor: int | None = 16
+    num_workers: int = max(1, M.cpu_count() // 2)
+    prefetch_factor: int | None = 4
     persistent_workers: bool | None = False
 
 

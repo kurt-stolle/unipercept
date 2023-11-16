@@ -24,11 +24,12 @@ trainer = B(up.trainer.Trainer)(
     config=L(up.trainer.config.TrainConfig)(
         project_name=get_project_name(__file__),
         session_name=get_session_name(__file__),
-        train_batch_size=4,
+        train_batch_size=12,
         train_epochs=200,
-        infer_batch_size=1,
+        infer_batch_size=4,
         eval_epochs=4,
         save_epochs=4,
+        logging_steps=50,
     ),
     optimizer=L(up.trainer.OptimizerFactory)(opt="sgd", lr=1e-2),
     scheduler=L(up.trainer.SchedulerFactory)(
@@ -46,7 +47,6 @@ trainer = B(up.trainer.Trainer)(
     ],
 )
 
-FPN_DIMS = 256
 FEATURE_DIMS = 256
 MULTI_DIMS = 256
 MASK_DIMS = 256
@@ -60,9 +60,9 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     backbone=L(up.nn.backbones.fpn.FeaturePyramidBackbone)(
         base=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
-        routing=L(up.nn.backbones.fpn.build_pan_routing)(num_levels=6, weight_method="fastattn"),
-        out_channels=FPN_DIMS,
-        num_hidden=3,
+        routing=L(up.nn.backbones.fpn.build_pan_routing)(num_levels=6, weight_method="attn"),
+        out_channels=88,
+        num_hidden=2,
     ),
     detector=L(multidvps.modules.Detector)(
         in_features=[f"fpn.{i}" for i in (3, 4, 5, 6)],
@@ -73,7 +73,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
                 num_convs=3,
                 deform=True,
                 coord=None,
-                norm=up.nn.layers.norm.GroupNorm32,
+                norm=up.nn.layers.norm.GroupNormCG,
                 activation=use_activation(nn.GELU),
             ),
             stuff_channels=DATASET_INFO.stuff_amount,
@@ -104,7 +104,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
                     groups=32,
                     deform=True,
                     coord=L(up.nn.layers.CoordCat2d)(),
-                    norm=up.nn.layers.norm.GroupNorm32,
+                    norm=up.nn.layers.norm.GroupNormCG,
                 )
             },
         ),
@@ -114,29 +114,29 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             name="fpn.1",
         ),
         shared_encoder=L(multidvps.modules.Encoder)(
-            in_channels=FPN_DIMS,
+            in_channels="${model.backbone.out_channels}",
             out_channels=FEATURE_DIMS,
             num_convs=1,
             deform=True,
             groups=1,
-            norm=up.nn.layers.norm.GroupNorm32,
+            norm=up.nn.layers.norm.GroupNormCG,
             coord=L(up.nn.layers.CoordCat2d)(),
         ),
         heads={
             multidvps.KEY_MASK: L(multidvps.modules.Encoder)(
-                in_channels=FEATURE_DIMS,
+                in_channels="${...shared_encoder.out_channels}",
                 out_channels=MASK_DIMS,
                 num_convs=2,
                 deform=False,
-                norm=up.nn.layers.norm.GroupNorm32,
+                norm=up.nn.layers.norm.GroupNormCG,
                 coord=None,
             ),
             multidvps.KEY_DEPTH: L(multidvps.modules.Encoder)(
-                in_channels=FPN_DIMS,
+                in_channels="${...shared_encoder.out_channels}",
                 out_channels=DEPTH_DIMS,
                 num_convs=2,
                 deform=True,
-                norm=up.nn.layers.norm.GroupNorm32,
+                norm=up.nn.layers.norm.GroupNormCG,
                 coord=None,
             ),
         },
@@ -148,10 +148,14 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         dropout=0.0,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(
-                in_channels=T.cast(int, "${...input_dims}"), out_channels=MASK_DIMS, dropout=0.0,
+                in_channels=T.cast(int, "${...input_dims}"),
+                out_channels=MASK_DIMS,
+                dropout=0.0,
             ),
             multidvps.KEY_DEPTH: L(up.nn.layers.MapMLP)(
-                in_channels=T.cast(int, "${...input_dims}"), out_channels=DEPTH_DIMS, dropout=0.0,
+                in_channels=T.cast(int, "${...input_dims}"),
+                out_channels=DEPTH_DIMS,
+                dropout=0.0,
             ),
             multidvps.KEY_REID: L(up.nn.layers.EmbedMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
@@ -160,7 +164,10 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             ),
         },
     ),
+    thing_embeddings = [multidvps.KEY_MASK, multidvps.KEY_DEPTH, multidvps.KEY_REID],
+    stuff_embeddings = [multidvps.KEY_MASK, multidvps.KEY_DEPTH],
     fusion_thing=L(multidvps.modules.ThingFusion)(
+        
         fusion_key=multidvps.KEY_MASK,
         fusion_threshold=0.95,
     ),

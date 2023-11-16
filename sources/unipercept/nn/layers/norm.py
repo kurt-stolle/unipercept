@@ -1,18 +1,32 @@
 from __future__ import annotations
 
 import typing as T
-
+import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing_extensions import override
 
 
-class GroupNorm32(nn.GroupNorm):
-    """Wrap the group norm used in Detectron2, where a fixed group size of 32 is always hardcoded."""
+def GroupNorm32(num_channels: int, **kwargs) -> nn.GroupNorm:
+    """
+    GroupNorm with the number of groups equal to 32, like in Detectron2.
+    """
+    return nn.GroupNorm(32, num_channels=32)
 
-    def __init__(self, num_channels: int, *, num_groups: int = 32, **kwargs) -> None:
-        super().__init__(num_groups, num_channels, **kwargs)
+
+def GroupNormCG(num_channels: int, **kwargs) -> nn.GroupNorm:
+    """
+    GroupNorm with the number of groups equal to the number of channels.
+    """
+    return nn.GroupNorm(num_channels, num_channels=num_channels)
+
+
+def GroupNormFactory(num_groups: int, **kwargs) -> T.Callable[[int], nn.GroupNorm]:
+    """
+    GroupNorm with the number of groups equal to the number of channels.
+    """
+    return functools.partial(nn.GroupNorm, num_groups=num_groups, **kwargs)
 
 
 @torch.jit.script

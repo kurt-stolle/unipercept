@@ -4,18 +4,17 @@
 
 import enum
 import itertools
-import logging
 import typing as T
 
 import torch
 import torch.nn as nn
-import functools
 from tensordict import TensorDictBase
 from torch.utils.checkpoint import checkpoint
 from typing_extensions import override
 
 import unipercept.nn.layers as _ML
 import unipercept.nn.typings as _MT
+from unipercept.utils.logutils import get_logger
 
 from ._base import Backbone, BackboneFeatureInfo, BackboneFeatures
 
@@ -32,7 +31,9 @@ __all__ = [
 
 # _DEFAULT_ACTIVATION = functools.partial(nn.ReLU, inplace=True)
 _DEFAULT_ACTIVATION = nn.SiLU
-_DEFAULT_NORM = _ML.norm.GroupNorm32
+_DEFAULT_NORM = _ML.norm.GroupNormCG
+
+_logger = get_logger(__name__)
 
 
 class NodeConfig(T.TypedDict):
@@ -264,11 +265,11 @@ class FeaturePyramidNetworkLayer(nn.Module):
         num_levels: int,
         activation: _MT.Activation,
         norm: _MT.Norm,
+        conv_module: type[_MT.ConvModule],
         norm_combine=True,
         padding="same",
         downsample_mode: str = "max",
         upsample_mode: str = "bilinear",
-        conv_module: type[_MT.ConvModule],
     ):
         super().__init__()
         self.num_levels = num_levels
@@ -276,7 +277,7 @@ class FeaturePyramidNetworkLayer(nn.Module):
 
         self.fnode = nn.ModuleList()
         for i, c in enumerate(nodes):
-            logging.debug(f"FPN node {i} : {c}")
+            _logger.debug(f"FPN node {i} : {c}")
 
             in_offsets = tuple(c["in_offsets"])
             weight_method = WeightMethod(c["weight_method"])
@@ -351,7 +352,7 @@ class FeaturePyramidNetwork(nn.Module):
         if num_levels <= 0:
             raise ValueError("number of levels must be positive")
 
-        logging.debug(
+        _logger.debug(
             f"buidling FPN ({in_features}) with {num_levels} levels and {num_hidden} cells, using nodes: {nodes}"
         )
 
@@ -361,7 +362,7 @@ class FeaturePyramidNetwork(nn.Module):
         self.resample = nn.ModuleDict()
         for level in range(num_levels):
             if level < len(info_list):
-                logging.debug(f"using FPN level {level} from input features")
+                _logger.debug(f"using FPN level {level} from input features")
                 continue
             if level == 0:
                 raise ValueError("Cannot add a new level at level 0")
@@ -369,7 +370,7 @@ class FeaturePyramidNetwork(nn.Module):
             last_stride = info_list[level - 1].stride
             next_stride = int(last_stride * fill_stride_ratio)
 
-            logging.debug(f"adding FPN level {level} with stride {next_stride}")
+            _logger.debug(f"adding FPN level {level} with stride {next_stride}")
 
             # Adds a coarser level by downsampling the last feature map
             self.resample[str(level)] = _Resample(
@@ -393,7 +394,7 @@ class FeaturePyramidNetwork(nn.Module):
         level_to_stride: dict[int, int] = {i: info_list[i].stride for i in range(len(info_list))}
 
         for rep in range(num_hidden):
-            logging.debug(f"building cell {rep}")
+            _logger.debug(f"building cell {rep}")
             fpn_layer = FeaturePyramidNetworkLayer(
                 info_list=info_list,
                 nodes=nodes,
@@ -430,9 +431,6 @@ class FeaturePyramidNetwork(nn.Module):
             features.set(f"fpn.{i+1}", input, inplace=not self.training)
 
         return features
-        # return TensorDict(
-        #     {f"fpn.{i+1}": f for i, f in enumerate(inputs)}, batch_size=features.batch_size, device=features.device
-        # )
 
 
 def build_default_routing(

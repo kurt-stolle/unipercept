@@ -33,9 +33,9 @@ class DepthHead(nn.Module):
         kernel_dims: list[int] | tuple[int, int],
         max_depth: float,
         min_depth: float = 1.0,
-        num_heads: int=4,
+        num_heads: int = 4,
         normal_dims: int = 16,
-        dropout=0.0
+        dropout=0.0,
     ):
         super().__init__()
 
@@ -51,7 +51,14 @@ class DepthHead(nn.Module):
         self.min_depth = min_depth
 
         self.project = nn.Linear(kernel_dims[0], normal_dims)
-        self.attention = nn.MultiheadAttention(normal_dims, kdim=kernel_dims[0], vdim=kernel_dims[1], dropout=dropout, num_heads=num_heads, batch_first=True)
+        self.attention = nn.MultiheadAttention(
+            normal_dims,
+            kdim=kernel_dims[0],
+            vdim=kernel_dims[1],
+            dropout=dropout,
+            num_heads=num_heads,
+            batch_first=True,
+        )
         self.norm = nn.LayerNorm(normal_dims)
         self.to_mean = nn.Linear(normal_dims, 1)
         self.to_range = nn.Linear(normal_dims, 1)
@@ -75,13 +82,12 @@ class DepthHead(nn.Module):
         """
         # Compute attention
         n = self.project(k_depth)
-        a, _ = self.attention(n, k_depth, k_mask, needs_weights=False)
+        a, _ = self.attention(n, k_depth, k_mask, need_weights=False)
         n = self.norm(n + a)
 
-
         # Compute mean and range
-        m = self.to_mean(a).sigmoid() * self.max_depth
-        r = self.to_range(a).sigmoid().log1p() * self.max_depth
+        m = self.to_mean(n).sigmoid() * self.max_depth
+        r = self.to_range(n).sigmoid().log1p() * self.max_depth
 
         return m, r
 

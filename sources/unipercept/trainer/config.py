@@ -70,6 +70,10 @@ class TrainConfig:
     # Training
     ########################################
 
+    find_unused_parameters: bool = field(default=False, metadata={
+        "help": "When using distributed training, whether to use the `find_unused_parameters` flag in the DDP wrapper."
+    })
+
     train_sum_losses: bool = field(
         default=False, metadata={"help": "Whether to sum the losses instead of directly passing them to backward."}
     )

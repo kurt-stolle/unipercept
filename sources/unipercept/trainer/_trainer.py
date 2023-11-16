@@ -74,7 +74,7 @@ def _build_accelerator(config: TrainConfig) -> accelerate.Accelerator:
         project_config=ProjectConfiguration(
             project_dir=str(project_dir), logging_dir=str(logging_dir), automatic_checkpoint_naming=True, total_limit=4
         ),
-        kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=False)],
+        kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=config.find_unused_parameters)],
         step_scheduler_with_optimizer=False,
         log_with=config.trackers,
         dispatch_batches=False,

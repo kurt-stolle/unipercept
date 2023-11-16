@@ -150,7 +150,7 @@ CLASSES: T.Final[T.Sequence[SClass]] = [
     SClass(color=RGB(220, 220, 0), kind=SType.STUFF, dataset_id=20, unified_id=7, name="traffic sign"),
     SClass(color=RGB(107, 142, 35), kind=SType.STUFF, dataset_id=21, unified_id=8, name="vegetation"),
     SClass(color=RGB(152, 251, 152), kind=SType.STUFF, dataset_id=22, unified_id=9, name="terrain"),
-    SClass(color=RGB(70, 130, 180), kind=SType.STUFF, dataset_id=23, unified_id=10, name="sky", depth_fixed=1.0),
+    SClass(color=RGB(70, 130, 180), kind=SType.STUFF, dataset_id=23, unified_id=10, name="sky", depth_fixed=0.0),
     SClass(color=RGB(220, 20, 60), kind=SType.THING, dataset_id=24, unified_id=11, name="person"),
     SClass(color=RGB(255, 0, 0), kind=SType.THING, dataset_id=25, unified_id=12, name="rider"),
     SClass(color=RGB(0, 0, 142), kind=SType.THING, dataset_id=26, unified_id=13, name="car"),

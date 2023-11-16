@@ -168,7 +168,7 @@ class InferencePipeline(nn.Module):
             scores,
         )
 
-    def predict_stuff(self, ctx: Context, **kwargs) -> tuple[Tensor, Tensor, Tensor]:
+    def predict_stuff(self, ctx: Context, **kwargs) -> T.Tuple[TensorDict, Tensor, Tensor]:
         """Infer semantic segmentation from predicted regions and kernel weights."""
 
         (

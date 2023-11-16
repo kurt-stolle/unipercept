@@ -24,7 +24,9 @@
             "args": [
                 "train",
                 "--config",
-                "configs/cityscapes/multidvps_resnet50.py"
+                "configs/cityscapes/multidvps_resnet50.py",
+                "--detect-anomalies"
+                
             ],
             "envFile": "debug.env",
             "console": "internalConsole",

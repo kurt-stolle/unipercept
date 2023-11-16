@@ -102,14 +102,12 @@ class Separable2d(nn.Module):
         **kwargs,
     ) -> Self:
         if norm is not None:
-            depthwise = kwargs.pop("depthwise", Standard2d)
-            kwargs["depthwise"] = lambda *dw_args, **dw_kwargs: utils._init_sequential_norm(
-                depthwise, *dw_args, **dw_kwargs, norm=norm
-            )
+            depthwise = kwargs.pop("depthwise", Conv2d)
+            kwargs["depthwise"] = lambda *dw_args, **dw_kwargs: depthwise(*dw_args, **dw_kwargs)
         if activation is not None:
             pointwise = kwargs.pop("pointwise", Conv2d)
-            kwargs["pointwise"] = lambda *pw_args, **pw_kwargs: utils._init_sequential_activation(
-                pointwise, *pw_args, **pw_kwargs, activation=activation
+            kwargs["pointwise"] = lambda *pw_args, **pw_kwargs: utils._init_sequential_norm_activation(
+                pointwise, *pw_args, **pw_kwargs, activation=activation, norm=norm
             )
 
         return cls(

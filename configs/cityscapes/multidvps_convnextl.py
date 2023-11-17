@@ -8,7 +8,6 @@ from .multidvps_resnet50 import data, model, trainer
 
 __all__ = ["model", "data", "trainer"]
 
-trainer.config.project_name = get_project_name(__file__)
 trainer.config.session_name = get_session_name(__file__)
 trainer.optimizer = L(up.trainer.OptimizerFactory)(opt="sgd", lr=1e-2)
 model.backbone.base = L(up.nn.backbones.timm.TimmBackbone)(name="convnextv2_large")

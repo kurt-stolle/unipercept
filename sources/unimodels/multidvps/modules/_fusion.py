@@ -110,7 +110,7 @@ class StuffFusion(BaseKernelFusion):
     """Fuse kernels that belong to the same category."""
 
     @override
-    def _kernel_fusion(self, *, kernels: TensorDict, categories: Tensor, scores: Tensor):
+    def _kernel_fusion(self, kernels: TensorDict, categories: Tensor, scores: Tensor):
         """Fuse all kernels that belong to the same category for stuff."""
         uniq = torch.unique(categories)
 

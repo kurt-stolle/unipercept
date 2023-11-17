@@ -123,7 +123,6 @@ def visualize_masks_thing(
 
 
 @torch.no_grad()
-@torch.inference_mode()
 def visualize_true_things(images: torch.torch.Tensor, multithings: list[supervision.Things], max_batch=2):
     images = F.interpolate(images, scale_factor=0.75).squeeze(1).cpu()
 

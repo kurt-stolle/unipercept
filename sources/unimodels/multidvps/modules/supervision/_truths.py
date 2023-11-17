@@ -20,6 +20,7 @@ class Truths(Tensorclass):
     def __post_init__(self, *args, **kwargs):
         assert len(self.thing) == len(self.stuff), f"{len(self.thing)} != {len(self.stuff)}"
 
+    @torch.no_grad()
     def type_as_(self, other: Tensor):
         self.semmap = self.semmap.type_as(other)
         self.insmap = self.insmap.type_as(other)
@@ -36,6 +37,7 @@ class Truths(Tensorclass):
         v = self.stuff.apply(type_as_if_floating, inplace=False)
         self.stuff = v
 
+    @torch.no_grad()
     def mask_instances(self, thing_nums: Mapping[str, int]) -> tuple[Tensor, Tensor, Tensor, int]:
         masks = torch.cat(
             [gt.instances.insts[:, : thing_nums[i], ...] for i, gt in self.thing.items()],
@@ -56,6 +58,7 @@ class Truths(Tensorclass):
 
         return masks, indices, labels, int(indices.sum())
 
+    @torch.no_grad()
     def mask_semantic(self, stuff_nums: Mapping[str, int]) -> tuple[Tensor, Tensor, int]:
         masks = torch.cat(
             [gt.labels[:, : stuff_nums[i], ...] for i, gt in self.stuff.items()],

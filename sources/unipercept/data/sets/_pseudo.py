@@ -62,7 +62,7 @@ class PseudoGenerator:
         # # prepare image for the model
         # inputs = processor(images=image, return_tensors="pt")  # type: ignore
 
-        with torch.inference_mode():
+        with torch.no_grad():
             # outputs = model(**inputs)  # type: ignore
             # predicted_depth = outputs.predicted_depth
 

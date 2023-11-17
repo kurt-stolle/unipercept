@@ -3,6 +3,7 @@ import socket
 import typing as T
 from os import PathLike
 from pathlib import Path
+from typing_extensions import deprecated
 
 import torch.distributed as dist
 from accelerate import PartialState
@@ -31,7 +32,7 @@ def _split_config_filepath(config_path: str | Path | PathLike, relative_to: str)
 
     return list(reversed(name))
 
-
+@deprecated("Hardcode this in the configuration file instead.")
 def get_project_name(config_path: str | Path | PathLike, *, relative_to="configs") -> str:
     """
     Infer the name of a configuration file by its path, where we assume that the path is relative to a folder name

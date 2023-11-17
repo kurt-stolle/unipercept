@@ -4,11 +4,11 @@ The `Trainer` class is the main class to handle training and evaluation of any k
 
 from __future__ import annotations
 
-import dataclasses as D
 import enum as E
 import functools
 import math
 import operator
+import gc
 import os
 import shutil
 import time
@@ -22,9 +22,8 @@ import torch.nn as nn
 import torch.optim
 import torch.utils.data
 import wandb
-from matplotlib.pyplot import step
 from PIL import Image as pil_image
-from tensordict import MemmapTensor, TensorDict, TensorDictBase
+from tensordict import MemmapTensor, TensorDict
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
@@ -36,7 +35,7 @@ from ..utils.logutils import get_logger
 from ..utils.seed import set_seed
 from ._optimizer import OptimizerFactory
 from ._scheduler import SchedulerFactory
-from ._trial import SearchBackend, Trial
+from ._trial import Trial
 from ._types import DataLoaderFactory, ModelFactory
 from .callbacks import CallbackType, Delegate, Event, Signal, TrainState
 from .config import InferencePrecision, TrainConfig
@@ -54,7 +53,6 @@ _logger = get_logger(__name__)
 
 
 def _build_accelerator(config: TrainConfig) -> accelerate.Accelerator:
-    from accelerate import PartialState
     from accelerate.accelerator import ProjectConfiguration
     from accelerate.utils import DistributedDataParallelKwargs
 
@@ -63,27 +61,32 @@ def _build_accelerator(config: TrainConfig) -> accelerate.Accelerator:
     project_dir = root / "outputs"
     logging_dir = root / "logs"
 
-    if PartialState().is_main_process:
-        project_dir.mkdir(parents=True, exist_ok=True)
-        logging_dir.mkdir(parents=True, exist_ok=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    logging_dir.mkdir(parents=True, exist_ok=True)
 
-        _logger.info("Using directory: %s", str(root))
+    _logger.info("Using directory: %s", str(root))
 
     acc = accelerate.Accelerator(
         project_dir=project_dir,
         project_config=ProjectConfiguration(
             project_dir=str(project_dir), logging_dir=str(logging_dir), automatic_checkpoint_naming=True, total_limit=4
         ),
-        kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=config.find_unused_parameters)],
+        kwargs_handlers=[
+            DistributedDataParallelKwargs(
+                find_unused_parameters=config.find_unused_parameters,
+                broadcast_buffers=False,
+                gradient_as_bucket_view=True,
+            )
+        ],
         step_scheduler_with_optimizer=False,
-        log_with=config.trackers,
+        log_with=list(config.trackers),
         dispatch_batches=False,
+        gradient_accumulation_steps=config.gradient_accumulation_steps,
     )
 
     from pprint import pformat
 
-    _logger.info("Using accelerator: \n%s", pformat(D.asdict(acc.project_configuration)))
-    _logger.info("Current process: %d / %d", acc.process_index, acc.num_processes)
+    _logger.info("Current process: %d / %d", acc.process_index + 1, acc.num_processes)
 
     return acc
 
@@ -158,7 +161,7 @@ class Trainer:
         evaluators: T.Sequence[Evaluator] | None = None,
         log_events: bool = False,
     ):
-        self._mem_tracker = MemoryTracker(False)
+        self._mem_tracker = MemoryTracker(enabled=not config.memory_tracker)
         self._mem_tracker.start("init")  # must set up as early as possible
 
         _logger.info("Initializing Trainer: %s @ %s", config.project_name, config.session_name)
@@ -328,7 +331,7 @@ class Trainer:
         )
 
     @status(TrainerStatus.EVALUATION)
-    @torch.inference_mode()
+    @torch.no_grad()
     def evaluate(
         self,
         model_factory: ModelFactory[Trial, nn.Module],
@@ -338,6 +341,9 @@ class Trainer:
         prefix: str = "eval",
     ) -> dict[str, float]:
         _logger.info("Starting evaluation")
+
+        torch.cuda.empty_cache()
+        gc.collect()
 
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("eval")
@@ -362,7 +368,7 @@ class Trainer:
 
     @status.assert_status(~(TrainerStatus.TRAINING | TrainerStatus.EVALUATION))
     @status(TrainerStatus.INFERENCE)
-    @torch.inference_mode()
+    @torch.no_grad()
     def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("pred")
@@ -449,7 +455,6 @@ class Trainer:
 
         self._xlr.wait_for_everyone()
 
-    @torch.inference_mode(False)
     def _train_loop(
         self,
         loader: torch.utils.data.DataLoader,
@@ -625,6 +630,8 @@ class Trainer:
                     optimizer.zero_grad()
                     self._state.step += 1
                     self._state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
+
+                    del inputs
 
                     self._event(Event.ON_TRAIN_STEP_END)
                     self._maybe_log_save_evaluate(tr_loss, model, optimizer, **kwargs)
@@ -916,7 +923,10 @@ class Trainer:
         # Prepare model
         dataloader = self._xlr.prepare_data_loader(dataloader)
         if self._xlr.unwrap_model(model) is model:
+            _logger.info(f"Preparing model for evaluation: {model.__class__.__name__}")
             model = self._xlr.prepare_model(model, evaluation_mode=True)
+        else:
+            _logger.info(f"Model is already prepared for evaluation: {model.__class__.__name__}")
 
         # If not in training status, apply the proper datatype
         if not (self.status & TrainerStatus.TRAINING):
@@ -975,6 +985,8 @@ class Trainer:
             write_index += samples_in_batch
 
             samples_processed += samples_in_batch
+
+            del inputs
 
             self._event(Event.ON_INFERENCE_STEP, loader=dataloader)
 
@@ -1083,10 +1095,9 @@ class Trainer:
         Perform an evaluation step on `model` using `inputs`.
         """
 
-        with torch.inference_mode():
-            outputs: ModelOutput = model(inputs)
-            if self._config.past_index >= 0:
-                self._past = outputs[self._config.past_index - 1]
+        outputs: ModelOutput = model(inputs)
+        if self._config.past_index >= 0:
+            self._past = outputs[self._config.past_index - 1]
         return outputs
 
 

@@ -20,17 +20,17 @@ MetricsDictType: T.TypeAlias = T.Dict[str, T.Any]
 MetricsTrainStage: T.TypeAlias = T.Literal["init", "train", "eval", "pred"]
 
 
-@D.dataclass(slots=True)
+@D.dataclass(slots=True, kw_only=True)
 class MemoryTracker:
     """
     Tracks process memory usage during the training process.
     """
 
-    skip_memory_metrics: bool = D.field(
+    enabled: bool = D.field(
         default=False,
         init=True,
         metadata={
-            "help": "Whether to not run analysis that tracks memory usage metrics, i.e. this class will be a no-op."
+            "help": "Whether to run analysis that tracks memory usage metrics, i.e. when disabled this class will be a no-op."
         },
     )
     process: psutil.Process = D.field(default_factory=psutil.Process, init=False)
@@ -65,7 +65,7 @@ class MemoryTracker:
                 break
 
     def start(self, stage: str):
-        if self.skip_memory_metrics:
+        if not self.enabled:
             return
 
         # deal with nested calls of eval during train - simply ignore those
@@ -152,7 +152,7 @@ class MemoryTracker:
             The metrics to update
 
         """
-        if self.skip_memory_metrics:
+        if not self.enabled:
             return
 
         # deal with nested calls of eval during train - simply ignore those
@@ -201,7 +201,7 @@ class MemoryTracker:
             The metrics to update, by default None
 
         """
-        if self.skip_memory_metrics:
+        if not self.enabled:
             return
 
         self.stop(stage)

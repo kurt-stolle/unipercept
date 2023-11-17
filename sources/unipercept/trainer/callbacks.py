@@ -5,10 +5,6 @@ from __future__ import annotations
 
 import dataclasses as D
 import enum as E
-import functools
-import json
-import re
-import types
 import typing as T
 from pprint import pformat
 from typing import Any, Mapping
@@ -33,7 +29,6 @@ if T.TYPE_CHECKING:
     import torch.distributed.fsdp as fsdp
     import torch.nn as nn
     import torch.nn.parallel as ll
-    import torch.optim as optim
     from torch.utils.data import DataLoader
 
     from ._scheduler import SchedulerFactory

@@ -63,7 +63,6 @@ class DepthMap(Mask):
         return cls(m)
 
     @classmethod
-    @torch.inference_mode()
     def read_from_disparity(
         cls,
         path: str,

@@ -93,8 +93,24 @@ class TimmBackbone(WrapperBase):
 # ----------------- #
 # Utility functions #
 # ----------------- #
-def list_available(query: str | None = None) -> list[str]:
-    models = timm.list_models(pretrained=True)
+def list_available(query: str | None = None, pretrained: bool = False) -> list[str]:
+    """
+    Lists available backbones from the `timm` library.
+
+    Parameters
+    ----------
+    query : str, optional
+        If specified, only backbones containing this string will be returned.
+    pretrained : bool, optional
+        If True, only pretrained backbones will be returned.
+
+    Returns
+    -------
+    list[str]
+        List of available backbones.
+    
+    """
+    models = timm.list_models(pretrained=pretrained)
     if query is None:
         models.sort()
     else:

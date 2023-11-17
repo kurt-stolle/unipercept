@@ -10,6 +10,7 @@ import dataclasses as D
 import enum as E
 import typing as T
 
+import wandb
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -25,16 +26,20 @@ _W_contra = T.TypeVar("_W_contra", contravariant=True)
 __all__ = ["SearchBackend", "Trial"]
 
 
+SearchParams: T.TypeAlias = dict[str, int | float | str | bool]
+
+
 class SearchBackend(E.StrEnum):
     OPTUNA = E.auto()
     RAY = E.auto()
 
 
-@abc.abstractmethod
-class Trial:
+class Trial(metaclass=abc.ABCMeta):
+    __slots__ = ()
+
     @property
     @abc.abstractmethod
-    def params(self) -> T.Dict[str, T.Any]:
+    def params(self) -> SearchParams:
         raise NotImplementedError
 
     @property
@@ -43,7 +48,8 @@ class Trial:
         raise NotImplementedError
 
 
-@D.dataclass(slots=True, frozen=True)
+@D.dataclass(slots=True)
 class MockTrial:
     name: str
-    params: dict[str, T.Any] = D.field(default_factory=dict)
+    params: SearchParams = D.field(default_factory=dict)
+

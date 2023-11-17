@@ -161,7 +161,6 @@ def _threshold_to_key(t_base: float, n: int) -> str:
     return f"{base}{exponent}"
 
 
-@torch.inference_mode()
 def _depth_metrics_single(
     *, pred: torch.Tensor, true: torch.Tensor, t_base: float = 1.25, t_n: T.Iterable[int] = DEFAULT_THRESHOLDS, eps=1e-8
 ) -> DepthMetrics | None:

@@ -13,6 +13,8 @@ import timm.optim.optim_factory
 import torch.nn as nn
 import torch.optim
 
+from accelerate import PartialState
+
 __all__ = ["create_optimizer", "OptimType", "OptimPackage", "OptimizerFactory"]
 
 Optimizer: T.TypeAlias = torch.optim.Optimizer
@@ -161,7 +163,7 @@ def create_optimizer(
     # Copy the optimizer arguments to avoid modifying the original dictionary
     opt_args = dict(copy.deepcopy(opt_args))
     if lr is not None:
-        opt_args["lr"] = lr
+        opt_args["lr"] = lr * PartialState().num_processes
     if foreach is None:
         if opt in _DEFAULT_FOREACH:
             opt_args["foreach"] = True

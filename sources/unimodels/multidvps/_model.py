@@ -405,7 +405,6 @@ class MultiDVPS(up.model.ModelBase):
     # Inference methods #
     # ----------------- #
 
-    @torch.inference_mode()
     def _forward_inference(self, inputs: up.model.InputData, ctx: logic.Context) -> up.model.ModelOutput:
         """Implements the forward logic for inference, i.e. testing/evaluation mode."""
 

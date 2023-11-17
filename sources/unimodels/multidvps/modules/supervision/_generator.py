@@ -88,7 +88,7 @@ class TruthGenerator(nn.Module):
         return len(self.thing_embeddings)
 
     @torch.no_grad()
-    @torch.autocast("cuda", dtype=torch.float16, enabled=True)
+    # @torch.autocast("cuda", dtype=torch.float16, enabled=True)
     def generate_panoptic(
         self,
         lblmap: Tensor,

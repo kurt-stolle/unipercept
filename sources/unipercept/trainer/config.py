@@ -32,6 +32,9 @@ logger = get_logger(__name__)
 _T = T.TypeVar("_T")
 
 
+_DEFAULT_EXPERIMENT_TRACKERS: set[str] = {"wandb"}
+
+
 class InferencePrecision(E.StrEnum):
     """
     Defines the different modes of FP16 inference.
@@ -60,8 +63,13 @@ class TrainConfig:
 
     max_grad_norm: float = field(default=5.0, metadata={"help": "Max gradient norm."})
 
+    # Memory tracker
+    memory_tracker: bool = field(default=False, metadata={"help": "Whether to track memory usage."})
+
     # Experiment trackers
-    trackers = ["wandb"]
+    trackers: set[str] = field(
+        default_factory=lambda: _DEFAULT_EXPERIMENT_TRACKERS, metadata={"help": "Experiment trackers to use."}
+    )
 
     # FP16 modes during inference
     inference_precision: InferencePrecision = InferencePrecision.DEFAULT
@@ -70,9 +78,12 @@ class TrainConfig:
     # Training
     ########################################
 
-    find_unused_parameters: bool = field(default=False, metadata={
-        "help": "When using distributed training, whether to use the `find_unused_parameters` flag in the DDP wrapper."
-    })
+    find_unused_parameters: bool = field(
+        default=False,
+        metadata={
+            "help": "When using distributed training, whether to use the `find_unused_parameters` flag in the DDP wrapper."
+        },
+    )
 
     train_sum_losses: bool = field(
         default=False, metadata={"help": "Whether to sum the losses instead of directly passing them to backward."}

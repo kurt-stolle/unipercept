@@ -29,7 +29,6 @@ from unicore.utils.missing import MissingValue
 SKIP = MissingValue("SKIP")
 
 
-@torch.inference_mode()
 def plot_input_data(
     data: InputData,
     /,
@@ -86,7 +85,6 @@ def plot_input_data(
     return fig
 
 
-@torch.inference_mode()
 def plot_predictions(
     inputs: InputData,
     predictions: TensorDictBase | ModelOutput,
@@ -144,7 +142,6 @@ def plot_predictions(
     return fig
 
 
-@torch.inference_mode()
 def draw_image(img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None) -> PILImageObject:
     """
     Shows the given images.
@@ -165,7 +162,6 @@ def draw_image(img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None) -> 
     return img
 
 
-@torch.inference_mode()
 def draw_image_segmentation(
     pan: PanopticMap | torch.Tensor,
     /,
@@ -198,7 +194,6 @@ def draw_image_segmentation(
     return pil_image.fromarray(out)
 
 
-@torch.inference_mode()
 def draw_image_depth(
     dep: torch.Tensor, /, info: Metadata, palette: str = "viridis", ax: MatplotlibAxesObject | None = None
 ) -> PILImageObject:

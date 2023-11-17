@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import typing as T
+import warnings
 
 import torch
 import torch.nn
@@ -111,10 +112,14 @@ class TorchvisionBackbone(WrapperBase):
 # ----------------- #
 # Utility functions #
 # ----------------- #
-def list_available(query: str | None = None) -> list[str]:
-    from torchvision.models import list_models
+def list_available(query: str | None = None, pretrained: bool = False) -> list[str]:
+    import torchvision.models
 
-    models = list_models()
+    if pretrained:
+        warnings.warn("Pretrained queries are not supported yet")
+        return []
+
+    models = torchvision.models.list_models(module=torchvision.models)
     if query is None:
         models.sort()
     else:

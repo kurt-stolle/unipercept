@@ -216,7 +216,6 @@ class TrainingPipeline(nn.Module):
         return gt
 
     @torch.jit.export
-    # @torch.inference_mode()
     @torch.no_grad()
     def true_depths(self, ctx: Context) -> torch.Tensor:
         assert ctx.captures.depths is not None

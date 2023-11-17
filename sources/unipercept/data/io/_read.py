@@ -17,6 +17,7 @@ __all__ = ["read_image", "ImageReadMode", "read_segmentation", "read_optical_flo
 
 MAX_CACHE: T.Final = 1000
 
+
 @functools.lru_cache(maxsize=MAX_CACHE)
 @file_io.with_local_path(force=True)
 def read_image(path: str, *, mode=ImageReadMode.RGB) -> up.data.tensors.Image:

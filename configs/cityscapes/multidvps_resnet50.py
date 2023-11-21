@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import typing as T
-
-from detectron2.layers import ShapeSpec
-from torch import nn
-from unimodels import multidvps
-
+import torch
+import torch.nn as nn
+import unimodels.multidvps as multidvps
 import unipercept as up
 from unipercept.utils.config import bind as B
 from unipercept.utils.config import call as L
@@ -13,7 +11,7 @@ from unipercept.utils.config import (
     get_session_name,
 )
 
-from ._data import DATASET_INFO, DATASET_NAME, data
+from ._dataset import DATASET_INFO, DATASET_NAME, data
 
 __all__ = ["model", "data", "trainer"]
 
@@ -48,13 +46,16 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     dataset_name=DATASET_NAME,
     weighted_num=7,
     common_stride=4,
-    backbone=L(up.nn.backbones.fpn.FeaturePyramidBackbone)(
-        base=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
+    backbone=L(torch.jit.script)(obj=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
+        bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
-        routing=L(up.nn.backbones.fpn.build_pan_routing)(num_levels=6, weight_method="sum"),
         out_channels=88,
-        num_hidden=1,
-    ),
+        norm=up.nn.layers.norm.GroupNormCG,
+        extra_blocks=L(up.nn.backbones.fpn.LastLevelP6P7)(
+            in_channels="${..out_channels}",
+            out_channels="${..out_channels}",
+        ),
+    )),
     detector=L(multidvps.modules.Detector)(
         in_features=[f"fpn.{i}" for i in (3, 4, 5, 6)],
         localizer=L(multidvps.modules.Localizer)(
@@ -101,11 +102,17 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         ),
     ),
     feature_encoder=L(multidvps.modules.FeatureEncoder)(
-        merger=L(multidvps.modules.FeatureSelector)(
-            name="fpn.1",
-        ),
+        merger=L(torch.jit.script)(obj=L(up.nn.layers.merge.SemanticMerge)(
+            input_shape={
+                f: L(up.nn.backbones.BackboneFeatureInfo)(stride=s, channels="${model.backbone.out_channels}")
+                for f, s in zip(["fpn.1", "fpn.2", "fpn.3", "fpn.4"], [4, 8, 16, 32])
+            },
+            in_features=["fpn.1", "fpn.2", "fpn.3", "fpn.4"],
+            out_channels=256,
+            common_stride=4,
+        )),
         shared_encoder=L(multidvps.modules.Encoder)(
-            in_channels="${model.backbone.out_channels}",
+            in_channels=256,
             out_channels=256,
             num_convs=1,
             deform=True,

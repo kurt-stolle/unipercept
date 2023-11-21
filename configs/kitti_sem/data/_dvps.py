@@ -6,12 +6,11 @@ from __future__ import annotations
 
 import evaluators
 import torchvision.transforms.v2 as transforms
-from detectron2.evaluation import DatasetEvaluators
 
 import unipercept as up
 import unipercept.data.sets.cityscapes
-from unipercept.utils.config._lazy import bind as B
-from unipercept.utils.config._lazy import call as L
+from unipercept.utils.config import bind as B
+from unipercept.utils.config import call as L
 
 __all__ = ["data"]
 

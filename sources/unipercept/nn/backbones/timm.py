@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 from tensordict import TensorDict
 from typing_extensions import override
+from collections import OrderedDict
 
 from .wrapper import (
     ORDER_CHW,
@@ -82,12 +83,11 @@ class TimmBackbone(WrapperBase):
         self.ext = extractor
 
     @override
-    def forward_extract(self, images: torch.Tensor) -> TensorDict:
-        return TensorDict(
-            {k: v for k, v in zip(self.feature_info.keys(), self.ext(images))},
-            batch_size=images.shape[:1],
-            device=images.device,
-        )
+    def forward_extract(self, images: torch.Tensor) -> OrderedDict[str, torch.Tensor]:
+        output_nodes = OrderedDict()
+        for k, v in zip(self.feature_info.keys(), self.ext(images)):
+            output_nodes[k] = v
+        return output_nodes
 
 
 # ----------------- #
@@ -137,7 +137,7 @@ def build_extractor(
     else:
         idxs = tuple(out_indices)
 
-    return torch.jit.script(timm.models.FeatureGraphNet(mdl, out_indices=idxs))
+    return timm.models.FeatureGraphNet(mdl, out_indices=idxs)
 
     ## TODO: This is the old code, which is not compatible with the new timm version
     # m = timm.create_model(name, features_only=True, pretrained=pretrained)

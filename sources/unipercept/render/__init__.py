@@ -1,5 +1,8 @@
 from __future__ import annotations
 
-from . import utils
+try:
+    from . import utils
+except ImportError:
+    pass
 from ._colormap import *
 from ._visualizer import *

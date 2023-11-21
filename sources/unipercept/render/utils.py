@@ -1,5 +1,5 @@
 """
-Visualization utilities.
+Visualization utilities. This package is only loaded if ``matplotlib`` and ``seaborn`` are installed.
 """
 
 from __future__ import annotations

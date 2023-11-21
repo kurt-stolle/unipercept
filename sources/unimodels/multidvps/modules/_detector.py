@@ -13,11 +13,8 @@ from unicore.utils.tensorclass import Tensorclass
 __all__ = ["Detection", "Detector"]
 
 if T.TYPE_CHECKING:
-    from torch import Size, Tensor
-
-    from ._encoder import Encoder
     from ._kernels import Kernelizer
-    from ._position import Localizer, Locations
+    from ._position import Localizer
 
 
 class Detection(Tensorclass):
@@ -26,15 +23,17 @@ class Detection(Tensorclass):
     kernel_spaces: TensorDict
 
     @property
-    def hw(self) -> Size:
+    def hw(self) -> torch.Size:
         return self.thing_map.shape[-2:]
 
 
 class Detector(nn.Module):
+    in_features: T.Final[T.List[str]]
+
     def __init__(self, in_features: T.Sequence[str], kernelizer: Kernelizer, localizer: Localizer):
         super().__init__()
 
-        self.in_features = in_features
+        self.in_features = list(in_features)
         self.kernelizer = kernelizer
         self.localizer = localizer
 
@@ -43,14 +42,10 @@ class Detector(nn.Module):
         return self.kernelizer.keys
 
     @override
-    def forward(self, feats: TensorDictBase) -> TensorDict:
-        return TensorDict(
-            {key: self._detect(feats.get(key)) for key in self.in_features},
-            batch_size=feats.batch_size,
-            device=feats.device,
-        )
+    def forward(self, feats: T.Dict[str, torch.Tensor]) -> T.Dict[str, Detection]:
+        return {key: self._detect(feats.get(key)) for key in self.in_features}
 
-    def _detect(self, feat: Tensor) -> Detection:
+    def _detect(self, feat: torch.Tensor) -> Detection:
         loc = self.localizer(feat)
         k_spaces = T.cast(TensorDict, self.kernelizer(feat))
 

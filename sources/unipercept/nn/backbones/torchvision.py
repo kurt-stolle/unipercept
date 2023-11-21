@@ -100,13 +100,8 @@ class TorchvisionBackbone(WrapperBase):
         self.ext = extractor
 
     @override
-    def forward_extract(self, images: torch.Tensor) -> TensorDict:
-        features: dict[str, torch.Tensor] = self.ext(images)
-        return TensorDict(
-            {k: v for k, v in zip(self.feature_info.keys(), features.values())},
-            batch_size=images.shape[:1],
-            device=images.device,
-        )
+    def forward_extract(self, images: torch.Tensor) -> OrderedDict[str, torch.Tensor]:
+        return self.ext(images)
 
 
 # ----------------- #

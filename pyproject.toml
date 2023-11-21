@@ -31,6 +31,11 @@ dependencies = [
     "accelerate",
     "statistics",
     "h5py",
+    "opencv-python",
+    "omegaconf",
+    "hydra-core",
+    "unitrack",
+    "unicore"
 ]
 dynamic = ["version"]
 
@@ -46,6 +51,7 @@ include = ["*"]
 exclude = []
 
 [project.optional-dependencies]
+notebooks = ["jupyterlab", "ipywidgets", "ipykernel", "ipython-autotime", "matplotlib", "seaborn"]
 docs = ["sphinx", "sphinx-rtd-theme"]
 tests = [
     "hypothesis",

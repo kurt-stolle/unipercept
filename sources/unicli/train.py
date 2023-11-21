@@ -17,6 +17,36 @@ _logger = get_logger(__name__)
 _config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.trainer.Trainer, nn.Module]
 
 
+@command(help="trian a model", description=__doc__)
+@command.with_config
+def train(subparser: argparse.ArgumentParser):
+    subparser.add_argument("--headless", action="store_true", help="disable all interactive prompts")
+    subparser.add_argument(
+        "--detect-anomalies",
+        action="store_true",
+        dest="anomalies",
+        default=False,
+        help="flag to enable anomaly detection in autograd",
+    )
+    options_resume = subparser.add_mutually_exclusive_group(required=False)
+    options_resume.add_argument(
+        "--reset",
+        action="store_true",
+        help="whether to reset the output directory and caches if they exist",
+    )
+    options_resume.add_argument(
+        "--resume",
+        action="store_true",
+        help="whether to attempt to resume training from the checkpoint directory",
+    )
+    
+    subparser.add_argument("--dataloader-train", type=str, default="train", help="name of the train dataloader")
+    subparser.add_argument("--dataloader-test", type=str, default="test", help="name of the test dataloader")
+
+    return main
+
+
+
 def main(args):
     if args.anomalies:
         _logger.info("Enabling anomaly detection in autograd")
@@ -50,37 +80,11 @@ def main(args):
     # Start training
     trainer.train(
         lambda _: _lazy.instantiate(cfg.model),
-        loaders["train"],
+        loaders[args.dataloader_train],
         checkpoint=None,
         trial=None,
-        evaluation_loader_factory=loaders["test"],
+        evaluation_loader_factory=loaders[args.dataloader_test],
     )
-
-
-@command(help="trian a model", description=__doc__)
-@command.with_config
-def train(subparser: argparse.ArgumentParser):
-    subparser.add_argument("--headless", action="store_true", help="disable all interactive prompts")
-    subparser.add_argument(
-        "--detect-anomalies",
-        action="store_true",
-        dest="anomalies",
-        default=False,
-        help="flag to enable anomaly detection in autograd",
-    )
-    options_resume = subparser.add_mutually_exclusive_group(required=False)
-    options_resume.add_argument(
-        "--reset",
-        action="store_true",
-        help="whether to reset the output directory and caches if they exist",
-    )
-    options_resume.add_argument(
-        "--resume",
-        action="store_true",
-        help="whether to attempt to resume training from the checkpoint directory",
-    )
-    return main
-
 
 if __name__ == "__main__":
     command.root("train")

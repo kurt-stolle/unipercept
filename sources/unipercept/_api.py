@@ -36,7 +36,25 @@ __all__ = [
     "create_inputs",
     "prepare_images",
     "read_image",
+    "get_dataset",
+    "get_info",
 ]
+
+def get_dataset(name: str):
+    """
+    Alias for `unipercept.data.sets.get_dataset`.
+    """
+    from .data.sets import get_dataset
+
+    return get_dataset(name)
+
+def get_info(name: str):
+    """
+    Alias for `unipercept.data.sets.get_info`.
+    """
+    from .data.sets import get_info
+
+    return get_info(name)
 
 
 def read_config(config: ConfigParam) -> DictConfig:

@@ -1,16 +1,26 @@
 from __future__ import annotations
 
-from typing import Mapping, Sequence, cast
+import typing as T
 
+from matplotlib.dates import WE
 import numpy as np
 import torch
-from detectron2.layers import ShapeSpec
 from torch import Tensor, nn
 from typing_extensions import override
+import enum
 
 import unipercept.nn.layers.conv as convolution
 
+from unipercept.nn.backbones import BackboneFeatureInfo
+from unipercept.nn.layers.norm import GroupNormCG
+
 __all__ = ["SemanticMerge"]
+
+class WeightMethod(enum.Enum):
+    SUM = "sum"
+    ATTENTION = "attn"
+    FAST_ATTENTION = "fastattn"
+
 
 
 class SemanticMerge(nn.Module):
@@ -19,25 +29,31 @@ class SemanticMerge(nn.Module):
     Adapted from SemanticFPN.
     """
 
+    weight_method: T.Final[WeightMethod]
+    common_stride: T.Final[int]
+    in_features: T.Final[T.List[str]]
+
     def __init__(
         self,
-        in_features: Sequence[str],
-        input_shape: Mapping[str, ShapeSpec],
+        in_features: T.Iterable[str],
+        input_shape: T.Mapping[str, BackboneFeatureInfo],
         common_stride: int,
         out_channels: int,
-        groups: int = 32,
+        weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION
     ):
-        from einops.layers.torch import Rearrange
-
         super().__init__()
 
         self.in_features = list(in_features)
-        self.common_stride = common_stride
+        self.common_stride = int(common_stride)
 
-        feature_strides = {k: cast(int, v.stride) for k, v in input_shape.items()}
-        feature_channels = {k: cast(int, v.channels) for k, v in input_shape.items()}
+        if isinstance(weight_method, str):
+            weight_method = WeightMethod(weight_method)
+        self.weight_method = weight_method
 
-        self.scale_heads = cast(list[nn.Module], nn.ModuleList())
+        feature_strides = {k: T.cast(int, v.stride) for k, v in input_shape.items()}
+        feature_channels = {k: T.cast(int, v.channels) for k, v in input_shape.items()}
+
+        self.scale_heads = nn.ModuleList()
         for in_feature in self.in_features:
             head_ops = nn.Sequential()
             head_length = max(
@@ -47,23 +63,17 @@ class SemanticMerge(nn.Module):
             for n in range(head_length):
                 in_channels = feature_channels[in_feature] if n == 0 else out_channels
                 assert in_channels is not None
-                conv = convolution.Conv2d.with_norm_activation(
+                conv = convolution.Separable2d.with_norm_activation(
                     in_channels,
                     out_channels,
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    groups=groups,
-                    norm=lambda ch: nn.GroupNorm(groups, ch, eps=1e-6),
-                    activation=lambda: nn.GELU(),
+                    norm=GroupNormCG,
+                    activation=nn.GELU,
                 )
 
                 head_ops.add_module(f"conv_{n}", conv)
-
-                if groups > 1:
-                    shf = Rearrange("b (c1 c2) h w -> b (c2 c1) h w", c1=groups)
-                    head_ops.add_module(f"shf_{n}", shf)
-
                 if feature_strides[in_feature] != self.common_stride:
                     ups = nn.Upsample(
                         scale_factor=2,
@@ -74,6 +84,14 @@ class SemanticMerge(nn.Module):
             self.scale_heads.append(head_ops)
 
         self.apply(self._init_weights)
+
+        if self.weight_method in (WeightMethod.ATTENTION, WeightMethod.FAST_ATTENTION):
+            self.edge_weights = nn.Parameter(torch.ones(len(self.in_features)), requires_grad=True)  # WSM
+        else:
+            self.edge_weights = None
+
+    def __len__(self) -> int:
+        return len(self.in_offsets)
 
     def _init_weights(self, m):
         from timm.layers import trunc_normal_
@@ -86,9 +104,26 @@ class SemanticMerge(nn.Module):
 
     @override
     def forward(self, features: dict[str, Tensor]) -> Tensor:
-        x: list[Tensor] = [head(features[self.in_features[i]]) for i, head in enumerate(self.scale_heads)]
-        y = x[0]
-        for i in range(1, len(self.scale_heads)):
-            y = y + x[i]
+        nodes: list[Tensor] = [head(features[self.in_features[i]]) for i, head in enumerate(self.scale_heads)]
+        dtype = nodes[0].dtype # TODO: check whether this is needed
 
-        return y
+        # Weighting per edge
+        if self.weight_method == WeightMethod.ATTENTION:
+            assert self.edge_weights is not None
+            normalized_weights = torch.softmax(self.edge_weights.to(dtype=dtype), dim=0)
+            out = torch.stack(nodes, dim=-1) * normalized_weights
+        elif self.weight_method == WeightMethod.FAST_ATTENTION:
+            assert self.edge_weights is not None
+            edge_weights = nn.functional.relu(self.edge_weights.to(dtype=dtype))
+            weights_sum = torch.sum(edge_weights)
+            out = torch.stack(
+                [(nodes[i] * edge_weights[i]) / (weights_sum + 1e-4) for i in range(len(nodes))], dim=-1
+            )
+        elif self.weight_method == WeightMethod.SUM:
+            assert self.edge_weights is None
+            out = torch.stack(nodes, dim=-1)
+        else:
+            raise ValueError(f"unknown weight_method {self.weight_method}")
+
+        return torch.sum(out, dim=-1)
+

@@ -4,15 +4,13 @@ import typing as T
 from logging import warn
 from pathlib import Path
 
-from detectron2.layers import ShapeSpec
 from torch import nn
 from unimodels import risknet
 
 import unipercept as up
 from unipercept.utils.config import get_project_name, get_session_name
-from unipercept.utils.config._lazy import bind as B
-from unipercept.utils.config._lazy import call as L
-from unipercept.utils.config._lazy import use_activation, use_norm
+from unipercept.utils.config import bind as B
+from unipercept.utils.config import call as L
 
 from .data._risk import data
 

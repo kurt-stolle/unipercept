@@ -13,7 +13,7 @@ from ._standard import Standard2d
 __all__ = ["Separable2d"]
 
 
-class Separable2d(nn.Module):
+class Separable2d(utils.NormActivationMixin, nn.Module):
     """
     Impements a depthwise-seperable 2d convolution. This is a combination of a depthwise convolution and a pointwise
     convolution. The depthwise convolution is a convolution with a kernel size of 1x1xKxK and a pointwise convolution
@@ -84,36 +84,6 @@ class Separable2d(nn.Module):
         # Store in_channels and out_channels for exporting
         self.in_channels = in_channels
         self.out_channels = out_channels
-
-    @classmethod
-    def with_norm(cls, *args, norm: None | Callable[[int], nn.Module] = None, **kwargs) -> Self:
-        return cls.with_norm_activation(norm=norm, activation=None)
-
-    @classmethod
-    def with_activation(cls, *args, activation: None | Callable[..., nn.Module] = None, **kwargs) -> Self:
-        return cls.with_norm_activation(norm=None, activation=activation)
-
-    @classmethod
-    def with_norm_activation(
-        cls,
-        *args,
-        norm: None | Callable[[int], nn.Module] = None,
-        activation: None | Callable[..., nn.Module] = None,
-        **kwargs,
-    ) -> Self:
-        if norm is not None:
-            depthwise = kwargs.pop("depthwise", Conv2d)
-            kwargs["depthwise"] = lambda *dw_args, **dw_kwargs: depthwise(*dw_args, **dw_kwargs)
-        if activation is not None:
-            pointwise = kwargs.pop("pointwise", Conv2d)
-            kwargs["pointwise"] = lambda *pw_args, **pw_kwargs: utils._init_sequential_norm_activation(
-                pointwise, *pw_args, **pw_kwargs, activation=activation, norm=norm
-            )
-
-        return cls(
-            *args,
-            **kwargs,
-        )
 
     @override
     def forward(self, x: torch.Tensor) -> torch.Tensor:

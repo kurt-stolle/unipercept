@@ -6,7 +6,7 @@ from unipercept.utils.config import get_project_name, get_session_name
 from unipercept.utils.config._lazy import bind as B
 from unipercept.utils.config._lazy import call as L
 
-from .data._dvps import DATASET_INFO, DATASET_NAME, data
+from ._dataset import DATASET_INFO, DATASET_NAME, data
 
 __all__ = ["model", "data", "trainer"]
 

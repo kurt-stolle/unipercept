@@ -8,6 +8,7 @@ import typing as T
 import torch
 import torch.nn as nn
 from tensordict import TensorDictBase
+from collections import OrderedDict
 
 __all__ = ["Backbone", "BackboneFeatureInfo", "BackboneFeatures"]
 
@@ -39,8 +40,7 @@ class Backbone(nn.Module):
 
         self.feature_info = {k: v for k, v in feature_info.items()}
 
-    @abc.abstractmethod
-    def forward(self, images: torch.Tensor) -> TensorDictBase:
+    def forward(self, images: torch.Tensor) -> OrderedDict[str, torch.Tensor]:
         """
         Extract features from the input data.
 
@@ -56,4 +56,4 @@ class Backbone(nn.Module):
         list[torch.Tensor]
             The extracted features.
         """
-        raise NotImplementedError
+        raise NotImplementedError()

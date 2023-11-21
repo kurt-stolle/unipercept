@@ -5,10 +5,7 @@ from __future__ import annotations
 import dataclasses
 import multiprocessing as M
 import typing as T
-from os import kill
 
-from detectron2.data.build import InferenceSampler, TrainingSampler
-from detectron2.utils import comm
 from torch.utils.data import (
     DataLoader,
     Dataset,

@@ -20,7 +20,7 @@
             "name": "train debug",
             "type": "python",
             "request": "launch",
-            "program": "scripts/run.py",
+            "module": "unicli",
             "args": [
                 "train",
                 "--config",

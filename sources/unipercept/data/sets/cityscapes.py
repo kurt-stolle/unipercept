@@ -191,7 +191,11 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
     path_camera = formatter("{self.root}/camera/{self.split}")
 
     meta_panoptic: T.ClassVar = {"format": "cityscapes"}
-    meta_depth: T.ClassVar = {"format": "disparity_int16", "camera_baseline": CAMERA.extrinsic.baseline, "camera_fx": CAMERA.intrinsic.fx}
+    meta_depth: T.ClassVar = {
+        "format": "disparity_int16",
+        "camera_baseline": CAMERA.extrinsic.baseline,
+        "camera_fx": CAMERA.intrinsic.fx,
+    }
 
     def _get_next_frame(self, frame: int) -> int:
         """

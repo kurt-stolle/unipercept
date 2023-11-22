@@ -19,6 +19,7 @@ from ..layers import conv
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
 
+
 class ExtraFPNBlock(nn.Module):
     """
     Base class for the extra block in the FPN.
@@ -65,7 +66,7 @@ class FeaturePyramidNetwork(nn.Module):
         Module specifying the normalization layer to use. Default: None
     extra_blocks
         if provided, extra operations will be performed. It is expected to take the fpn features, the original
-        features and the names of the original features as input, and returns a new list of feature maps and their 
+        features and the names of the original features as input, and returns a new list of feature maps and their
         corresponding names
     """
 
@@ -108,7 +109,7 @@ class FeaturePyramidNetwork(nn.Module):
         if extra_blocks is not None:
             if not isinstance(extra_blocks, ExtraFPNBlock):
                 raise TypeError(f"extra_blocks should be of type ExtraFPNBlock not {type(extra_blocks)}")
-            
+
         self.extra_blocks = extra_blocks
         self.bottom_up = bottom_up
         if freeze:
@@ -143,7 +144,7 @@ class FeaturePyramidNetwork(nn.Module):
                 out = module(x)
         return out
 
-    @override    
+    @override
     def forward(self, inputs: torch.Tensor) -> T.Dict[str, torch.Tensor]:
         """
         Computes the FPN for a set of feature maps.

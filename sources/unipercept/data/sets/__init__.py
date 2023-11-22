@@ -10,7 +10,6 @@ from . import (
     kitti_360,
     kitti_sem,
     kitti_step,
-    mapillary_vistas,
     pascal_voc,
     wilddash,
 )

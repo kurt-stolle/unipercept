@@ -94,7 +94,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
                     deform=True,
                     coord=L(up.nn.layers.CoordCat2d)(),
                     norm=up.nn.layers.norm.LayerNormCHW,
-                )
+                ),
             },
         ),
     ),

@@ -22,8 +22,8 @@ trainer.config.logging_steps = 10
 model.backbone.base = L(up.nn.backbones.timm.TimmBackbone)(name="resnet18")
 model.backbone.out_channels = 24
 model.detector.localizer.encoder.out_channels = 64
-model.feature_encoder.shared_encoder.out_channels=64
-model.feature_encoder.heads[multidvps.KEY_MASK].out_channels=64
-model.feature_encoder.heads[multidvps.KEY_DEPTH].out_channels=32
-model.kernel_mapper.input_dims=32
-model.kernel_mapper.mapping[multidvps.KEY_REID].out_channels=32
+model.feature_encoder.shared_encoder.out_channels = 64
+model.feature_encoder.heads[multidvps.KEY_MASK].out_channels = 64
+model.feature_encoder.heads[multidvps.KEY_DEPTH].out_channels = 32
+model.kernel_mapper.input_dims = 32
+model.kernel_mapper.mapping[multidvps.KEY_REID].out_channels = 32

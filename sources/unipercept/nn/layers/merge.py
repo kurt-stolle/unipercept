@@ -16,11 +16,11 @@ from unipercept.nn.layers.norm import GroupNormCG
 
 __all__ = ["SemanticMerge"]
 
+
 class WeightMethod(enum.Enum):
     SUM = "sum"
     ATTENTION = "attn"
     FAST_ATTENTION = "fastattn"
-
 
 
 class SemanticMerge(nn.Module):
@@ -39,7 +39,7 @@ class SemanticMerge(nn.Module):
         input_shape: T.Mapping[str, BackboneFeatureInfo],
         common_stride: int,
         out_channels: int,
-        weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION
+        weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION,
     ):
         super().__init__()
 
@@ -105,7 +105,7 @@ class SemanticMerge(nn.Module):
     @override
     def forward(self, features: dict[str, Tensor]) -> Tensor:
         nodes: list[Tensor] = [head(features[self.in_features[i]]) for i, head in enumerate(self.scale_heads)]
-        dtype = nodes[0].dtype # TODO: check whether this is needed
+        dtype = nodes[0].dtype  # TODO: check whether this is needed
 
         # Weighting per edge
         if self.weight_method == WeightMethod.ATTENTION:
@@ -116,9 +116,7 @@ class SemanticMerge(nn.Module):
             assert self.edge_weights is not None
             edge_weights = nn.functional.relu(self.edge_weights.to(dtype=dtype))
             weights_sum = torch.sum(edge_weights)
-            out = torch.stack(
-                [(nodes[i] * edge_weights[i]) / (weights_sum + 1e-4) for i in range(len(nodes))], dim=-1
-            )
+            out = torch.stack([(nodes[i] * edge_weights[i]) / (weights_sum + 1e-4) for i in range(len(nodes))], dim=-1)
         elif self.weight_method == WeightMethod.SUM:
             assert self.edge_weights is None
             out = torch.stack(nodes, dim=-1)
@@ -126,4 +124,3 @@ class SemanticMerge(nn.Module):
             raise ValueError(f"unknown weight_method {self.weight_method}")
 
         return torch.sum(out, dim=-1)
-

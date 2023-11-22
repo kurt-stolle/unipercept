@@ -39,12 +39,11 @@ def train(subparser: argparse.ArgumentParser):
         action="store_true",
         help="whether to attempt to resume training from the checkpoint directory",
     )
-    
+
     subparser.add_argument("--dataloader-train", type=str, default="train", help="name of the train dataloader")
     subparser.add_argument("--dataloader-test", type=str, default="test", help="name of the test dataloader")
 
     return main
-
 
 
 def main(args):
@@ -85,6 +84,7 @@ def main(args):
         trial=None,
         evaluation_loader_factory=loaders[args.dataloader_test],
     )
+
 
 if __name__ == "__main__":
     command.root("train")

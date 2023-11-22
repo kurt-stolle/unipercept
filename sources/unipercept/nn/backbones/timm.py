@@ -108,7 +108,7 @@ def list_available(query: str | None = None, pretrained: bool = False) -> list[s
     -------
     list[str]
         List of available backbones.
-    
+
     """
     models = timm.list_models(pretrained=pretrained)
     if query is None:

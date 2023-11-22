@@ -40,6 +40,7 @@ __all__ = [
     "get_info",
 ]
 
+
 def get_dataset(name: str):
     """
     Alias for `unipercept.data.sets.get_dataset`.
@@ -47,6 +48,7 @@ def get_dataset(name: str):
     from .data.sets import get_dataset
 
     return get_dataset(name)
+
 
 def get_info(name: str):
     """

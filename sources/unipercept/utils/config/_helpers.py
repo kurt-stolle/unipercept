@@ -32,6 +32,7 @@ def _split_config_filepath(config_path: str | Path | PathLike, relative_to: str)
 
     return list(reversed(name))
 
+
 @deprecated("Hardcode this in the configuration file instead.")
 def get_project_name(config_path: str | Path | PathLike, *, relative_to="configs") -> str:
     """

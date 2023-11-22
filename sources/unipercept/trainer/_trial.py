@@ -52,4 +52,3 @@ class Trial(metaclass=abc.ABCMeta):
 class MockTrial:
     name: str
     params: SearchParams = D.field(default_factory=dict)
-

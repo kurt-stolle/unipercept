@@ -23,10 +23,10 @@ trainer = B(up.trainer.Trainer)(
         train_epochs=200,
         infer_batch_size=1,
         eval_steps=1000,
-        save_epochs=1,
+        save_steps=1000,
         logging_steps=50,
     ),
-    optimizer=L(up.trainer.OptimizerFactory)(opt="sgd", lr=1e-2),
+    optimizer=L(up.trainer.OptimizerFactory)(opt="adamw"),
     scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
@@ -49,7 +49,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     backbone=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
         bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
-        out_channels=88,
+        out_channels=128,
         norm=up.nn.layers.norm.LayerNormCHW,
         extra_blocks=L(up.nn.backbones.fpn.LastLevelP6P7)(
             in_channels="${..out_channels}",
@@ -74,14 +74,17 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         ),
         kernelizer=L(multidvps.modules.Kernelizer)(
             heads={
-                multidvps.KEY_GEOMETRY: L(multidvps.modules.Encoder)(
-                    in_channels=T.cast(int, "${model.backbone.out_channels}"),
+                multidvps.KEY_GEOMETRY: L(multidvps.modules.GeometryEncoder)(
+                    encoder=L(multidvps.modules.Encoder)(
+                        in_channels=T.cast(int, "${model.backbone.out_channels}"),
+                        out_channels=32,
+                        num_convs=3,
+                        groups=1,
+                        deform=False,
+                        coord=None,
+                        norm=up.nn.layers.norm.LayerNormCHW,
+                    ),
                     out_channels=2,
-                    num_convs=1,
-                    groups=1,
-                    deform=False,
-                    coord=None,
-                    norm=up.nn.layers.norm.LayerNormCHW,
                 ),
                 multidvps.KEY_SEMANTIC: L(multidvps.modules.Encoder)(
                     in_channels=T.cast(int, "${model.backbone.out_channels}"),
@@ -106,8 +109,8 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             common_stride=4,
         ),
         shared_encoder=L(multidvps.modules.Encoder)(
-            in_channels=256,
-            out_channels=256,
+            in_channels="${..merger.out_channels}",
+            out_channels="${..merger.out_channels}",
             num_convs=1,
             deform=True,
             groups=1,
@@ -125,7 +128,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             ),
             multidvps.KEY_DEPTH: L(multidvps.modules.Encoder)(
                 in_channels="${...shared_encoder.out_channels}",
-                out_channels=32,
+                out_channels=96,
                 num_convs=2,
                 deform=True,
                 norm=up.nn.layers.norm.GroupNormCG,
@@ -135,8 +138,8 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     ),
     kernel_mapper=L(multidvps.modules.KernelMapper)(
         input_key=multidvps.KEY_SEMANTIC,
-        input_dims=128,
-        attention_heads=4,
+        input_dims=256,
+        attention_heads=8,
         dropout=0.0,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(

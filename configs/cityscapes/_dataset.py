@@ -50,7 +50,7 @@ data = B(up.data.DataConfig)(
                         L(transforms.RandomHorizontalFlip)(),
                     ]
                 ),
-                L(up.data.ops.PseudoMotion)(frames=1, size=(512, 1024))
+                L(up.data.ops.PseudoMotion)(frames=2, size=(512, 1024))
             ],
             sampler=L(up.data.SamplerFactory)(sampler="training"),
             config=L(up.data.DataLoaderConfig)(),
@@ -58,6 +58,7 @@ data = B(up.data.DataConfig)(
         "test": L(up.data.DataLoaderFactory)(
             dataset=L(L(up.get_dataset)(name="cityscapes/vps"))(
                 split="val",
+                all=False,
                 queue_fn=L(up.data.collect.GroupAdjacentTime)(
                     num_frames=1,
                     required_capture_sources={"image", "panoptic"},

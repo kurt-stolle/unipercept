@@ -5,18 +5,16 @@
 #SBATCH --mail-type=ALL
 #SBATCH --partition=gpu --nodes 1
 
-# Exit immediately if a command exits with a non-zero status.
 set -e
 
-# Environment setup
-SCRIPTS_DIR=$(dirname "$0")
-source "${SCRIPTS_DIR}/hpc_env.sh"
+echo "Running on $(hostname)"
 
-# Get CLI command path
-CLI_PATH=$(which unicli)
+echo "Loading HPC modules"
+source "./scripts/hpc_env.sh"
 
-# Run
-$PYTHON -m accelerate.commands.launch "${CLI_PATH}" $@
+echo "Loading Python virtual environment"
+source "./venv/bin/activate"
 
-# Exit
+echo "Starting distributed training"
+accelerate launch $(which unicli) $@
 exit $?

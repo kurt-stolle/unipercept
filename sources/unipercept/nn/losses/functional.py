@@ -21,7 +21,7 @@ def split_into_patches(
     """
 
     if strides is None:
-        strides = (sizes[0] // 2, sizes[1] // 2)
+        strides = (sizes[0], sizes[1])
 
     batch_size, channels, _, _ = x.shape
 

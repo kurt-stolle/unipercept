@@ -6,6 +6,8 @@ from tensordict import TensorDict
 from torch import Tensor, nn
 from typing_extensions import override
 
+__all__ = ["KernelSpaces", "Kernelizer", "GeometryEncoder"]
+
 KernelSpaces: TypeAlias = TensorDict
 
 
@@ -30,3 +32,12 @@ class Kernelizer(nn.Module):
 
         k_spaces = {key: head(fe) for key, head in self.heads.items()}
         return TensorDict.from_dict(k_spaces, batch_size=[fe.shape[0]], device=fe.device)
+
+class GeometryEncoder(nn.Module):
+    def __init__(self, encoder: nn.Module, out_channels: int): 
+        super().__init__()
+        self.encoder = encoder
+        self.mapper = nn.Conv2d(self.encoder.out_channels, out_channels, 1, bias=True)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.mapper(self.encoder(x)).sigmoid()

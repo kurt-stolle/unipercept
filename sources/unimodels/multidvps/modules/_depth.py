@@ -49,8 +49,8 @@ class DepthHead(nn.Module):
         """
         Returns the mean and range for depth denormalization
         """
-        mr_disp = k_geom.sigmoid()
-        _, mr_abs = self._convert_to_absolute_depth(mr_disp)
+        # mr_abs = self.min_depth + k_geom * (self.max_depth - self.min_depth)
+        _, mr_abs = self._convert_to_absolute_depth(k_geom)
 
         m, r = mr_abs.chunk(2, dim=-1)
 
@@ -99,6 +99,10 @@ class DepthHead(nn.Module):
 
         # Ensure values are in range
         # d = d.clamp(min=0.0).clamp(max=self.max_depth)
-        d = d.clamp(self.min_depth, self.max_depth)
+        # d = d.clamp(self.min_depth, self.max_depth)
+        if self.training:
+            d = d.relu()
+        else:
+            d = d.clamp(self.min_depth, self.max_depth)
 
         return d, m if return_means else None

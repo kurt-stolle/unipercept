@@ -19,6 +19,7 @@ DEFAULT_DEPTH_DTYPE: T.Final = torch.float32
 
 class DepthFormat(StrEnum):
     DEPTH_INT16 = auto()
+    DISPARITY_INT16 = auto()
     TORCH = auto()
     SAFETENSORS = auto()
 
@@ -45,6 +46,8 @@ class DepthMap(Mask):
             case DepthFormat.DEPTH_INT16:
                 m = read_pixels(path, color=False).to(torch.float64)
                 m /= float(2**8)
+            case DepthFormat.DISPARITY_INT16:
+                m = cls.read_from_disparity(path, **meta_kwds)
             case DepthFormat.SAFETENSORS:
                 m = safetensors.load_file(path)["data"]
             case DepthFormat.TORCH:
@@ -68,17 +71,16 @@ class DepthMap(Mask):
         path: str,
         camera_baseline: float,
         camera_fx: float,
-        dtype=DEFAULT_DEPTH_DTYPE,
     ) -> T.Self:
         # Get machine epsilon for the given dtype, used to check for invalid values
-        eps = torch.finfo(dtype).eps
+        eps = torch.finfo(torch.float32).eps
 
         # Read disparity map
         disp = read_pixels(path, False)
         assert disp.dtype == torch.int32, disp.dtype
 
         # Convert disparity from 16-bit to float
-        disp = disp.to(dtype=dtype, copy=False)
+        disp = disp.to(dtype=torch.float32, copy=False)
         disp -= 1
         disp[disp >= eps] /= 256.0
 

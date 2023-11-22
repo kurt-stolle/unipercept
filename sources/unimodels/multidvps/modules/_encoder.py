@@ -12,6 +12,7 @@ from typing_extensions import override
 from unipercept.nn.layers._coord import CoordCat2d
 from unipercept.nn.layers.conv import Conv2d, ModDeform2d, Separable2d
 from unipercept.nn.layers.conv.utils import AvgPool2dSame
+from unipercept.nn.layers.norm import GroupNormCG
 from unipercept.nn.layers.weight import init_xavier_fill_
 
 if T.TYPE_CHECKING:
@@ -33,7 +34,7 @@ class Encoder(nn.Module):
         num_convs: int,
         deform=False,
         coord: T.Optional[CoordCat2d] = None,
-        norm: T.Optional[Norm] = None,
+        norm: T.Optional[Norm] = GroupNormCG,
         groups: int = 1,
         activation: T.Optional[Activation] = nn.GELU,
         **kwargs,
@@ -48,7 +49,7 @@ class Encoder(nn.Module):
             in_channels += coord.cat_channels
             self.coord = coord
         else:
-            self.coord = None
+            self.coord = nn.Identity()
 
         # Supported conv modules have the same signature.
         if deform:
@@ -57,7 +58,7 @@ class Encoder(nn.Module):
             conv_module = Conv2d.with_norm_activation
 
         # Create `num_convs` conv modules.
-        self.layers = nn.Sequential()
+        self.layers = nn.ModuleList()
         for n in range(num_convs):
             if n == 0:
                 cur_channels = in_channels
@@ -70,12 +71,12 @@ class Encoder(nn.Module):
                 cur_channels,
                 out_channels,
                 kernel_size=3,
-                stride=1,
                 padding=1,
+                stride=1,
                 groups=cur_groups,
                 bias=norm is None,
-                norm=norm if norm is not None else nn.Identity,
-                activation=activation if activation is not None else nn.Identity,
+                norm=norm,
+                activation=activation,
             )
             self.layers.add_module(f"conv_{n}", c)
 
@@ -93,31 +94,9 @@ class Encoder(nn.Module):
         self.apply(init_xavier_fill_)
 
     @override
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        if self.coord is not None:
-            inputs = self.coord(inputs)
-        inputs = self.layers(inputs)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.coord(x)
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
 
-        return inputs
-
-
-class Downsample(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1, dilation=1):
-        super().__init__()
-        avg_stride = stride if dilation == 1 else 1
-        if stride > 1 or dilation > 1:
-            avg_pool_fn = AvgPool2dSame if avg_stride == 1 and dilation > 1 else nn.AvgPool2d
-            self.pool = avg_pool_fn(2, avg_stride, ceil_mode=True, count_include_pad=False)
-        else:
-            self.pool = nn.Identity()
-
-        if in_channels != out_channels:
-            self.conv = Conv2d(in_channels, out_channels, 1, stride=1)
-        else:
-            self.conv = nn.Identity()
-
-    @override
-    def forward(self, x):
-        x = self.pool(x)
-        x = self.conv(x)
         return x

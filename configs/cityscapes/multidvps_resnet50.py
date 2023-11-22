@@ -46,7 +46,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     dataset_name=DATASET_NAME,
     weighted_num=7,
     common_stride=4,
-    backbone=L(torch.jit.script)(obj=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
+    backbone=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
         bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
         out_channels=88,
@@ -55,7 +55,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             in_channels="${..out_channels}",
             out_channels="${..out_channels}",
         ),
-    )),
+    ),
     detector=L(multidvps.modules.Detector)(
         in_features=[f"fpn.{i}" for i in (3, 4, 5, 6)],
         localizer=L(multidvps.modules.Localizer)(
@@ -102,7 +102,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         ),
     ),
     feature_encoder=L(multidvps.modules.FeatureEncoder)(
-        merger=L(torch.jit.script)(obj=L(up.nn.layers.merge.SemanticMerge)(
+        merger=L(up.nn.layers.merge.SemanticMerge)(
             input_shape={
                 f: L(up.nn.backbones.BackboneFeatureInfo)(stride=s, channels="${model.backbone.out_channels}")
                 for f, s in zip(["fpn.1", "fpn.2", "fpn.3", "fpn.4"], [4, 8, 16, 32])
@@ -110,7 +110,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             in_features=["fpn.1", "fpn.2", "fpn.3", "fpn.4"],
             out_channels=256,
             common_stride=4,
-        )),
+        ),
         shared_encoder=L(multidvps.modules.Encoder)(
             in_channels=256,
             out_channels=256,

@@ -98,8 +98,6 @@ class MultiDVPS(up.model.ModelBase):
 
         # Submodules
         self.backbone = backbone
-        self.training_pipeline = training_pipeline
-        self.inference_pipeline = inference_pipeline
         self.detector = detector
         self.kernel_mapper = kernel_mapper
         self.fusion_thing = fusion_thing
@@ -109,6 +107,10 @@ class MultiDVPS(up.model.ModelBase):
         self.maskifier_stuff = maskifier_stuff
         self.depth_mapper = depth_mapper
         self.tracker = tracker
+
+        # Pipelines
+        self.training_pipeline = training_pipeline
+        self.inference_pipeline = inference_pipeline
 
     @classmethod
     def from_metadata(cls, dataset_name: str, **kwargs) -> T.Self:

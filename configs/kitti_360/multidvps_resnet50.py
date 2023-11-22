@@ -80,7 +80,7 @@ model.detector = L(multidvps.modules.Detector)(
     ),
     kernelizer=L(multidvps.modules.Kernelizer)(
         heads={
-            multidvps.KEY_MULTI: L(multidvps.modules.Encoder)(
+            multidvps.KEY_SEMANTIC: L(multidvps.modules.Encoder)(
                 in_channels=T.cast(int, "${.....backbone.out_channels}"),
                 out_channels=MULTI_DIMS,
                 num_convs=3,
@@ -125,7 +125,7 @@ model.feature_encoder = L(multidvps.modules.FeatureEncoder)(
     },
 )
 model.fusion_thing = L(multidvps.modules.ThingFusion)(
-    key=multidvps.KEY_MULTI,
+    key=multidvps.KEY_SEMANTIC,
     input_dims=MULTI_DIMS,
     hidden_dims=FUSION_DIMS,
     fusion_threshold=0.97,
@@ -145,7 +145,7 @@ model.fusion_thing = L(multidvps.modules.ThingFusion)(
     },
 )
 model.fusion_stuff = L(multidvps.modules.StuffFusion)(
-    key=multidvps.KEY_MULTI,
+    key=multidvps.KEY_SEMANTIC,
     input_dims=MULTI_DIMS,
     hidden_dims=FUSION_DIMS,
     dropout=0.1,

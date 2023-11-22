@@ -76,11 +76,12 @@ class FeaturePyramidNetwork(nn.Module):
         bottom_up: Backbone,
         in_features: T.Iterable[str],
         out_channels: int,
-        norm: T.Optional[T.Callable[..., nn.Module]] = None,
-        extra_blocks: T.Optional[ExtraFPNBlock] = None,
+        norm: T.Optional[T.Callable[..., nn.Module]],
+        extra_blocks: T.Optional[ExtraFPNBlock],
+        freeze: bool,
     ):
         super().__init__()
-        self.bottom_up = bottom_up
+
         self.inner_blocks = nn.ModuleList()
         self.layer_blocks = nn.ModuleList()
         self.in_features = list(in_features)
@@ -97,7 +98,7 @@ class FeaturePyramidNetwork(nn.Module):
             self.inner_blocks.append(inner_block_module)
             self.layer_blocks.append(layer_block_module)
 
-        # initialize parameters now to avoid modifying the initialization of top_blocks
+        # Do not override initialization of backbone and extra blocks.
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_uniform_(m.weight, a=1)
@@ -107,7 +108,12 @@ class FeaturePyramidNetwork(nn.Module):
         if extra_blocks is not None:
             if not isinstance(extra_blocks, ExtraFPNBlock):
                 raise TypeError(f"extra_blocks should be of type ExtraFPNBlock not {type(extra_blocks)}")
+            
         self.extra_blocks = extra_blocks
+        self.bottom_up = bottom_up
+        if freeze:
+            for p in self.bottom_up.parameters():
+                p.requires_grad_(False)
 
     def get_result_from_inner_blocks(self, x: torch.Tensor, idx: int) -> torch.Tensor:
         """

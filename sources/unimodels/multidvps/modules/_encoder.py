@@ -34,7 +34,7 @@ class Encoder(nn.Module):
         num_convs: int,
         deform=False,
         coord: T.Optional[CoordCat2d] = None,
-        norm: T.Optional[Norm] = GroupNormCG,
+        norm: T.Optional[Norm] = None,
         groups: int = 1,
         activation: T.Optional[Activation] = nn.GELU,
         **kwargs,

@@ -50,18 +50,19 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
         out_channels=88,
-        norm=up.nn.layers.norm.GroupNormCG,
+        norm=up.nn.layers.norm.LayerNormCHW,
         extra_blocks=L(up.nn.backbones.fpn.LastLevelP6P7)(
             in_channels="${..out_channels}",
             out_channels="${..out_channels}",
         ),
+        freeze=True,
     ),
     detector=L(multidvps.modules.Detector)(
         in_features=[f"fpn.{i}" for i in (3, 4, 5, 6)],
         localizer=L(multidvps.modules.Localizer)(
             encoder=L(multidvps.modules.Encoder)(
                 in_channels=T.cast(int, "${model.backbone.out_channels}"),
-                out_channels=256,
+                out_channels=128,
                 num_convs=3,
                 deform=True,
                 coord=None,
@@ -73,30 +74,23 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         ),
         kernelizer=L(multidvps.modules.Kernelizer)(
             heads={
-                # multidvps.KEY_MASK: L(multidvps.modules.Encoder)(
-                #     in_channels="${.....backbone.out_channels}",
-                #     out_channels="${.....maskifier_thing.kernel_dims}",
-                #     num_convs=3,
-                #     deform=False,
-                #     coord=L(layers.CoordCat2d)(),
-                #     norm=up.nn.layers.norm.LayerNormCHW,
-                # ),
-                # multidvps.KEY_DEPTH: L(multidvps.modules.Encoder)(
-                #     in_channels="${.....backbone.out_channels}",
-                #     out_channels="${.....depth_mapper.kernel_dims}",
-                #     num_convs=3,
-                #     deform=True,
-                #     coord=L(layers.CoordCat2d)(),
-                #     norm=up.nn.layers.norm.LayerNormCHW,
-                # ),
-                multidvps.KEY_MULTI: L(multidvps.modules.Encoder)(
+                multidvps.KEY_GEOMETRY: L(multidvps.modules.Encoder)(
                     in_channels=T.cast(int, "${model.backbone.out_channels}"),
-                    out_channels="${model.kernel_mapper.input_dims}",
+                    out_channels=2,
+                    num_convs=1,
+                    groups=1,
+                    deform=False,
+                    coord=None,
+                    norm=up.nn.layers.norm.LayerNormCHW,
+                ),
+                multidvps.KEY_SEMANTIC: L(multidvps.modules.Encoder)(
+                    in_channels=T.cast(int, "${model.backbone.out_channels}"),
+                    out_channels=T.cast(int, "${model.kernel_mapper.input_dims}"),
                     num_convs=3,
-                    groups=32,
+                    groups=1,
                     deform=True,
                     coord=L(up.nn.layers.CoordCat2d)(),
-                    norm=up.nn.layers.norm.GroupNormCG,
+                    norm=up.nn.layers.norm.LayerNormCHW,
                 )
             },
         ),
@@ -140,7 +134,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         },
     ),
     kernel_mapper=L(multidvps.modules.KernelMapper)(
-        input_key=multidvps.KEY_MULTI,
+        input_key=multidvps.KEY_SEMANTIC,
         input_dims=128,
         attention_heads=4,
         dropout=0.0,
@@ -177,8 +171,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     ),
     depth_mapper=L(multidvps.modules.DepthHead)(
         feature_key=multidvps.KEY_DEPTH,
-        kernel_keys=[multidvps.KEY_DEPTH, multidvps.KEY_MASK],
-        kernel_dims=[f"${{model.feature_encoder.heads[{multidvps.KEY_DEPTH}].out_channels}}", f"${{model.feature_encoder.heads[{multidvps.KEY_MASK}].out_channels}}"],
+        geometry_key=multidvps.KEY_GEOMETRY,
         min_depth=2,
         max_depth=DATASET_INFO.depth_max,
     ),

@@ -93,7 +93,7 @@ model = B(multidvps.MultiDVPS)(
                 #     coord=L(layers.CoordCat2d)(),
                 #     norm=use_norm("GN"),
                 # ),
-                multidvps.KEY_MULTI: L(multidvps.modules.Encoder)(
+                multidvps.KEY_SEMANTIC: L(multidvps.modules.Encoder)(
                     in_channels=T.cast(int, "${.....backbone.out_channels}"),
                     out_channels=MULTI_DIMS,
                     num_convs=3,
@@ -134,7 +134,7 @@ model = B(multidvps.MultiDVPS)(
         },
     ),
     fusion_thing=L(multidvps.modules.ThingFusion)(
-        key=multidvps.KEY_MULTI,
+        key=multidvps.KEY_SEMANTIC,
         dims=MULTI_DIMS,
         fusion_threshold=0.5,
         mapping={
@@ -153,7 +153,7 @@ model = B(multidvps.MultiDVPS)(
         },
     ),
     fusion_stuff=L(multidvps.modules.StuffFusion)(
-        key=multidvps.KEY_MULTI,
+        key=multidvps.KEY_SEMANTIC,
         dims=MULTI_DIMS,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(

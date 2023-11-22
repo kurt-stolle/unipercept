@@ -75,7 +75,7 @@ class FileID:
 
 
 def get_info() -> Metadata:
-    return info_factory(CLASSES, depth_max=80, fps=15)
+    return info_factory(CLASSES, depth_max=10, fps=15)
 
 
 class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):

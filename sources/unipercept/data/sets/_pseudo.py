@@ -50,11 +50,15 @@ class PseudoGenerator:
         pan_path.parent.mkdir(parents=True, exist_ok=True)
         safetensors.save_file({"data": pan.as_subclass(torch.Tensor)}, pan_path)
 
-    def create_depth_source(self, img_path: Path, out_path: Path) -> None:
+    def create_depth_source(self, img_path: Path | str, out_path: Path | str) -> None:
         """
         Uses pretrained DPT model to generate depth map pseudolabels
         """
         from PIL import Image
+        from unicore import file_io
+
+        img_path = file_io.Path(img_path)
+        out_path = file_io.Path(out_path)
 
         image = Image.open(img_path)
         # processor, model = self.depth_pipeline

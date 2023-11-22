@@ -11,6 +11,7 @@ from . import (
     kitti_sem,
     kitti_step,
     pascal_voc,
+    vistas,
     wilddash,
 )
 from ._base import *

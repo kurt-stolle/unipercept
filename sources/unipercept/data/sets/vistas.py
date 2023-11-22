@@ -3,13 +3,16 @@ Mapillary Vistas dataset
 """
 
 from __future__ import annotations
+from datetime import datetime
 import typing as T
 import functools
 
-
+from typing_extensions import override
 from unicore import file_io
 from ._pseudo import PseudoGenerator
 from ._base import PerceptionDataset, info_factory, SClass, SType
+from ..types import Manifest, ManifestSequence, MotionRecord, MotionSources, CaptureRecord, CaptureSources
+from .cityscapes import CAMERA
 
 CLASSES_AS_CITYSCAPES = [
     {"color": (165, 42, 42), "isthing": 0, "id": 0, "trainId": 255, "name": "animal--bird"},
@@ -296,7 +299,7 @@ CLASSES = [
 def get_info(*, use_cityscapes: bool = False):
     return info_factory(
         CLASSES if not use_cityscapes else CLASSES_AS_CITYSCAPES,
-        depth_max=80.0,
+        depth_max=10.0,
         fps=17.0,
     )
 
@@ -304,10 +307,63 @@ def get_info(*, use_cityscapes: bool = False):
 class VistasDataset(PerceptionDataset, info=get_info, id="vistas"):
     """
     Vistas dataset using the provided labeling scheme.
+
+    The dataset consists of single images, i.e. there are no sequences.
     """
 
     split: T.Literal["train", "val", "test"]
     root: str = "//datasets/vistas"
+
+    @override
+    def _build_manifest(self) -> Manifest:
+        from tqdm import tqdm
+
+        split_dir = file_io.Path(self.root) / f"{self.split}ing"
+        pseudogen = PseudoGenerator()
+
+        sequences: T.Mapping[str, ManifestSequence] = {}
+
+        image_list = list((split_dir / "images").glob("*.png"))
+        image_list.sort(key=lambda p: p.stem)
+
+        for image_path in tqdm(image_list, desc="Building manifest", unit="image"):
+            cap_key = image_path.stem
+            seq_key = cap_key  # NOTE: no sequences
+
+            sources: CaptureSources = {
+                "image": {
+                    "path": str(image_path),
+                },
+                "panoptic": {
+                    "path": str(split_dir / "v2.0" / "panoptic" / f"{cap_key}.png"),
+                    "meta": {"format": "vistas"},
+                },
+                "depth": {
+                    "path": str(split_dir / "v2.0" / "depth" / f"{cap_key}.png"),
+                    "meta": {"format": "safetensors"},
+                },
+            }
+
+            def _source_exists(src):
+                return file_io.Path(src["path"]).exists()
+
+            if not _source_exists(sources["panoptic"]):
+                del sources["panoptic"]
+            if not _source_exists(sources["depth"]):
+                pseudogen.create_depth_source(sources["image"]["path"], sources["depth"]["path"])
+
+            camera = CAMERA.to_canonical()  # TODO: fill with estimated camera parameters
+            captures: list[CaptureRecord] = [{"primary_key": cap_key, "sources": sources}]
+
+            # Create sequence item
+            seq_item: ManifestSequence = {
+                "camera": camera,
+                "fps": 15,
+                "captures": captures,
+            }
+            sequences[seq_key] = seq_item
+
+        return {"timestamp": datetime.utcnow().isoformat(), "version": "1.0", "sequences": sequences}
 
 
 class VistasCSDataset(VistasDataset, info=functools.partial(get_info, use_cityscapes=True), id="vistas-cs"):

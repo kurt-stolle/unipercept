@@ -355,7 +355,8 @@ class MultiDVPS(up.model.ModelBase):
             thing_depth_losses: logic.training.ThingDepthLosses
             if thing_mask.sum() == 0:
                 merged_sum = (
-                    thing_kernels.get(self.depth_mapper.kernel_keys[0]).sum() * 0.00
+                    thing_kernels.get(self.depth_mapper.geometry_key).sum() * 0.0
+                    + thing_kernels.get(self.depth_mapper.feature_key).sum() * 0.0
                     + ctx.embeddings.get(self.depth_mapper.feature_key).sum() * 0.0
                 )
 

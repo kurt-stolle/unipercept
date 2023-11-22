@@ -26,7 +26,7 @@ trainer = B(up.trainer.Trainer)(
         save_steps=1000,
         logging_steps=50,
     ),
-    optimizer=L(up.trainer.OptimizerFactory)(opt="adamw"),
+    optimizer=L(up.trainer.OptimizerFactory)(opt="sgd", lr=0.02, momentum=0.9, weight_decay=1e-4),
     scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,

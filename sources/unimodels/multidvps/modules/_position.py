@@ -39,7 +39,7 @@ class Localizer(nn.Module):
         encoder: ChannelModule[torch.Tensor],
         stuff_channels: int,
         thing_channels: int,
-        thing_bias_value: float = -2.19,
+        # thing_bias_value: float = -2.19,
     ):
         super().__init__()
 
@@ -47,19 +47,17 @@ class Localizer(nn.Module):
 
         out_enc = encoder.out_channels
 
-        self.stuff_out = conv.Separable2d(out_enc, stuff_channels, kernel_size=3, bias=True, padding="same")
-        self.thing_out = conv.Separable2d(out_enc, thing_channels, kernel_size=3, bias=True, padding="same")
-        self.apply(init_xavier_fill_)
+        self.stuff_out = conv.CondConv2d(out_enc, stuff_channels, kernel_size=3, bias=True, padding=1)
+        self.thing_out = conv.CondConv2d(out_enc, thing_channels, kernel_size=3, bias=True, padding=1)
+        # self.apply(init_xavier_fill_)
 
-        def apply_bias(m):
-            b = getattr(m, "bias", None)
-            if b is None:
-                return
-            nn.init.constant_(b, thing_bias_value)
+        # def apply_bias(m):
+        #     b = getattr(m, "bias", None)
+        #     if b is None:
+        #         return
+        #     nn.init.constant_(b, thing_bias_value)
 
-        self.thing_out.apply(apply_bias)
-
-        # nn.init.constant_(self.thing_out.bias, thing_bias_value)  # type: ignore
+        # self.thing_out.apply(apply_bias)
 
         self.in_channels = self.encoder.in_channels
         self.stuff_channels = stuff_channels

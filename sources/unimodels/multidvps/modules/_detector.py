@@ -1,7 +1,5 @@
 """Implements the multi-scale detector module."""
 
-from __future__ import annotations
-
 import typing as T
 
 import torch
@@ -12,9 +10,8 @@ from unicore.utils.tensorclass import Tensorclass
 
 __all__ = ["Detection", "Detector"]
 
-if T.TYPE_CHECKING:
-    from ._kernels import Kernelizer
-    from ._position import Localizer
+from ._kernels import Kernelizer
+from ._position import Localizer
 
 
 class Detection(Tensorclass):

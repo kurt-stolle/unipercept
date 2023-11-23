@@ -285,7 +285,7 @@ class _ColorfulFormatter(logging.Formatter):
         record.name = colored(root, attrs=["bold"], color=package_color)
         if sub and len(sub) > 0:
             record.name += colored("." + sub[0], color=package_color)
-        record.name = f"{level_icon} {record.name:40s}"
+        record.name = f"{level_icon} {record.name}" # {record.name:40s}"
 
         leader, sep, message = record.getMessage().partition(":")
         record.message = leader + sep + colored(message, attrs=["bold"])

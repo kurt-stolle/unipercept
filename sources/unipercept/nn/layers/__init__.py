@@ -7,6 +7,7 @@ from ._coord import *
 from ._interpolate import *
 from ._mlp import *
 from ._sequential import *
+from ._squeeze_excite import *
 
 __all__ = []
 __getattr__, __dir__ = lazy_module_factory(__name__, ["conv", "merge", "norm", "projection", "tracking", "utils"])

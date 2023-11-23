@@ -22,11 +22,11 @@ def GroupNormCG(num_channels: int, **kwargs) -> nn.GroupNorm:
     return nn.GroupNorm(num_channels, num_channels=num_channels)
 
 
-def GroupNormFactory(num_groups: int, **kwargs) -> T.Callable[[int], nn.GroupNorm]:
+def GroupNormFactory(*, num_groups: int, **kwargs) -> T.Callable[[int], nn.GroupNorm]:
     """
     GroupNorm with the number of groups equal to the number of channels.
     """
-    return functools.partial(nn.GroupNorm, num_groups=num_groups, **kwargs)
+    return functools.partial(nn.GroupNorm, num_groups, **kwargs)
 
 
 @torch.jit.script

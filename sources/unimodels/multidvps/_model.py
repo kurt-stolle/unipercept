@@ -1,7 +1,5 @@
 """Implements the main MultiDVPS model class."""
 
-from __future__ import annotations
-
 import math
 import typing as T
 from calendar import c
@@ -23,18 +21,17 @@ from unimodels.multidvps.keys import (
 
 from unipercept.utils.function import multi_apply
 
-if T.TYPE_CHECKING:
-    from unimodels.multidvps.modules import (
-        DepthHead,
-        Detector,
-        FeatureEncoder,
-        MaskHead,
-        StuffFusion,
-        ThingFusion,
-        KernelMapper,
-    )
-    from unipercept.nn.backbones import Backbone
-    from unipercept.nn.layers.tracking import StatefulTracker
+from unimodels.multidvps.modules import (
+    DepthHead,
+    Detector,
+    FeatureEncoder,
+    MaskHead,
+    StuffFusion,
+    ThingFusion,
+    KernelMapper,
+)
+from unipercept.nn.backbones import Backbone
+from unipercept.nn.layers.tracking import StatefulTracker
 
 import unipercept as up
 

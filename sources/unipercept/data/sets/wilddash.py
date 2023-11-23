@@ -107,6 +107,10 @@ class WildDashDataset(PerceptionDataset, info=get_info):
             except KeyError:
                 pass
 
-    @classmethod
-    def is_installed(cls):
-        return cls.get_root().is_dir()
+
+if __name__ == "__main__":
+    for split in ("train", "val", "test"):
+        print("-" * 80)
+        ds = WildDashDataset(split="train")
+        print(ds)
+        print(ds._build_manifest())

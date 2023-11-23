@@ -2,8 +2,6 @@
 Implements a module that normalizes input captures.
 """
 
-from __future__ import annotations
-
 import typing as T
 
 import torch
@@ -12,8 +10,7 @@ from typing_extensions import override
 
 import unipercept.data.tensors
 
-if T.TYPE_CHECKING:
-    from torch.types import Device
+from torch.types import Device
 
 __all__ = ["Normalizer"]
 
@@ -58,6 +55,7 @@ class Normalizer(nn.Module):
         """
         return (image.to(device=self.device) - self.mean) / self.std  # type: ignore
 
+    @override
     def forward(self, data: unipercept.model.InputData) -> unipercept.model.InputData:
         """
         Copy data to device and normalize each captures input image.

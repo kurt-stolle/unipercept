@@ -1,8 +1,6 @@
 """Implements a feature extraction backbone using Torchvision."""
 
 
-from __future__ import annotations
-
 import typing as T
 import warnings
 
@@ -10,6 +8,8 @@ import torch
 import torch.nn
 from tensordict import TensorDict
 from typing_extensions import override
+
+from collections import OrderedDict
 
 from .wrapper import (
     ORDER_CHW,

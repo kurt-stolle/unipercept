@@ -9,6 +9,5 @@ from .multidvps_resnet50 import data, model, trainer
 __all__ = ["model", "data", "trainer"]
 
 trainer.config.session_name = get_session_name(__file__)
-trainer.optimizer = L(up.trainer.OptimizerFactory)(opt="sgd", lr=1e-2)
-model.backbone.base = L(up.nn.backbones.timm.TimmBackbone)(name="convnext_small")
+model.backbone.bottom_up = L(up.nn.backbones.timm.TimmBackbone)(name="convnext_small")
 model.backbone.in_features = ["ext.1", "ext.2", "ext.3", "ext.4"]

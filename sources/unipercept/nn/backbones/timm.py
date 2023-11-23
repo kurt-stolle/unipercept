@@ -8,9 +8,9 @@ See: https://huggingface.co/docs/timm/main/en/feature_extraction
 import typing as T
 
 import timm
+import timm.data
 import torch
 import torch.nn as nn
-from tensordict import TensorDict
 from typing_extensions import override
 from collections import OrderedDict
 
@@ -38,7 +38,7 @@ _DIMENSIONORDERS: dict[str, DimensionOrder] = {
 }
 
 
-def get_dimension_order(name: str) -> DimensionOrder:
+def _get_dimension_order(name: str) -> DimensionOrder:
     import re
 
     for pattern, order in _DIMENSIONORDERS.items():
@@ -58,23 +58,24 @@ class TimmBackbone(WrapperBase):
         name: str,
         *,
         pretrained: bool = True,
-        dimension_order: str | DimensionOrder | None = None,
         nodes: T.Sequence[int] | None | int = None,
         keys: T.Sequence[str] | None = None,
         **kwargs,
     ):
-        if dimension_order is None:
-            dims = get_dimension_order(name)
-        else:
-            dims = DimensionOrder(dimension_order)
-
-        extractor = build_extractor(name, pretrained=pretrained, out_indices=nodes)
+        dims = _get_dimension_order(name)
+        extractor, config = _build_extractor(name, pretrained=pretrained, out_indices=nodes)
         info = infer_feature_info(extractor, dims)
+
+        if "mean" in config:
+            kwargs.setdefault("mean", config["mean"])
+        if "std" in config:
+            kwargs.setdefault("std", config["std"])
 
         if keys is None:
             keys = tuple(f"ext.{i}" for i in range(1, len(info) + 1))
         else:
             assert len(keys) == len(info), f"Expected {len(info)} keys, got {len(keys)}"
+
 
         super().__init__(dimension_order=dims, feature_info={k: v for k, v in zip(keys, info)}, **kwargs)
 
@@ -118,13 +119,14 @@ def list_available(query: str | None = None, pretrained: bool = False) -> list[s
     return models
 
 
-def build_extractor(
+def _build_extractor(
     name: str,
     *,
     pretrained,
     out_indices: T.Sequence[int] | None | int,
-) -> nn.Module:
+) -> tuple[nn.Module, dict[str, T.Any]]:
     mdl = timm.create_model(name, features_only=False, pretrained=pretrained)
+    config = timm.data.resolve_data_config({}, model=mdl)
 
     if out_indices is None:
         idxs = tuple(range(len(mdl.feature_info)))
@@ -135,7 +137,7 @@ def build_extractor(
     else:
         idxs = tuple(out_indices)
 
-    return timm.models.FeatureGraphNet(mdl, out_indices=idxs)
+    return timm.models.FeatureGraphNet(mdl, out_indices=idxs), config
 
     ## TODO: This is the old code, which is not compatible with the new timm version
     # m = timm.create_model(name, features_only=True, pretrained=pretrained)

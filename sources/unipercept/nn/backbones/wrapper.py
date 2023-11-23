@@ -12,11 +12,12 @@ from tensordict import TensorDict, TensorDictBase
 from typing_extensions import override
 
 from ._base import Backbone, BackboneFeatureInfo
+from ._normalize import Normalizer
 
 __all__ = ["WrapperBase", "DimensionOrder", "ORDER_CHW", "ORDER_HWC", "infer_feature_info"]
 
 
-class DimensionOrder(enum.StrEnum):
+class DimensionOrder(enum.Enum):
     """The format of the extracted features."""
 
     CHW = enum.auto()
@@ -28,7 +29,19 @@ ORDER_HWC = DimensionOrder.HWC
 
 
 class WrapperBase(Backbone, metaclass=abc.ABCMeta):
-    """Baseclass for a backbone, which is a feature extractor that returns a dict of features."""
+    """
+    Baseclass for a backbone, which is a feature extractor that returns a dict of features.
+    
+    Parameters
+    ----------
+    dimension_order : str | DimensionOrder
+        The format of the **extracted features**. Note that this is not the format of the input data, which is always
+        assumed to be (B, 3, H, W) in RGB format!
+    mean : list[float]
+        The mean values for each channel, which are used for normalization.
+    std : list[float]
+        The standard deviation values for each channel, which are used for normalization.
+    """
 
     dimension_order: T.Final[DimensionOrder]
 
@@ -36,12 +49,13 @@ class WrapperBase(Backbone, metaclass=abc.ABCMeta):
         self,
         *,
         dimension_order: str | DimensionOrder,
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225],
         **kwargs,
     ):
         super().__init__(**kwargs)
 
         self.dimension_order = DimensionOrder(dimension_order)
-        self.normalize = tvt2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        self.normalize = Normalizer(mean, std)
 
     @override
     def forward(self, images: torch.Tensor) -> TensorDictBase:

@@ -3,9 +3,11 @@
 import math
 import typing as T
 from calendar import c
+import warnings
 
 import einops
 import torch
+import torch.nn as nn
 from tensordict import TensorDict
 from typing_extensions import override
 from unimodels.multidvps import logic, modules
@@ -37,6 +39,15 @@ import unipercept as up
 
 __all__ = ["MultiDVPS"]
 
+
+_M = T.TypeVar("_M", bound=nn.Module)
+
+def _maybe_optimize_submodule(module: _M, **kwargs) -> _M:
+    try:
+        module = T.cast(_M, torch.compile(module, **kwargs))
+    except Exception as err:
+        warnings.warn(f"Could not compile submodule {module.__class__.__name__}: {err}")
+    return module
 
 class MultiDVPS(up.model.ModelBase):
     """Depth-Aware Video Panoptic Segmentation model using dynamic convolutions."""
@@ -94,7 +105,7 @@ class MultiDVPS(up.model.ModelBase):
         self.depth_fixed = {} if depth_fixed is None else depth_fixed
 
         # Submodules
-        self.backbone = backbone
+        self.backbone = _maybe_optimize_submodule(backbone)
         self.detector = detector
         self.kernel_mapper = kernel_mapper
         self.fusion_thing = fusion_thing

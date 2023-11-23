@@ -82,10 +82,10 @@ CLASSES_AS_CITYSCAPES = [
         unified_id= 255,
         name="construction--structure--tunnel",
     ),
-    SClass(color= (220, 20, 60), SType.THING, dataset_id=19, unified_id= 11, name="human--person"),
-    SClass(color= (6, 0, 0), SType.THING, dataset_id=20, unified_id= 12, name="human--rider--bicyclist"),
-    SClass(color= (6, 0, 100), SType.THING, dataset_id=21, unified_id= 12, name="human--rider--motorcyclist"),
-    SClass(color= (6, 0, 200), SType.THING, dataset_id=22, unified_id= 12, name="human--rider--other-rider"),
+    SClass(color= (220, 20, 60), kind=SType.THING, dataset_id=19, unified_id= 11, name="human--person"),
+    SClass(color= (6, 0, 0), kind=SType.THING, dataset_id=20, unified_id= 12, name="human--rider--bicyclist"),
+    SClass(color= (6, 0, 100), kind=SType.THING, dataset_id=21, unified_id= 12, name="human--rider--motorcyclist"),
+    SClass(color= (6, 0, 200), kind=SType.THING, dataset_id=22, unified_id= 12, name="human--rider--other-rider"),
     SClass(color= (200, 128, 128), kind=SType.STUFF, dataset_id=23, unified_id= 0, name="marking--crosswalk-zebra"),
     SClass(color= (6, 6, 6), kind=SType.STUFF, dataset_id=24, unified_id= 0, name="marking--general"),
     SClass(color= (64, 170, 64), kind=SType.STUFF, dataset_id=25, unified_id= 9, name="nature--mountain"),
@@ -121,10 +121,10 @@ CLASSES_AS_CITYSCAPES = [
     SClass(color= (192, 192, 192), kind=SType.STUFF, dataset_id=49, unified_id= 255, name="object--traffic-sign--back"),
     SClass(color= (220, 220, 0), kind=SType.STUFF, dataset_id=50, unified_id= 7, name="object--traffic-sign--front"),
     SClass(color= (140, 140, 20), kind=SType.STUFF, dataset_id=51, unified_id= 255, name="object--trash-can"),
-    SClass(color= (119, 11, 32), SType.THING, dataset_id=52, unified_id= 18, name="object--vehicle--bicycle"),
+    SClass(color= (119, 11, 32), kind=SType.THING, dataset_id=52, unified_id= 18, name="object--vehicle--bicycle"),
     SClass(color= (150, 0, 6), kind=SType.STUFF, dataset_id=53, unified_id= 255, name="object--vehicle--boat"),
-    SClass(color= (0, 60, 100), SType.THING, dataset_id=54, unified_id= 15, name="object--vehicle--bus"),
-    SClass(color= (0, 0, 142), SType.THING, dataset_id=55, unified_id= 13, name="object--vehicle--car"),
+    SClass(color= (0, 60, 100), kind=SType.THING, dataset_id=54, unified_id= 15, name="object--vehicle--bus"),
+    SClass(color= (0, 0, 142), kind=SType.THING, dataset_id=55, unified_id= 13, name="object--vehicle--car"),
     SClass(
         color= (0, 0, 90),
         kind=SType.STUFF,
@@ -132,8 +132,8 @@ CLASSES_AS_CITYSCAPES = [
         unified_id= 255,
         name="object--vehicle--caravan",
     ),  # Tim: class met id: 29, staat niet in cityscapes config
-    SClass(color= (0, 0, 230), SType.THING, dataset_id=57, unified_id= 17, name="object--vehicle--motorcycle"),
-    SClass(color= (0, 80, 100), SType.THING, dataset_id=58, unified_id= 16, name="object--vehicle--on-rails"),
+    SClass(color= (0, 0, 230), kind=SType.THING, dataset_id=57, unified_id= 17, name="object--vehicle--motorcycle"),
+    SClass(color= (0, 80, 100), kind=SType.THING, dataset_id=58, unified_id= 16, name="object--vehicle--on-rails"),
     SClass(color= (128, 64, 64), kind=SType.STUFF, dataset_id=59, unified_id= 255, name="object--vehicle--other-vehicle"),
     SClass(
         color= (0, 0, 110),
@@ -142,7 +142,7 @@ CLASSES_AS_CITYSCAPES = [
         unified_id= 255,
         name="object--vehicle--trailer",
     ),  # Tim: class met id: 30, staat niet in cityscapes config
-    SClass(color= (0, 0, 70), SType.THING, dataset_id=61, unified_id= 14, name="object--vehicle--truck"),
+    SClass(color= (0, 0, 70), kind=SType.THING, dataset_id=61, unified_id= 14, name="object--vehicle--truck"),
     SClass(color= (0, 0, 192), kind=SType.STUFF, dataset_id=62, unified_id= 255, name="object--vehicle--wheeled-slow"),
     SClass(color= (32, 32, 32), kind=SType.STUFF, dataset_id=63, unified_id= 255, name="void--car-mount"),
     SClass(
@@ -222,10 +222,10 @@ CLASSES = [
         unified_id= 255,
         name="construction--structure--tunnel",
     ),
-    SClass(color= (220, 20, 60), SType.THING, dataset_id=19, unified_id= 11, name="human--person"),
-    SClass(color= (6, 0, 0), SType.THING, dataset_id=20, unified_id= 12, name="human--rider--bicyclist"),
-    SClass(color= (6, 0, 100), SType.THING, dataset_id=21, unified_id= 12, name="human--rider--motorcyclist"),
-    SClass(color= (6, 0, 200), SType.THING, dataset_id=22, unified_id= 12, name="human--rider--other-rider"),
+    SClass(color= (220, 20, 60), kind=SType.THING, dataset_id=19, unified_id= 11, name="human--person"),
+    SClass(color= (6, 0, 0), kind=SType.THING, dataset_id=20, unified_id= 12, name="human--rider--bicyclist"),
+    SClass(color= (6, 0, 100), kind=SType.THING, dataset_id=21, unified_id= 12, name="human--rider--motorcyclist"),
+    SClass(color= (6, 0, 200), kind=SType.THING, dataset_id=22, unified_id= 12, name="human--rider--other-rider"),
     SClass(color= (200, 128, 128), kind=SType.STUFF, dataset_id=23, unified_id= 0, name="marking--crosswalk-zebra"),
     SClass(color= (6, 6, 6), kind=SType.STUFF, dataset_id=24, unified_id= 0, name="marking--general"),
     SClass(color= (64, 170, 64), kind=SType.STUFF, dataset_id=25, unified_id= 9, name="nature--mountain"),
@@ -261,10 +261,10 @@ CLASSES = [
     SClass(color= (192, 192, 192), kind=SType.STUFF, dataset_id=49, unified_id= 255, name="object--traffic-sign--back"),
     SClass(color= (220, 220, 0), kind=SType.STUFF, dataset_id=50, unified_id= 7, name="object--traffic-sign--front"),
     SClass(color= (140, 140, 20), kind=SType.STUFF, dataset_id=51, unified_id= 255, name="object--trash-can"),
-    SClass(color= (119, 11, 32), SType.THING, dataset_id=52, unified_id= 18, name="object--vehicle--bicycle"),
+    SClass(color= (119, 11, 32), kind=SType.THING, dataset_id=52, unified_id= 18, name="object--vehicle--bicycle"),
     SClass(color= (150, 0, 6), kind=SType.STUFF, dataset_id=53, unified_id= 255, name="object--vehicle--boat"),
-    SClass(color= (0, 60, 100), SType.THING, dataset_id=54, unified_id= 15, name="object--vehicle--bus"),
-    SClass(color= (0, 0, 142), SType.THING, dataset_id=55, unified_id= 13, name="object--vehicle--car"),
+    SClass(color= (0, 60, 100), kind=SType.THING, dataset_id=54, unified_id= 15, name="object--vehicle--bus"),
+    SClass(color= (0, 0, 142), kind=SType.THING, dataset_id=55, unified_id= 13, name="object--vehicle--car"),
     SClass(
         color= (0, 0, 90),
         kind=SType.STUFF,
@@ -272,8 +272,8 @@ CLASSES = [
         unified_id= 255,
         name="object--vehicle--caravan",
     ),  # Tim: class met id: 29, staat niet in cityscapes config
-    SClass(color= (0, 0, 230), SType.THING, dataset_id=57, unified_id= 17, name="object--vehicle--motorcycle"),
-    SClass(color= (0, 80, 100), SType.THING, dataset_id=58, unified_id= 16, name="object--vehicle--on-rails"),
+    SClass(color= (0, 0, 230), kind=SType.THING, dataset_id=57, unified_id= 17, name="object--vehicle--motorcycle"),
+    SClass(color= (0, 80, 100), kind=SType.THING, dataset_id=58, unified_id= 16, name="object--vehicle--on-rails"),
     SClass(color= (128, 64, 64), kind=SType.STUFF, dataset_id=59, unified_id= 255, name="object--vehicle--other-vehicle"),
     SClass(
         color= (0, 0, 110),
@@ -282,7 +282,7 @@ CLASSES = [
         unified_id= 255,
         name="object--vehicle--trailer",
     ),  # Tim: class met id: 30, staat niet in cityscapes config
-    SClass(color= (0, 0, 70), SType.THING, dataset_id=61, unified_id= 14, name="object--vehicle--truck"),
+    SClass(color= (0, 0, 70), kind=SType.THING, dataset_id=61, unified_id= 14, name="object--vehicle--truck"),
     SClass(color= (0, 0, 192), kind=SType.STUFF, dataset_id=62, unified_id= 255, name="object--vehicle--wheeled-slow"),
     SClass(color= (32, 32, 32), kind=SType.STUFF, dataset_id=63, unified_id= 255, name="void--car-mount"),
     SClass(
@@ -323,8 +323,11 @@ class VistasDataset(PerceptionDataset, info=get_info, id="vistas"):
 
         sequences: T.Mapping[str, ManifestSequence] = {}
 
-        image_list = list((split_dir / "images").glob("*.png"))
+        image_list = list((split_dir / "images").glob("*.jpg"))
         image_list.sort(key=lambda p: p.stem)
+
+        if len(image_list) == 0:
+            raise RuntimeError(f"No images found in {split_dir}")
 
         for image_path in tqdm(image_list, desc="Building manifest", unit="image"):
             cap_key = image_path.stem

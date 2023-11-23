@@ -6,7 +6,8 @@ import typing as T
 import functools
 import torch
 from torchvision.io import ImageReadMode
-from torchvision.io import read_image as _read_image
+from PIL import Image as pil_image
+from torchvision.transforms.v2.functional import to_image, to_dtype
 from typing_extensions import deprecated
 from unicore import file_io
 
@@ -25,8 +26,13 @@ def read_image(path: str, *, mode=ImageReadMode.RGB) -> up.data.tensors.Image:
 
     from unipercept.data.tensors import Image
 
-    img = _read_image(path, mode=mode)
-    return img.as_subclass(Image)
+    img = pil_image.open(path).convert("RGB")
+    img = to_image(img)
+    img = to_dtype(img, torch.float32, scale=True)
+
+    assert img.shape[0] == 3, f"Expected image to have 3 channels, got {img.shape[0]}!"
+
+    return img
 
 
 @functools.lru_cache(maxsize=MAX_CACHE)

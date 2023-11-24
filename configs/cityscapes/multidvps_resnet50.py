@@ -47,7 +47,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     weighted_num=7,
     common_stride=4,
     backbone=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
-        bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50"),
+        bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50d"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
         out_channels=128,
         norm=up.nn.layers.norm.LayerNormCHW,

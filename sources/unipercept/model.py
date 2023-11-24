@@ -11,11 +11,10 @@ from dataclasses import field
 import torch
 import torch.nn as nn
 from tensordict import LazyStackedTensorDict, TensorDict
-from torchvision.tv_tensors import Image
 from typing_extensions import override
 from unicore.utils.tensorclass import Tensorclass
 
-from unipercept.data.tensors import DepthMap, OpticalFlow, PanopticMap
+from unipercept.data.tensors import DepthMap, OpticalFlow, PanopticMap, Image, BoundingBoxes
 
 __all__ = ["ModelBase", "InputData", "ModelOutput", "CaptureData", "MotionData"]
 
@@ -55,6 +54,7 @@ class CaptureData(Tensorclass):
     images: Image
     segmentations: PanopticMap | None
     depths: DepthMap | None
+    boxes: list[BoundingBoxes] | None
 
     def __post_init__(self):
         assert (

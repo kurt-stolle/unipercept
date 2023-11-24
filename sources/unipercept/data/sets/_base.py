@@ -601,6 +601,7 @@ class PerceptionDataset(
             images=multi_read(read_image, "image", no_entries="error")(sources),
             segmentations=multi_read(read_segmentation, "panoptic", no_entries="none")(sources, info),
             depths=multi_read(read_depth_map, "depth", no_entries="none")(sources),
+            boxes=None,
             batch_size=[num_caps],
         )
 

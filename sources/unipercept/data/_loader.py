@@ -1,7 +1,7 @@
 """Defines functions for creating dataloaders for training and validation, using the common dataset format."""
 
 from __future__ import annotations
-
+import os
 import dataclasses
 import multiprocessing as M
 import typing as T
@@ -26,13 +26,14 @@ __all__ = ["DataLoaderConfig", "DataLoaderFactory", "DatasetInterface"]
 
 _logger = get_logger(__name__)
 
+DEFAULT_NUM_WORKERS = max(1, int(os.getenv("SLURM_CPUS_ON_NODE", M.cpu_count() // 2)))
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class DataLoaderConfig:
     drop_last: bool = False
     pin_memory: bool = True
-    num_workers: int = max(1, M.cpu_count() // 2)
-    prefetch_factor: int | None = 4
+    num_workers: int = DEFAULT_NUM_WORKERS
+    prefetch_factor: int | None = 6
     persistent_workers: bool | None = False
 
 

@@ -42,7 +42,11 @@ __all__ = ["MultiDVPS"]
 
 _M = T.TypeVar("_M", bound=nn.Module)
 
+OPTIMIZE_ENABLED = False
+
 def _maybe_optimize_submodule(module: _M, **kwargs) -> _M:
+    if not OPTIMIZE_ENABLED:
+        return module
     try:
         module = T.cast(_M, torch.compile(module, **kwargs))
     except Exception as err:

@@ -17,14 +17,17 @@ import torch
 import torch.nn
 import torch.types
 import torch.utils.data as torch_data
+import torchvision.transforms.v2 as tvt2
+import torchvision.ops
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
 from unicore.utils.pickle import as_picklable
 
+from .tensors import BoundingBoxes, PanopticMap, DepthMap, BoundingBoxFormat
 from unipercept.utils.logutils import get_logger
 
 if T.TYPE_CHECKING:
-    import unipercept as up
+    from unipercept.model import InputData
 
 _logger = get_logger(name=__file__)
 
@@ -35,9 +38,9 @@ __disable_warning()
 __all__ = ["apply_dataset", "Op", "CloneOp", "NoOp", "TorchvisionOp"]
 
 
-# ---------------------- #
-# Baseclass and protocol #
-# ---------------------- #
+########################################################################################################################
+# BASE CLASS FOR OPS
+########################################################################################################################
 
 
 class Op(torch.nn.Module, metaclass=abc.ABCMeta):
@@ -49,32 +52,32 @@ class Op(torch.nn.Module, metaclass=abc.ABCMeta):
         super().__init__()
 
     @override
-    def forward(self, inputs: up.model.InputData) -> up.model.InputData:
+    def forward(self, inputs: InputData) -> InputData:
         assert len(inputs.batch_size) == 0, f"Expected a single batched data point, got {inputs.batch_size}!"
         inputs = self._run(inputs)
         return inputs
 
     @abc.abstractmethod
-    def _run(self, inputs: up.model.InputData) -> up.model.InputData:
+    def _run(self, inputs: InputData) -> InputData:
         raise NotImplementedError(f"{self.__class__.__name__} is missing required implemention!")
 
     if T.TYPE_CHECKING:
 
         @override
-        def __call__(self, inputs: up.model.InputData) -> up.model.InputData:
+        def __call__(self, inputs: InputData) -> InputData:
             ...
 
 
-# ------------------------------ #
-# Basic and primitive operations #
-# ------------------------------ #
+########################################################################################################################
+# BASIC OPS
+########################################################################################################################
 
 
 class NoOp(Op):
     """Do nothing."""
 
     @override
-    def _run(self, inputs: up.model.InputData) -> up.model.InputData:
+    def _run(self, inputs: InputData) -> InputData:
         return inputs
 
 
@@ -82,7 +85,7 @@ class PinOp(Op):
     """Pin the input data to the device."""
 
     @override
-    def _run(self, inputs: up.model.InputData) -> up.model.InputData:
+    def _run(self, inputs: InputData) -> InputData:
         inputs = inputs.pin_memory()
         return inputs
 
@@ -96,7 +99,7 @@ class LogOp(NoOp):
         self.register_forward_hook(self._log)  # type: ignore
 
     @staticmethod
-    def _log(mod, inputs: up.model.InputData, outputs: tuple[list[str], up.model.InputData]) -> None:
+    def _log(mod, inputs: InputData, outputs: tuple[list[str], InputData]) -> None:
         ids_str = ", ".join(inputs.ids)
         print(f"Applying ops on: '{ids_str}'...")
 
@@ -105,16 +108,15 @@ class CloneOp(Op):
     """Copy the input data."""
 
     @override
-    def _run(self, inputs: up.model.InputData) -> up.model.InputData:
+    def _run(self, inputs: InputData) -> InputData:
         inputs = inputs.clone(recurse=True)
         return inputs
 
 
-# ---------------------------------- #
-# Torchvision transforms as Ops #
-# ---------------------------------- #
+########################################################################################################################
+# TORCHVISION: Wrappers for torchvision transforms
+########################################################################################################################
 
-import torchvision.transforms.v2 as tvt2
 
 
 class TorchvisionOp(Op):
@@ -136,7 +138,7 @@ class TorchvisionOp(Op):
             raise ValueError(f"Expected transforms to be a sequence or transform`, got {transforms}!")
 
     @override
-    def _run(self, inputs: up.model.InputData) -> up.model.InputData:
+    def _run(self, inputs: InputData) -> InputData:
         from .tensors.registry import pixel_maps
 
         if inputs.motions is not None:
@@ -164,6 +166,9 @@ class TorchvisionOp(Op):
 
         return inputs
 
+########################################################################################################################
+# PSEUDO MOTION
+########################################################################################################################
 
 class PseudoMotion(Op):
     def __init__(
@@ -192,17 +197,19 @@ class PseudoMotion(Op):
                 tvt2.Resize(tuple(int(s * scale) for s in size_crop), antialias=True),
                 tvt2.RandomAdjustSharpness(1.5),
                 tvt2.RandomAffine(shear=(-shear, shear), degrees=(-rotation, rotation)),
+                tvt2.RandomPhotometricDistort(),
+                tvt2.GaussianBlur((5, 9))
             ]
         )
 
     @override
-    def _run(self, inputs: up.model.InputData) -> up.model.InputData:
+    def _run(self, inputs: InputData) -> InputData:
         assert len(inputs.batch_size) == 0
 
         bs = list(inputs.captures.batch_size)
         assert bs[-1] == 1, f"Data already is a sequence: {inputs.captures.batch_size}"
 
-        inp_list: list[up.model.InputData] = []
+        inp_list: list[InputData] = []
 
         for i in range(self._out_frames):
             inp_prev = inputs if i == 0 else self._upscale(inp_list[i - 1].clone())
@@ -224,15 +231,43 @@ class PseudoMotion(Op):
 
         return inputs
 
+########################################################################################################################
+# BOXES FROM MASKS
+########################################################################################################################
 
-# ------------------------------------------------- #
-# Transformed versions of map and iterable datasets #
-# ------------------------------------------------- #
+class BoxesFromMasks(Op):
+    """
+    Adds bounding boxes for each ground truth mask in the input segmentation.
+    """
+    def __init__(self):
+        super().__init__()
+
+    @override
+    def _run(self, inputs: InputData) -> InputData:
+        assert len(inputs.batch_size) == 0
+
+        caps = inputs.captures.fix_subtypes_()
+        if caps.segmentations is not None:
+            boxes = []
+            for cap in caps:
+                segs = torch.stack([m for _, m in cap.segmentations.as_subclass(PanopticMap).get_instance_masks()])
+                boxes.append(torchvision.ops.masks_to_boxes(segs))
+
+            h, w = inputs.captures.images.shape[-2:] 
+            inputs.captures.boxes = [BoundingBoxes(b, format=BoundingBoxFormat.XYXY, canvas_size=(h,w)) for b in boxes]
+
+        return inputs
+
+
+
+########################################################################################################################
+# TRANSFORMED DATASETS
+########################################################################################################################
 
 _D = T.TypeVar("_D", bound=torch_data.Dataset, contravariant=True)
 
 
-class _TransformedIterable(torch_data.IterableDataset["up.model.InputData"], T.Generic[_D]):
+class _TransformedIterable(torch_data.IterableDataset["InputData"], T.Generic[_D]):
     """Applies a sequence of transformations to an iterable dataset."""
 
     __slots__ = ("_set", "_fns")
@@ -260,7 +295,7 @@ class _TransformedIterable(torch_data.IterableDataset["up.model.InputData"], T.G
         return f"<{repr(self._set)} x {len(self._fns)} transforms>"
 
     @override
-    def __iter__(self) -> T.Iterator[up.model.InputData]:
+    def __iter__(self) -> T.Iterator[InputData]:
         it = iter(self._set)
         while True:
             try:
@@ -277,7 +312,7 @@ class _TransformedIterable(torch_data.IterableDataset["up.model.InputData"], T.G
                 yield inputs
 
 
-class _TransformedMap(torch_data.Dataset["up.model.InputData"], T.Generic[_D]):
+class _TransformedMap(torch_data.Dataset["InputData"], T.Generic[_D]):
     """Applies a sequence of transformations to an iterable dataset."""
 
     __slots__ = ("_set", "_fns", "_retry", "_fallback_candidates")
@@ -308,7 +343,7 @@ class _TransformedMap(torch_data.Dataset["up.model.InputData"], T.Generic[_D]):
         return f"<{repr(self._set)} x {len(self._fns)} transforms>"
 
     @override
-    def __getitem__(self, idx: int | str) -> tuple[up.model.InputData]:
+    def __getitem__(self, idx: int | str) -> tuple[InputData]:
         for _ in range(self._retry):
             inputs = self._set[idx]
             assert len(inputs.batch_size) == 0, f"Expected a single batched data point, got {inputs.batch_size}!"

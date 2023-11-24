@@ -370,8 +370,8 @@ class InferencePipeline(nn.Module):
             # Check skipping conditions based on model config
             if stuff_with_things and cat_st_train == 0:
                 continue  # 0 is a special 'thing' class
-            # if stuff_all_classes and (cat_st in id_map_thing.values()):
-            #     continue  # Skip semantic classes that are also things
+            if stuff_all_classes and (cat_st in id_map_thing.values()):
+                continue  # Skip semantic classes that are also things
 
             # Select only pixels that belong to the current class and are not
             # already present in the output panpotic segmentation

@@ -19,7 +19,7 @@ trainer.config.train_epochs = 50
 trainer.config.eval_steps = 1000
 trainer.config.logging_steps = 10
 
-model.backbone.base = L(up.nn.backbones.timm.TimmBackbone)(name="resnet18")
+model.backbone.base = L(up.nn.backbones.timm.TimmBackbone)(name="resnet18d")
 model.backbone.out_channels = 24
 model.detector.localizer.encoder.out_channels = 64
 model.feature_encoder.shared_encoder.out_channels = 64

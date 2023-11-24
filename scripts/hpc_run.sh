@@ -1,9 +1,13 @@
 #!/bin/bash
-# Script for training a model in a HPC environment with Slurm and multiple GPUs.
-# Tested on the Snellius cluster provided by SURF.
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --partition=gpu 
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gpus=2
+#SBATCH --cpus-per-gpu=18
+#SBATCH --time=24:00:00
+#SBATCH --job-name=unipercept
 
-#SBATCH --mail-type=ALL
-#SBATCH --partition=gpu --nodes 1
 
 set -e
 
@@ -12,9 +16,6 @@ echo "Running on $(hostname)"
 echo "Loading HPC modules"
 source "./scripts/hpc_env.sh"
 
-echo "Loading Python virtual environment"
-source "./venv/bin/activate"
-
 echo "Starting distributed training"
-accelerate launch $(which unicli) $@
+srun `realpath ./venv/bin/accelerate` launch `realpath ./venv/bin/unicli` $@
 exit $?

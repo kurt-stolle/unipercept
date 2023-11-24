@@ -13,7 +13,8 @@ import unipercept as up
 
 __all__ = ["add_config_args"]
 
-NONINTERACTIVE_MODE = False
+_NONINTERACTIVE_MODE = False
+_BULLET_STYLES = dict(bullet=" >", margin=2, pad_right=2)
 
 up.data.sets.list_datasets()  # trigger dataset registration
 
@@ -36,7 +37,7 @@ class ConfigLoad(argparse.Action):
     @override
     def __call__(self, parser, namespace, values, option_string=None):
         if values is None or len(values) == 0:
-            if NONINTERACTIVE_MODE:
+            if _NONINTERACTIVE_MODE:
                 parser.exit(message="No configuration file specified!\n", status=1)
                 return
             values = self.interactive()
@@ -56,13 +57,10 @@ class ConfigLoad(argparse.Action):
     @staticmethod
     def interactive_select(configs_root=up.utils.config.CONFIG_ROOT) -> str:
         print("No configuration file specified (--config <path> [config.key=value ...]).")
-        try:
-
-        bullet_styles = dict(bullet=" >", margin=2, pad_right=2)
 
         # Prompt 1: Where to look for configurations?
         try:
-            action = Bullet(prompt="Select a configuration source:", choices=[v.value for v in ConfigSource], **bullet_styles)  # type: ignore
+            action = Bullet(prompt="Select a configuration source:", choices=[v.value for v in ConfigSource], **_BULLET_STYLES)  # type: ignore
         except KeyboardInterrupt:
             print("Received interrupt singal. Exiting.")
             exit(1)
@@ -85,6 +83,7 @@ class ConfigLoad(argparse.Action):
                 lambda f: f.is_file() and not f.name.startswith("_") and f.suffix in (".py", ".yaml"), config_candidates
             )
         )
+        config_candidates.sort()
 
         if len(config_candidates) == 0:
             print(f"No configuration files found in {str(configs_root)}.")
@@ -96,7 +95,7 @@ class ConfigLoad(argparse.Action):
         # Prompt 2: Which configuration file to use?
         choices = [str(p.relative_to(configs_root)) for p in config_candidates]
         try:
-            action = Bullet(prompt="Select a configuration file:", choices=choices, **bullet_styles)  # type: ignore
+            action = Bullet(prompt="Select a configuration file:", choices=choices, **_BULLET_STYLES)  # type: ignore
         except KeyboardInterrupt:
             print("Received interrupt singal. Exiting.")
             exit(1)
@@ -105,7 +104,6 @@ class ConfigLoad(argparse.Action):
         choice = str(configs_root / choice)
 
         print(f"Using configuration file: {choice}\n")
-        
 
         return choice
 

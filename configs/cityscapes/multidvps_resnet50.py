@@ -27,7 +27,7 @@ trainer = B(up.trainer.Trainer)(
         logging_steps=100,
     ),
     optimizer=L(up.trainer.OptimizerFactory)(
-        opt="sgd", lr=0.02, momentum=0.9, weight_decay=1e-4, weight_decay_norm=0.0, weight_decay_bias=1e-8
+        opt="sgd", lr=0.01, momentum=0.9, weight_decay=1e-4, weight_decay_norm=0.0, weight_decay_bias=1e-8
     ),
     scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
@@ -104,7 +104,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         ),
     ),
     feature_encoder=L(multidvps.modules.FeatureEncoder)(
-        merger=L(up.nn.layers.merge.SemanticShuffle)(
+        merger=L(up.nn.layers.merge.SemanticMerge)(
             input_shape={
                 f: L(up.nn.backbones.BackboneFeatureInfo)(
                     stride=s, channels=T.cast(int, "${model.backbone.out_channels}")
@@ -140,7 +140,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         input_key=multidvps.KEY_SEMANTIC,
         input_dims=256,
         attention_heads=8,
-        dropout=0.0,
+        dropout=0.2,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
@@ -154,7 +154,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             ),
             multidvps.KEY_REID: L(up.nn.layers.EmbedMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
-                out_channels=16,
+                out_channels=64,
                 dropout=0.5,
             ),
         },
@@ -199,12 +199,12 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         ),
         loss_location_weight=[8.0, 6.0],  # [thing, stuff]
         loss_location_thing=L(up.nn.losses.SigmoidFocalLoss)(
-            alpha=0.33,
-            gamma=1.8,
+            alpha=0.25,
+            gamma=2.0,
         ),
         loss_location_stuff=L(up.nn.losses.SigmoidFocalLoss)(
             alpha=0.25,
-            gamma=1.8,
+            gamma=2.0,
         ),
         loss_segment_thing=L(up.nn.losses.WeightedThingDiceLoss)(scale=14.0),
         loss_segment_stuff=L(up.nn.losses.WeightedStuffDiceLoss)(scale=8.0),

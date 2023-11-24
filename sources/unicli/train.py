@@ -7,7 +7,10 @@ import typing as T
 import torch
 import torch.nn as nn
 
+from unicore import file_io
+import os
 import unipercept as up
+import safetensors
 from unipercept.utils.config import LazyConfig, _lazy, templates
 from unipercept.utils.logutils import create_table, get_logger
 
@@ -15,6 +18,23 @@ from ._cmd import command
 
 _logger = get_logger(__name__)
 _config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.trainer.Trainer, nn.Module]
+
+
+class ModelFactory:
+    def __init__(self, model_config, checkpoint_path: file_io.Path | os.PathLike | str | None = None):
+        self.model_config = model_config
+        self.checkpoint_path = file_io.Path(checkpoint_path) if checkpoint_path is not None else None
+
+    def __call__(self, trial: up.trainer.Trial | None) -> nn.Module:
+        model = T.cast(nn.Module, _lazy.instantiate(self.model_config))
+
+        if self.checkpoint_path is not None:
+            _logger.info("Loading model weights from %s", self.checkpoint_path)
+            up.load_checkpoint(self.checkpoint_path, model)
+        else:
+            _logger.info("No model weights checkpoint path provided, skipping recovery")
+
+        return model
 
 
 @command(help="trian a model", description=__doc__)
@@ -32,19 +52,20 @@ def train(subparser: argparse.ArgumentParser):
         "--evaluation", "-E", action="store_true", help="run in evaluation mode (no training, only evaluation)"
     )
     subparser.add_argument("--no-jit", action="store_true", help="disable JIT compilation")
-    options_resume = subparser.add_mutually_exclusive_group(required=False)
-    options_resume.add_argument(
-        "--reset",
-        action="store_true",
-        help="whether to reset the output directory and caches if they exist",
-    )
-    options_resume.add_argument(
-        "--resume",
-        action="store_true",
-        help="whether to attempt to resume training from the checkpoint directory",
-    )
+    # options_resume = subparser.add_mutually_exclusive_group(required=False)
+    # options_resume.add_argument(
+    #     "--reset",
+    #     action="store_true",
+    #     help="whether to reset the output directory and caches if they exist",
+    # )
+    # options_resume.add_argument(
+    #     "--resume",
+    #     action="store_true",
+    #     help="whether to attempt to resume training from the checkpoint directory",
+    # )
     subparser.add_argument("--dataloader-train", type=str, default="train", help="name of the train dataloader")
     subparser.add_argument("--dataloader-test", type=str, default="test", help="name of the test dataloader")
+    subparser.add_argument("--weights", "-w", type=file_io.Path, help="path to load model weights from")
 
     return main
 
@@ -73,17 +94,15 @@ def main(args):
 
     loaders: dict[str, up.data.DataLoaderFactory] = _lazy.instantiate(args.config.data.loaders)
 
+    model_factory = ModelFactory(config.model, args.weights or None)
+
     if args.evaluation:
-        results = trainer.evaluate(
-            lambda _: _lazy.instantiate(config.model),
-            loaders[args.dataloader_test],
-        )
+        results = trainer.evaluate(model_factory, loaders[args.dataloader_test])
         _logger.info("Evaluation results: \n%s", create_table(results, format="long"))
     else:
         trainer.train(
-            lambda _: _lazy.instantiate(config.model),
+            model_factory,
             loaders[args.dataloader_train],
-            checkpoint=None,
             trial=None,
             evaluation_loader_factory=loaders[args.dataloader_test],
         )

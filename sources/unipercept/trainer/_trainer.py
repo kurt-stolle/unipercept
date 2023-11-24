@@ -218,7 +218,7 @@ class Trainer:
         """
         return file_io.Path(self._config.root).resolve()
 
-    def recover(self, model: nn.Module = None, checkpoint: str | file_io.Path | None = None) -> None:
+    def recover(self, model: nn.Module | None = None, checkpoint: str | file_io.Path | None = None) -> None:
         """
         Recover a model's state and the trainer's state from the given checkpoint. The model is prepared in
         evaluation mode.
@@ -229,11 +229,9 @@ class Trainer:
 
         if model is not None:
             self._xlr.prepare_model(model, evaluation_mode=True)
-        try:
-            self._xlr.load_state(self._recover_path)  # type: ignore
-            _logger.info("Recovered trainer state at step %d", self._state.step)
-        except FileNotFoundError:
-            _logger.warning("Could not find saved state to recover", self._recover_path)
+        self._xlr.load_state(self._recover_path)  # type: ignore
+
+        _logger.info("Recovered trainer state at step %d", self._state.step)
 
         return None
 
@@ -243,7 +241,6 @@ class Trainer:
         model_factory: ModelFactory[Trial, nn.Module],
         loader_factory: DataLoaderFactory[TensorDict],
         *,
-        checkpoint: str | T.Literal["best"] | None = None,
         trial: Trial | None = None,
         evaluation_loader_factory=None,
     ) -> nn.Module:
@@ -265,9 +262,6 @@ class Trainer:
         evaluation_loader_factory : DataLoaderFactory[TensorDict], optional
             A factory function that returns a data loader for evaluation.
         """
-
-        if checkpoint is None:
-            checkpoint = self._recover_path
 
         self.status |= TrainerStatus.TRAINING
 
@@ -326,7 +320,7 @@ class Trainer:
             optimizer,
             scheduler,
             trial=trial,
-            checkpoint=checkpoint,
+            checkpoint=self._recover_path,
             evaluation_loader_factory=evaluation_loader_factory,
         )
 

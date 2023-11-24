@@ -25,7 +25,7 @@ __all__ = [
 class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     weights: torch.Tensor
 
-    def __init__(self, *, scale=1.0, weight_sile=2.0, weight_are=1.0, weight_sre=1.0, **kwargs):
+    def __init__(self, *, weight_sile=2.0, weight_are=1.0, weight_sre=1.0, **kwargs):
         super().__init__(**kwargs)
 
         self.register_buffer(

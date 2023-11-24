@@ -112,9 +112,9 @@ class FeaturePyramidNetwork(nn.Module):
 
         self.extra_blocks = extra_blocks
         self.bottom_up = bottom_up
-        if freeze:
-            for p in self.bottom_up.parameters():
-                p.requires_grad_(False)
+        # if freeze:
+        #     for p in self.bottom_up.parameters():
+        #         p.requires_grad_(False)
 
     def get_result_from_inner_blocks(self, x: torch.Tensor, idx: int) -> torch.Tensor:
         """

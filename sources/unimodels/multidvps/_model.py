@@ -42,18 +42,6 @@ __all__ = ["MultiDVPS"]
 
 _M = T.TypeVar("_M", bound=nn.Module)
 
-OPTIMIZE_ENABLED = False
-
-
-def _maybe_optimize_submodule(module: _M, **kwargs) -> _M:
-    if not OPTIMIZE_ENABLED:
-        return module
-    try:
-        module = T.cast(_M, torch.compile(module, **kwargs))
-    except Exception as err:
-        warnings.warn(f"Could not compile submodule {module.__class__.__name__}: {err}")
-    return module
-
 
 class MultiDVPS(up.model.ModelBase):
     """Depth-Aware Video Panoptic Segmentation model using dynamic convolutions."""
@@ -111,7 +99,7 @@ class MultiDVPS(up.model.ModelBase):
         self.depth_fixed = {} if depth_fixed is None else depth_fixed
 
         # Submodules
-        self.backbone = _maybe_optimize_submodule(backbone)
+        self.backbone = backbone
         self.detector = detector
         self.kernel_mapper = kernel_mapper
         self.fusion_thing = fusion_thing

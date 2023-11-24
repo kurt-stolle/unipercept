@@ -69,12 +69,12 @@ class TrainingPipeline(nn.Module):
         assert self.loss_location_stuff_weight >= 0.0 and math.isfinite(self.loss_location_stuff_weight)
 
         # Segmentation loss
-        self.loss_segment_things = torch.jit.script(loss_segment_thing)
-        self.loss_segment_stuff = torch.jit.script(loss_segment_stuff)
+        self.loss_segment_things = loss_segment_thing
+        self.loss_segment_stuff = loss_segment_stuff
 
         # Depth loss
-        self.loss_depth_means = torch.jit.script(loss_depth_means)
-        self.loss_depth_values = torch.jit.script(loss_depth_values)
+        self.loss_depth_means = loss_depth_means
+        self.loss_depth_values = loss_depth_values
 
         # PGT loss
         self.loss_pgt = loss_pgt
@@ -254,7 +254,7 @@ class TrainingPipeline(nn.Module):
     # Loss computation #
     # ---------------- #
 
-    @torch.autocast("cuda", dtype=torch.float32)
+    # @torch.autocast("cuda", dtype=torch.float32)
     def losses_depth_thing(
         self,
         thing_dmap: torch.Tensor,
@@ -276,7 +276,7 @@ class TrainingPipeline(nn.Module):
         thing_depth_true = thing_depth_true * select_mask
 
         # Thing means
-        if self.loss_depth_means is not None and thing_depth_mean.requires_grad:
+        if self.loss_depth_means is not None:
             thing_depth_mean = rearrange(thing_depth_mean, "b (nt nw) () -> b nt nw () ()", nw=weighted_num)
 
             thing_depth_mean_true_raw = reduce(thing_depth_true, "nt () h w -> nt () () ()", "sum")

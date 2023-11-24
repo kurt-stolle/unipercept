@@ -32,6 +32,7 @@ def set_seed(seed: int, fully_deterministic: bool = False):
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
     else:
+        torch.set_float32_matmul_precision("high")
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
         torch.backends.cuda.matmul.allow_tf32 = True

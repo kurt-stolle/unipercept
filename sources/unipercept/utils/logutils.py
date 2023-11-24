@@ -94,7 +94,7 @@ def log_every_n_seconds(level: str | int, message: str, n: int = 1, *, name: str
         _log_timers[key] = current_time
 
 
-def create_table(mapping: T.Mapping[T.Any, T.Any]) -> str:
+def create_table(mapping: T.Mapping[T.Any, T.Any], format: T.Literal['long', 'wide'] = "wide") -> str:
     """
     Create a small table using the keys of small_dict as headers. This is only
     suitable for small dictionaries.
@@ -223,7 +223,7 @@ def _get_formatter(root_name: str, short_name: str, color: bool = True) -> loggi
 
     datefmt = r"%Y-%m-%d %H:%M:%S"
     if color:
-        prefix = "%(asctime)s %(name)-40s " + colored(":", attrs=("bold",))
+        prefix = "%(asctime)s %(name) " + colored(":", attrs=("bold",))
         formatter = _ColorfulFormatter(
             prefix + " " + "%(message)s",
             datefmt=datefmt,

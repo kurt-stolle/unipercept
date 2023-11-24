@@ -84,8 +84,6 @@ def _build_accelerator(config: TrainConfig) -> accelerate.Accelerator:
         gradient_accumulation_steps=config.gradient_accumulation_steps,
     )
 
-    from pprint import pformat
-
     _logger.info("Current process: %d / %d", acc.process_index + 1, acc.num_processes)
 
     return acc

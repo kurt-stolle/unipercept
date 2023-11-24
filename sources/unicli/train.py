@@ -1,6 +1,6 @@
 """Training and evaluation entry point."""
 from __future__ import annotations
-
+import os
 import argparse
 import typing as T
 
@@ -9,7 +9,7 @@ import torch.nn as nn
 
 import unipercept as up
 from unipercept.utils.config import LazyConfig, _lazy, templates
-from unipercept.utils.logutils import get_logger
+from unipercept.utils.logutils import create_table, get_logger
 
 from ._cmd import command
 
@@ -28,6 +28,12 @@ def train(subparser: argparse.ArgumentParser):
         default=False,
         help="flag to enable anomaly detection in autograd",
     )
+    subparser.add_argument(
+        "--evaluation", "-E", action="store_true", help="run in evaluation mode (no training, only evaluation)"
+    )
+    subparser.add_argument(
+        "--no-jit", action="store_true", help="disable JIT compilation"
+    )
     options_resume = subparser.add_mutually_exclusive_group(required=False)
     options_resume.add_argument(
         "--reset",
@@ -39,7 +45,6 @@ def train(subparser: argparse.ArgumentParser):
         action="store_true",
         help="whether to attempt to resume training from the checkpoint directory",
     )
-
     subparser.add_argument("--dataloader-train", type=str, default="train", help="name of the train dataloader")
     subparser.add_argument("--dataloader-test", type=str, default="test", help="name of the test dataloader")
 
@@ -50,40 +55,40 @@ def main(args):
     if args.anomalies:
         _logger.info("Enabling anomaly detection in autograd")
         torch.autograd.set_detect_anomaly(True)
+    if args.no_jit:
+        _logger.info("Disabling JIT compilation")
+        os.environ["PYTORCH_JIT"] = "0"
 
-    cfg: _config_t = args.config
+    config: _config_t = args.config
+    trainer: up.trainer.Trainer = _lazy.instantiate(config.trainer)
+    config_path = trainer.path / "config.yaml"
 
-    # Print a Python representation of the config
-    # _logger.info(f"Configuration:\n{LazyConfig.to_py(cfg)}")
+    if config_path.exists():
+        _logger.info(
+            "A serialized config YAML file exists at %s. Recovering trainer at latest checkpoint.",
+            config_path,
+        )
+        trainer.recover()
+    elif trainer._xlr.is_main_process:
+        _logger.info("Storing serialized config to YAML file %s", trainer.path)
+        LazyConfig.save(config, str(config_path))
 
-    # Materialize trainer
-    trainer: up.trainer.Trainer = _lazy.instantiate(cfg.trainer)
-
-    # Save configuration for layer use and inspection
-    if trainer._xlr.is_main_process:
-        config_serialized_path = trainer.path / "config.yaml"
-
-        if config_serialized_path.exists():
-            _logger.info(
-                "A serialized config YAML file exists at %s. Recovering trainer at latest checkpoint.",
-                config_serialized_path,
-            )
-            trainer.recover()
-        else:
-            _logger.info("Storing serialized config to YAML file %s", trainer.path)
-            LazyConfig.save(cfg, str(config_serialized_path))
-
-    # Materialize loaders
     loaders: dict[str, up.data.DataLoaderFactory] = _lazy.instantiate(args.config.data.loaders)
 
-    # Start training
-    trainer.train(
-        lambda _: _lazy.instantiate(cfg.model),
-        loaders[args.dataloader_train],
-        checkpoint=None,
-        trial=None,
-        evaluation_loader_factory=loaders[args.dataloader_test],
-    )
+    if args.evaluation:
+        results = trainer.evaluate(
+            lambda _: _lazy.instantiate(config.model),
+            loaders[args.dataloader_test],
+        )
+        _logger.info("Evaluation results: \n%s", create_table(results, format="long"))
+    else:
+        trainer.train(
+            lambda _: _lazy.instantiate(config.model),
+            loaders[args.dataloader_train],
+            checkpoint=None,
+            trial=None,
+            evaluation_loader_factory=loaders[args.dataloader_test],
+        )
 
 
 if __name__ == "__main__":

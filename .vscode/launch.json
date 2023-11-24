@@ -7,10 +7,24 @@
             "name": "train interative",
             "type": "python",
             "request": "launch",
-            "program": "scripts/run.py",
+            "module": "unicli",
             "args": [
                 "train",
                 "--config",
+            ],
+            "envFile": "debug.env",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "eval interative",
+            "type": "python",
+            "request": "launch",
+            "module": "unicli",
+            "args": [
+                "train",
+                "--config",
+                "-E"
             ],
             "envFile": "debug.env",
             "console": "integratedTerminal",
@@ -32,22 +46,6 @@
             "console": "internalConsole",
             "justMyCode": false
         },
-        {
-            "name": "train resume",
-            "type": "python",
-            "request": "launch",
-            "module": "accelerate.commands.launch",
-            "console": "integratedTerminal",
-            "args": [
-                "scripts/run.py",
-                "train",
-                "--config",
-                "${input:configPath}",
-            ],
-            "envFile": "debug.env",
-            "justMyCode": false
-
-        }
     ],
     "compounds": [
         {

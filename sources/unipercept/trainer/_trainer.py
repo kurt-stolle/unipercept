@@ -229,9 +229,11 @@ class Trainer:
 
         if model is not None:
             self._xlr.prepare_model(model, evaluation_mode=True)
-        self._xlr.load_state(self._recover_path)  # type: ignore
-
-        _logger.info("Recovered trainer state at step %d", self._state.step)
+        try:
+            self._xlr.load_state(self._recover_path)  # type: ignore
+            _logger.info("Recovered trainer state at step %d", self._state.step)
+        except FileNotFoundError:
+            _logger.warning("Could not find saved state to recover", self._recover_path)
 
         return None
 

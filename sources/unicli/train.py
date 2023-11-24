@@ -31,9 +31,7 @@ def train(subparser: argparse.ArgumentParser):
     subparser.add_argument(
         "--evaluation", "-E", action="store_true", help="run in evaluation mode (no training, only evaluation)"
     )
-    subparser.add_argument(
-        "--no-jit", action="store_true", help="disable JIT compilation"
-    )
+    subparser.add_argument("--no-jit", action="store_true", help="disable JIT compilation")
     options_resume = subparser.add_mutually_exclusive_group(required=False)
     options_resume.add_argument(
         "--reset",

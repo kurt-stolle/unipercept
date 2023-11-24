@@ -31,7 +31,7 @@ ORDER_HWC = DimensionOrder.HWC
 class WrapperBase(Backbone, metaclass=abc.ABCMeta):
     """
     Baseclass for a backbone, which is a feature extractor that returns a dict of features.
-    
+
     Parameters
     ----------
     dimension_order : str | DimensionOrder
@@ -49,7 +49,8 @@ class WrapperBase(Backbone, metaclass=abc.ABCMeta):
         self,
         *,
         dimension_order: str | DimensionOrder,
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225],
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
         **kwargs,
     ):
         super().__init__(**kwargs)

@@ -409,6 +409,7 @@ def _create_bnb_optimizer(
             raise NotImplementedError(f"Optimizer {opt} not supported in 'bitsandbytes' package.")
     return optimizer
 
+
 def get_optimizer_params(
     model: torch.nn.Module,
     lr: float,
@@ -423,10 +424,7 @@ def get_optimizer_params(
 
     if param_overrides is None:
         param_overrides = {}
-    defaults = {
-        "lr": lr,
-        "weight_decay": weight_decay
-    }
+    defaults = {"lr": lr, "weight_decay": weight_decay}
     bias_overrides = {}
     if weight_decay_bias is not None:
         bias_overrides["weight_decay"] = weight_decay_bias
@@ -500,12 +498,8 @@ def _simplify_groups(params: list[dict[str, T.Any]]) -> list[dict[str, T.Any]]:
     ret = []
     for param_keys, param_values in groups.items():
         cur = {kv[0]: kv[1] for kv in param_keys}
-        cur["params"] = list(
-            itertools.chain.from_iterable([params["params"] for params in param_values])
-        )
+        cur["params"] = list(itertools.chain.from_iterable([params["params"] for params in param_values]))
         if len(param_values) > 0 and "param_names" in param_values[0]:
-            cur["param_names"] = list(
-                itertools.chain.from_iterable([params["param_names"] for params in param_values])
-            )
+            cur["param_names"] = list(itertools.chain.from_iterable([params["param_names"] for params in param_values]))
         ret.append(cur)
     return ret

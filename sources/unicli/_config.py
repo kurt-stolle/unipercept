@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import argparse
 import typing as T
-from pathlib import Path
+import enum
 
 from bullet import Bullet, Input
-from omegaconf import DictConfig, OmegaConf
 from typing_extensions import override
-
+from unicore import file_io
 import unipercept as up
 
 __all__ = ["add_config_args"]
@@ -17,6 +16,11 @@ __all__ = ["add_config_args"]
 NONINTERACTIVE_MODE = False
 
 up.data.sets.list_datasets()  # trigger dataset registration
+
+
+class ConfigSource(enum.StrEnum):
+    TEMPLATES = enum.auto()
+    CHECKPOINTS = enum.auto()
 
 
 class ConfigLoad(argparse.Action):
@@ -31,8 +35,6 @@ class ConfigLoad(argparse.Action):
 
     @override
     def __call__(self, parser, namespace, values, option_string=None):
-        from unipercept.utils.config import LazyConfig
-
         if values is None or len(values) == 0:
             if NONINTERACTIVE_MODE:
                 parser.exit(message="No configuration file specified!\n", status=1)
@@ -41,7 +43,7 @@ class ConfigLoad(argparse.Action):
 
         name, *overrides = values
 
-        cfg = LazyConfig.load(name)
+        cfg = up.utils.config.LazyConfig.load(name)
         cfg = self.apply_overrides(cfg, overrides)
 
         setattr(namespace, self.dest, cfg)
@@ -52,22 +54,58 @@ class ConfigLoad(argparse.Action):
         return values
 
     @staticmethod
-    def interactive_select(configs_root="./configs") -> str:
-        print(
-            f"\nNo configuration file specified (--config <path> [config.key=value ...]). Searching for configuration files in {configs_root}..."
+    def interactive_select(configs_root=up.utils.config.CONFIG_ROOT) -> str:
+        print("No configuration file specified (--config <path> [config.key=value ...]).")
+        try:
+
+        bullet_styles = dict(bullet=" >", margin=2, pad_right=2)
+
+        # Prompt 1: Where to look for configurations?
+        try:
+            action = Bullet(prompt="Select a configuration source:", choices=[v.value for v in ConfigSource], **bullet_styles)  # type: ignore
+        except KeyboardInterrupt:
+            print("Received interrupt singal. Exiting.")
+            exit(1)
+            return
+        choice = action.launch()  # type: ignore
+        choice = ConfigSource(choice)
+
+        match choice:
+            case ConfigSource.TEMPLATES:
+                configs_root = file_io.Path(up.utils.config.CONFIG_ROOT)
+            case ConfigSource.CHECKPOINTS:
+                configs_root = file_io.Path("//output/")
+            case _:
+                raise ValueError(f"Invalid choice: {action}")
+
+        configs_root = configs_root.expanduser().resolve()
+        config_candidates = configs_root.glob("**/*")
+        config_candidates = list(
+            filter(
+                lambda f: f.is_file() and not f.name.startswith("_") and f.suffix in (".py", ".yaml"), config_candidates
+            )
         )
 
-        root = Path(configs_root).resolve()
-        choices = [str(p.relative_to(root)) for p in root.glob("**/*.py") if p.is_file() and not p.name.startswith("_")]
-        try:
-            action = Bullet(prompt="Select a configuration file:", choices=choices, bullet=" >", margin=2, pad_right=2)  # type: ignore
-        except KeyboardInterrupt:
-            print("No configuration file selected. Exiting.")
+        if len(config_candidates) == 0:
+            print(f"No configuration files found in {str(configs_root)}.")
             exit(1)
+            return
+        else:
+            print(f"Found {len(config_candidates)} configuration files in {str(configs_root)}.")
+
+        # Prompt 2: Which configuration file to use?
+        choices = [str(p.relative_to(configs_root)) for p in config_candidates]
+        try:
+            action = Bullet(prompt="Select a configuration file:", choices=choices, **bullet_styles)  # type: ignore
+        except KeyboardInterrupt:
+            print("Received interrupt singal. Exiting.")
+            exit(1)
+            return
         choice = action.launch()  # type: ignore
-        choice = str(root / choice)
+        choice = str(configs_root / choice)
 
         print(f"Using configuration file: {choice}\n")
+        
 
         return choice
 

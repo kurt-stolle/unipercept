@@ -7,9 +7,13 @@ from __future__ import annotations
 import enum
 import os
 import typing as T
+from pathlib import Path
 from distutils.util import strtobool
 
-__all__ = ["get_env"]
+__all__ = ["get_env", "CONFIG_ROOT"]
+
+
+CONFIG_ROOT = os.getenv("UNI_CONFIGS", str(Path("./configs").resolve()))
 
 _R = T.TypeVar("_R", int, str, bool)
 

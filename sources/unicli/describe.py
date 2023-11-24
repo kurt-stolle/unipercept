@@ -32,7 +32,8 @@ def handle_request(args) -> T.Any:
                 available_kwargs[name] = param.default if param.default != inspect.Parameter.empty else None
 
         logger.info(
-            f"Expected arguments: \n%s", yaml.dump(available_kwargs, allow_unicode=True, default_flow_style=True, sort_keys=False, indent=2)
+            f"Expected arguments: \n%s",
+            yaml.dump(available_kwargs, allow_unicode=True, default_flow_style=True, sort_keys=False, indent=2),
         )
 
         kwargs = input("Enter keyword arguments as YAML object:\n")

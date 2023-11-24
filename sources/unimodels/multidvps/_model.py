@@ -44,6 +44,7 @@ _M = T.TypeVar("_M", bound=nn.Module)
 
 OPTIMIZE_ENABLED = False
 
+
 def _maybe_optimize_submodule(module: _M, **kwargs) -> _M:
     if not OPTIMIZE_ENABLED:
         return module
@@ -52,6 +53,7 @@ def _maybe_optimize_submodule(module: _M, **kwargs) -> _M:
     except Exception as err:
         warnings.warn(f"Could not compile submodule {module.__class__.__name__}: {err}")
     return module
+
 
 class MultiDVPS(up.model.ModelBase):
     """Depth-Aware Video Panoptic Segmentation model using dynamic convolutions."""

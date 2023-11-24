@@ -125,9 +125,10 @@ class SemanticMerge(nn.Module):
 
         return torch.sum(out, dim=-1)
 
+
 class SemanticShuffle(nn.Module):
     """
-    Mergers a multi-level feature pyramid into a single feature map. Uses a shuffle operation instead of bilinear 
+    Mergers a multi-level feature pyramid into a single feature map. Uses a shuffle operation instead of bilinear
     upsampling.
     """
 
@@ -168,7 +169,6 @@ class SemanticShuffle(nn.Module):
                 in_channels = feature_channels[in_feature] if n == 0 else out_channels
                 assert in_channels is not None
 
-
                 if feature_strides[in_feature] != self.common_stride:
                     scale_factor = 2
                     expansion = 1
@@ -176,10 +176,9 @@ class SemanticShuffle(nn.Module):
                     scale_factor = 1
                     expansion = 2
 
-
                 conv = convolution.Separable2d.with_norm_activation(
                     in_channels,
-                    out_channels * scale_factor ** 2,
+                    out_channels * scale_factor**2,
                     expansion=expansion,
                     kernel_size=3,
                     stride=1,

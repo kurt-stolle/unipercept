@@ -76,7 +76,6 @@ class TimmBackbone(WrapperBase):
         else:
             assert len(keys) == len(info), f"Expected {len(info)} keys, got {len(keys)}"
 
-
         super().__init__(dimension_order=dims, feature_info={k: v for k, v in zip(keys, info)}, **kwargs)
 
         self.ext = torch.jit.script(extractor)

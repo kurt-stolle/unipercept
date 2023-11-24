@@ -28,6 +28,7 @@ _logger = get_logger(__name__)
 
 DEFAULT_NUM_WORKERS = max(1, int(os.getenv("SLURM_CPUS_ON_NODE", M.cpu_count() // 2)))
 
+
 @dataclasses.dataclass(slots=True, frozen=True)
 class DataLoaderConfig:
     drop_last: bool = False

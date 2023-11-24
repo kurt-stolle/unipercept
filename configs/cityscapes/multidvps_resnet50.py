@@ -26,7 +26,9 @@ trainer = B(up.trainer.Trainer)(
         save_steps=5_000,
         logging_steps=100,
     ),
-    optimizer=L(up.trainer.OptimizerFactory)(opt="sgd", lr=0.02, momentum=0.9, weight_decay=1e-4, weight_decay_norm=0.0, weight_decay_bias=1e-8),
+    optimizer=L(up.trainer.OptimizerFactory)(
+        opt="sgd", lr=0.02, momentum=0.9, weight_decay=1e-4, weight_decay_norm=0.0, weight_decay_bias=1e-8
+    ),
     scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
@@ -104,7 +106,9 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     feature_encoder=L(multidvps.modules.FeatureEncoder)(
         merger=L(up.nn.layers.merge.SemanticShuffle)(
             input_shape={
-                f: L(up.nn.backbones.BackboneFeatureInfo)(stride=s, channels=T.cast(int, "${model.backbone.out_channels}"))
+                f: L(up.nn.backbones.BackboneFeatureInfo)(
+                    stride=s, channels=T.cast(int, "${model.backbone.out_channels}")
+                )
                 for f, s in zip(["fpn.1", "fpn.2", "fpn.3", "fpn.4"], [4, 8, 16, 32])
             },
             in_features=["fpn.1", "fpn.2", "fpn.3", "fpn.4"],
@@ -113,12 +117,12 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         ),
         heads={
             multidvps.KEY_MASK: L(multidvps.modules.Encoder)(
-                in_channels=T.cast(int,"${...merger.out_channels}"),
+                in_channels=T.cast(int, "${...merger.out_channels}"),
                 out_channels=256,
                 num_convs=3,
                 deform=True,
                 groups=8,
-                norm=L(up.nn.layers.norm.GroupNormFactory)(num_groups=T.cast(int,"${..groups}")),
+                norm=L(up.nn.layers.norm.GroupNormFactory)(num_groups=T.cast(int, "${..groups}")),
                 coord=None,
             ),
             multidvps.KEY_DEPTH: L(multidvps.modules.Encoder)(

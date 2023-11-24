@@ -118,7 +118,6 @@ class CloneOp(Op):
 ########################################################################################################################
 
 
-
 class TorchvisionOp(Op):
     """Wrap transforms from the torchvision library as an Op."""
 
@@ -166,9 +165,11 @@ class TorchvisionOp(Op):
 
         return inputs
 
+
 ########################################################################################################################
 # PSEUDO MOTION
 ########################################################################################################################
+
 
 class PseudoMotion(Op):
     def __init__(
@@ -198,7 +199,7 @@ class PseudoMotion(Op):
                 tvt2.RandomAdjustSharpness(1.5),
                 tvt2.RandomAffine(shear=(-shear, shear), degrees=(-rotation, rotation)),
                 tvt2.RandomPhotometricDistort(),
-                tvt2.GaussianBlur((5, 9))
+                tvt2.GaussianBlur((5, 9)),
             ]
         )
 
@@ -231,14 +232,17 @@ class PseudoMotion(Op):
 
         return inputs
 
+
 ########################################################################################################################
 # BOXES FROM MASKS
 ########################################################################################################################
+
 
 class BoxesFromMasks(Op):
     """
     Adds bounding boxes for each ground truth mask in the input segmentation.
     """
+
     def __init__(self):
         super().__init__()
 
@@ -253,11 +257,10 @@ class BoxesFromMasks(Op):
                 segs = torch.stack([m for _, m in cap.segmentations.as_subclass(PanopticMap).get_instance_masks()])
                 boxes.append(torchvision.ops.masks_to_boxes(segs))
 
-            h, w = inputs.captures.images.shape[-2:] 
-            inputs.captures.boxes = [BoundingBoxes(b, format=BoundingBoxFormat.XYXY, canvas_size=(h,w)) for b in boxes]
+            h, w = inputs.captures.images.shape[-2:]
+            inputs.captures.boxes = [BoundingBoxes(b, format=BoundingBoxFormat.XYXY, canvas_size=(h, w)) for b in boxes]
 
         return inputs
-
 
 
 ########################################################################################################################

@@ -36,7 +36,7 @@ class Localizer(nn.Module):
         stuff_channels: int,
         thing_channels: int,
         thing_bias_value: float = -2.19,
-        squeeze_excite: nn.Module | None = None
+        squeeze_excite: nn.Module | None = None,
     ):
         super().__init__()
 

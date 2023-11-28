@@ -19,23 +19,24 @@ __all__ = ["read_image", "ImageReadMode", "read_segmentation", "read_optical_flo
 MAX_CACHE: T.Final = 1000
 
 
-@functools.lru_cache(maxsize=MAX_CACHE)
+# @functools.lru_cache(maxsize=MAX_CACHE)
 @file_io.with_local_path(force=True)
 def read_image(path: str, *, mode=ImageReadMode.RGB) -> up.data.tensors.Image:
     """Read an image from the disk."""
 
     from unipercept.data.tensors import Image
 
-    img = pil_image.open(path).convert("RGB")
-    img = to_image(img)
-    img = to_dtype(img, torch.float32, scale=True)
+    with pil_image.open(path) as img_pil:
+        img_pil = img_pil.convert("RGB")
+        img = to_image(img_pil)
+        img = to_dtype(img, torch.float32, scale=True)
 
     assert img.shape[0] == 3, f"Expected image to have 3 channels, got {img.shape[0]}!"
 
     return img
 
 
-@functools.lru_cache(maxsize=MAX_CACHE)
+# @functools.lru_cache(maxsize=MAX_CACHE)
 @deprecated("Use PanopticMap.read instead.")
 def read_segmentation(
     path: str, info: up.data.sets.Metadata | None, /, **meta_kwds: T.Any
@@ -45,7 +46,7 @@ def read_segmentation(
     return PanopticMap.read(path, info, **meta_kwds)
 
 
-@functools.lru_cache(maxsize=MAX_CACHE)
+# @functools.lru_cache(maxsize=MAX_CACHE)
 @file_io.with_local_path(force=True)
 def read_optical_flow(path: str) -> torch.Tensor:
     from flowops import Flow

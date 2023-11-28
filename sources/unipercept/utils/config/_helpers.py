@@ -132,8 +132,10 @@ def parse_dict(d: T.Mapping[str, T.Any]) -> dict[str, T.Any]:
 
 FlatConfigDict: T.TypeAlias = dict[str, int | float | str | bool]
 
+_DEFAULT_SEPARATOR = "/"
 
-def flatten_config(config: T.Mapping[str, T.Any], *, sep: str = "/") -> FlatConfigDict:
+
+def flatten_config(config: T.Mapping[str, T.Any], *, sep: str = _DEFAULT_SEPARATOR) -> FlatConfigDict:
     """
     Transforms an config dictionary, which can have any value, into a flat dictionary with only primitive values.
 
@@ -156,7 +158,10 @@ def flatten_config(config: T.Mapping[str, T.Any], *, sep: str = "/") -> FlatConf
     --------
         >>> config = OmegaConf.create({"a": 1, "b": {"c": 2, "d": 3}})
         >>> flatten_config(config)
-        {"a": 1, "b.c": 2, "b.d": 3}
+        {"a": 1, "b/c": 2, "b/d": 3}
+        >>> config = OmegaConf.create({"a": [1, 2, 3]})
+        >>> flatten_config(config)
+        {"a/[0]": 1, "a/[1]": 2, "a/[2]": 3}
     """
 
     result: FlatConfigDict = {}
@@ -170,14 +175,90 @@ def flatten_config(config: T.Mapping[str, T.Any], *, sep: str = "/") -> FlatConf
                 _flatten(v, new_key)
         elif isinstance(subconfig, (int, float, str, bool)):
             result[parent_key] = subconfig
-        elif isinstance(subconfig, T.Iterable):
+        elif isinstance(subconfig, T.Sequence):
+            # result[parent_key] = fully_qualified_name(subconfig)
             for i, subsubconfig in enumerate(subconfig):
                 k = f"[{i}]"
-                new_key = f"{parent_key}{sep}{k}" if parent_key else k
+                new_key = f"{parent_key}{k}" if parent_key else k
                 _flatten(subsubconfig, new_key)
+        elif isinstance(subconfig, type):
+            result[parent_key] = fully_qualified_name(subconfig)
         else:
             result[parent_key] = str(subconfig)
 
     _flatten(config)
 
     return result
+
+
+def fully_qualified_name(obj: T.Any) -> str:
+    """
+    Get the fully qualified name of an object.
+
+    Parameters
+    ----------
+    obj : Any
+        Object to get the name from.
+
+    Returns
+    -------
+    str
+        Fully qualified name.
+
+    Examples
+    --------
+        >>> fully_qualified_name(torch.nn.Linear)
+        "torch.nn.Linear"
+        >>> fully_qualified_name(list)
+        "list"
+        >>> fully_qualified_name([1, 2, 3])
+        "list"
+    """
+
+    if not isinstance(obj, type):
+        obj = obj.__class__
+    mod = obj.__module__
+    if mod is None or mod == str.__class__.__module__:
+        return obj.__name__
+    else:
+        return f"{mod}.{obj.__name__}"
+
+
+def unflatten_and_merge(
+    flat_config: FlatConfigDict, dest_config: T.MutableMapping[str, T.Any], *, sep=_DEFAULT_SEPARATOR
+) -> None:
+    """
+    Unflattens a configuration that was flattened with ``flatten_config`` and merges it into the destination
+    configuration, which is a regular dictionary.
+
+    Parameters
+    ----------
+    flat_config : FlatConfigDict
+        Flat configuration dictionary.
+    dest_config : dict
+        Destination configuration dictionary.
+    sep : str
+        Separator used in the flattened dictionary.
+    Returns
+    -------
+    None (in-place operation)
+    """
+
+    for k, v in flat_config.items():
+        keys = k.split(sep)
+        curr = dest_config
+        for i, key in enumerate(keys):
+            # Handle lists/sequences
+            if key.startswith("[") and key.endswith("]"):
+                key = int(key[1:-1])
+
+            # Handle last key (leaf)
+            if i == len(keys) - 1:
+                curr[key] = v
+                break
+            else:
+                curr = curr[key]
+        else:
+            raise RuntimeError(f"Could not unflatten and merge key {k}.")
+
+    return None  # The destination  config is modified in-place

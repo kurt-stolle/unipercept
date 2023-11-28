@@ -21,7 +21,7 @@ class ScaledLossMixin(nn.Module):
 class StableLossMixin(nn.Module):
     __constants__ = ("eps",)
 
-    def __init__(self, *, eps: float = 1e-7, **kwargs):
+    def __init__(self, *, eps: float = EPS_FLOAT, **kwargs):
         super().__init__(**kwargs)
 
         self.eps = eps

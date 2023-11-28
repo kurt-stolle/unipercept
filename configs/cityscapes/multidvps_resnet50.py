@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import typing as T
-import torch
 import torch.nn as nn
 import unimodels.multidvps as multidvps
 import unipercept as up
 from unipercept.utils.config import bind as B
 from unipercept.utils.config import call as L
 from unipercept.utils.config import (
-    get_session_name,
+    get_session_name, make_set
 )
 
 from ._dataset import DATASET_INFO, DATASET_NAME, data
@@ -20,14 +19,14 @@ trainer = B(up.trainer.Trainer)(
         project_name="multidvps",
         session_name=get_session_name(__file__),
         train_batch_size=8,
-        train_epochs=200,
+        train_epochs=400,
         infer_batch_size=1,
-        eval_steps=5_000,
-        save_steps=5_000,
-        logging_steps=100,
+        eval_steps=10_000,
+        save_steps=10_000,
+        logging_steps=1000,
     ),
     optimizer=L(up.trainer.OptimizerFactory)(
-        opt="sgd", lr=0.01, momentum=0.9, weight_decay=1e-4, weight_decay_norm=0.0, weight_decay_bias=1e-8
+        opt="sgd", lr=0.02, momentum=0.9, weight_decay=1e-4, weight_decay_norm=0.0, weight_decay_bias=1e-12
     ),
     scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
@@ -46,7 +45,7 @@ trainer = B(up.trainer.Trainer)(
 
 model = B(multidvps.MultiDVPS.from_metadata)(
     dataset_name=DATASET_NAME,
-    weighted_num=7,
+    weighted_num=8,
     common_stride=4,
     backbone=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
         bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50d"),
@@ -112,7 +111,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
                 for f, s in zip(["fpn.1", "fpn.2", "fpn.3", "fpn.4"], [4, 8, 16, 32])
             },
             in_features=["fpn.1", "fpn.2", "fpn.3", "fpn.4"],
-            out_channels=128,
+            out_channels=192,
             common_stride=4,
         ),
         heads={
@@ -140,7 +139,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         input_key=multidvps.KEY_SEMANTIC,
         input_dims=256,
         attention_heads=8,
-        dropout=0.2,
+        dropout=0.5,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),

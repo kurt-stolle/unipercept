@@ -240,9 +240,9 @@ class MultiDVPS(up.model.ModelBase):
         else:
             loss_thing = thing_logits.mean() * 0.0
 
-        outputs.truths["thing_mask"] = thing_gt.detach()
-        if thing_num > 0:
-            outputs.predictions["thing_mask"] = thing_logits.detach().sigmoid_().argmax(dim=1)
+        # outputs.truths["thing_mask"] = thing_gt.detach()
+        # if thing_num > 0:
+        #     outputs.predictions["thing_mask"] = thing_logits.detach().sigmoid_().argmax(dim=1)
         outputs.losses["segmentation.things"] = loss_thing
 
         # ================== #
@@ -269,8 +269,8 @@ class MultiDVPS(up.model.ModelBase):
         else:
             loss_stuff = stuff_logits.sum() * 0.0
 
-        outputs.truths["stuff_mask"] = stuff_gt.detach()
-        outputs.predictions["stuff_mask"] = stuff_logits.detach().sigmoid_().argmax(dim=1)
+        # outputs.truths["stuff_mask"] = stuff_gt.detach()
+        # outputs.predictions["stuff_mask"] = stuff_logits.detach().sigmoid_().argmax(dim=1)
         outputs.losses["segmentation.stuff"] = loss_stuff
 
         # ============= #
@@ -425,11 +425,16 @@ class MultiDVPS(up.model.ModelBase):
             ctx_batch = ctx[i : i + 1].flatten()
 
             # Upscale depth feature
-            if KEY_DEPTH in ctx_batch.embeddings.keys():
-                feat_depth = ctx_batch.embeddings.get(KEY_DEPTH)
+            # if KEY_DEPTH in ctx_batch.embeddings.keys():
+            #     feat_depth = ctx_batch.embeddings.get(KEY_DEPTH)
+            #     feat_depth = self.inference_pipeline.upscale_to_input_size(ctx_batch, feat_depth)
+
+            #     ctx_batch.embeddings = ctx_batch.embeddings.set(KEY_DEPTH, feat_depth)
+            for k in ctx_batch.embeddings.keys():
+                feat_depth = ctx_batch.embeddings.get(k)
                 feat_depth = self.inference_pipeline.upscale_to_input_size(ctx_batch, feat_depth)
 
-                ctx_batch.embeddings = ctx_batch.embeddings.set(KEY_DEPTH, feat_depth)
+                ctx_batch.embeddings = ctx_batch.embeddings.set(k, feat_depth)
 
             # Predict depth-aware panoptic segmentation
             outputs_batch = self._predict(inputs_batch, ctx_batch)  # .contiguous()

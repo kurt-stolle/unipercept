@@ -75,7 +75,7 @@ class FileID:
 
 
 def get_info() -> Metadata:
-    return info_factory(CLASSES, depth_max=10, fps=15)
+    return info_factory(CLASSES, depth_max=80, fps=15)
 
 
 class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
@@ -101,10 +101,11 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
 
     def _discover_sources(self) -> T.Mapping[FileID, CaptureSources]:
         sources_map: dict[FileID, CaptureSources] = {}
-        pseudo_gen = PseudoGenerator()
+        pseudo_gen = PseudoGenerator(depth_factor=80/10.0)
 
         # Create mapping of ID -> dt.CaptureSources
-        for id in tqdm(self._discover_files(), desc="Discovering and generating pseudolabels"):
+        files_list = sorted(self._discover_files(), key=lambda id: (id.drive, id.camera, id.frame))
+        for id in tqdm(files_list, desc="Discovering and generating pseudolabels"):
             if id.kind != "data_rect":
                 continue
             image_path = self.root_path / "data_2d_raw" / id.drive / id.camera / id.kind / f"{id.frame}{id.ext}"

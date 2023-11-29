@@ -158,6 +158,8 @@ class Trainer:
         callbacks: T.Sequence[CallbackType | type[CallbackType]],
         evaluators: T.Sequence[Evaluator] | None = None,
         log_events: bool = False,
+        notes: str | None = None,
+        tags: T.Sequence[str] | None = None,
     ):
         self._mem_tracker = MemoryTracker(enabled=not config.memory_tracker)
         self._mem_tracker.start("init")  # must set up as early as possible
@@ -180,6 +182,8 @@ class Trainer:
         self._globalstep_last_logged = -1
         self._past = None
         self._recover_path = None  # See: `recover` method
+        self._notes = notes or ""
+        self._tags = list(tags) if tags is not None else []
 
         self._xlr.register_for_checkpointing(self._state)
 
@@ -420,6 +424,16 @@ class Trainer:
         """
         from accelerate.tracking import WandBTracker
 
+        session_name_parts = self._config.session_name.split("/")
+        if len(session_name_parts) > 1:
+            session_group = "-".join(session_name_parts[:-1])
+            session_stamp = session_name_parts[-1]
+        else:
+            session_group = self._config.session_name
+            session_stamp = None
+
+        id = self._config.project_name + "/" + self._config.session_name
+
         # n = self._state.trial_name
         # assert n is not None, "Trial name is not initialized!"
         # TODO: load configuration from YAML
@@ -429,8 +443,12 @@ class Trainer:
             init_kwargs={
                 "wandb": {
                     # "project": self._config.project_name,
-                    "name": self._config.session_name,
-                    # "job_type": "train",
+                    "name": session_stamp,
+                    "job_type": "train",
+                    "group": session_group,
+                    "notes": self._notes,
+                    "tags": self._tags,
+                    "id": id.replace("/", "--"),
                 }
             },
         )
@@ -627,7 +645,7 @@ class Trainer:
 
                     del inputs
 
-                    self._event(Event.ON_TRAIN_STEP_END)
+                    self._event(Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer)
                     self._maybe_log_save_evaluate(tr_loss, model, optimizer, **kwargs)
                 else:
                     self._event(Event.ON_TRAIN_SUBSTEP_END)

@@ -157,11 +157,13 @@ class Metadata:
     translations_semantic: frozendict[int, int]
 
     @property
-    def thing_ids(self) -> T.Tuple[int, ...]:
+    def thing_ids(self) -> frozenset[int]:
         """
         Returns the IDs of all object classes, i.e. those that can be is_thingly detected.
         """
-        return tuple(self.thing_offsets.keys())
+        return frozenset(self.thing_offsets.keys())
+    
+    object_ids = thing_ids
 
     @property
     def depth_fixed(self) -> T.Dict[int, float]:
@@ -189,11 +191,18 @@ class Metadata:
         return tuple(self.semantic_classes[sem_id] for sem_id in self.thing_ids)
 
     @property
-    def stuff_ids(self) -> T.Tuple[int, ...]:
+    def stuff_ids(self) -> frozenset[int]:
         """
         Returns the IDs of all semantic classes, which may include is_thing classes depending on the segmentation mode.
         """
-        return tuple(self.stuff_offsets.keys())
+        return frozenset(self.stuff_offsets.keys())
+    
+    @property
+    def background_ids(self) -> frozenset[int]:
+        """
+        Returns the IDs of all background (pure stuff) classes.
+        """
+        return frozenset(self.stuff_ids - self.thing_ids)
 
     @property
     def stuff_amount(self) -> int:

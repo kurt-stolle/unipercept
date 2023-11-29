@@ -110,10 +110,8 @@ class PanopticMap(_Mask):
             case LabelsFormat.VISTAS:
                 assert info is not None
                 divisor = info["label_divisor"]
-                ignore_label = info["ignore_label"]
-                translations = info["stuff_translations"]
 
-                img = read_pixels(path, color=True)
+                img = read_pixels(path, color=False)
                 assert img.dtype == torch.int32, img.dtype
 
                 if img.ndim == 3:
@@ -123,9 +121,7 @@ class PanopticMap(_Mask):
                     img = img[:, :, 0]
 
                 labels = cls.from_combined(img, divisor)
-                labels.translate_semantic_(
-                    translation=translations,
-                )
+                labels.translate_semantic_(translation=info["translations_dataset"])
             case LabelsFormat.WILD_DASH:
                 annotations = get_kwd(meta_kwds, "annotations", list[dict[str, Any]])
 
@@ -162,6 +158,8 @@ class PanopticMap(_Mask):
 
         if len(meta_kwds) > 0:
             raise TypeError(f"Unexpected keyword arguments: {tuple(meta_kwds.keys())}")
+        
+        labels.remove_instances_(info.background_ids)
 
         return labels
 
@@ -273,7 +271,7 @@ class PanopticMap(_Mask):
         ins_mask = self.get_instance_map() > 0
         return torch.unique(ins_mask) - 1
 
-    def remove_instances_(self, semantic_list: list[int]) -> None:
+    def remove_instances_(self, semantic_list: T.Iterable[int]) -> None:
         """Remove instances for the specified semantic classes."""
         sem_map = self.get_semantic_map()
         ins_map = self.get_instance_map()

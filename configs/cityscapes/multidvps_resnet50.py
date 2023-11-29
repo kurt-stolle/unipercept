@@ -6,9 +6,7 @@ import unimodels.multidvps as multidvps
 import unipercept as up
 from unipercept.utils.config import bind as B
 from unipercept.utils.config import call as L
-from unipercept.utils.config import (
-    get_session_name, make_set
-)
+from unipercept.utils.config import get_session_name, make_set
 
 from ._dataset import DATASET_INFO, DATASET_NAME, data
 
@@ -41,6 +39,8 @@ trainer = B(up.trainer.Trainer)(
         L(up.evaluators.DepthEvaluator.from_metadata)(name=DATASET_NAME),
         L(up.evaluators.PanopticEvaluator.from_metadata)(name=DATASET_NAME),
     ],
+    notes="",  # to be adjusted in CLI
+    tags=[],  # to be adjusted in CLI
 )
 
 model = B(multidvps.MultiDVPS.from_metadata)(
@@ -50,7 +50,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     backbone=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
         bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50d"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
-        out_channels=128,
+        out_channels=192,
         norm=up.nn.layers.norm.LayerNormCHW,
         extra_blocks=L(up.nn.backbones.fpn.LastLevelP6P7)(
             in_channels="${..out_channels}",
@@ -59,11 +59,11 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         freeze=True,
     ),
     detector=L(multidvps.modules.Detector)(
-        in_features=[f"fpn.{i}" for i in (3, 4, 5, 6)],
+        in_features=[f"fpn.{i}" for i in (2, 3, 4, 5, 6)],
         localizer=L(multidvps.modules.Localizer)(
             encoder=L(multidvps.modules.Encoder)(
                 in_channels=T.cast(int, "${model.backbone.out_channels}"),
-                out_channels=128,
+                out_channels=192,
                 num_convs=3,
                 deform=True,
                 coord=L(up.nn.layers.CoordCat2d)(),
@@ -117,7 +117,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         heads={
             multidvps.KEY_MASK: L(multidvps.modules.Encoder)(
                 in_channels=T.cast(int, "${...merger.out_channels}"),
-                out_channels=256,
+                out_channels=192,
                 num_convs=3,
                 deform=True,
                 groups=8,
@@ -137,7 +137,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     ),
     kernel_mapper=L(multidvps.modules.KernelMapper)(
         input_key=multidvps.KEY_SEMANTIC,
-        input_dims=256,
+        input_dims=192,
         attention_heads=8,
         dropout=0.5,
         mapping={

@@ -60,12 +60,12 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     margin: T.Final[float]
     threshold: T.Final[int]
 
-    def __init__(self, *, patch_size: T.Tuple[int, int] = (5, 5), margin=0.3, **kwargs):
+    def __init__(self, *, patch_size: T.Tuple[int, int] = (5, 5), margin=0.33, **kwargs):
         super().__init__(**kwargs)
 
         self.patch_width, self.patch_height = patch_size
         self.margin = margin
-        self.threshold = min(self.patch_width, self.patch_height) - 1
+        self.threshold = (min(self.patch_width, self.patch_height) // 2) + 1
 
     @override
     def forward(self, dep_feat: torch.Tensor, seg_true: torch.Tensor):

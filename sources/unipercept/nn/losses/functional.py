@@ -111,12 +111,12 @@ def depth_guided_segmentation_loss(
 def segmentation_guided_triplet_loss(
     dep_feat: torch.Tensor, seg_true: torch.Tensor, margin: float, threshold: int, patch_height: int, patch_width: int
 ):
-    # if seg_true.ndim != dep_feat.ndim:
-        # seg_true.unsqueeze_(1)
+    if seg_true.ndim != dep_feat.ndim:
+        seg_true.unsqueeze_(1)
 
-    # with torch.no_grad():
-    seg_true = seg_true.unsqueeze(1).float()
-    seg_true = nn.functional.interpolate(seg_true, size=dep_feat.shape[-2:], mode="nearest", antialias=False)
+    with torch.no_grad():
+        seg_true = seg_true.float()
+        seg_true = nn.functional.interpolate(seg_true, size=dep_feat.shape[-2:], mode="nearest", antialias=False)
 
     # Split both depth estimated output and panoptic label into NxN patches
     # P ~= (H * W) / (5 * 5)

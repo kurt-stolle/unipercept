@@ -48,23 +48,6 @@ __all__ = [
 ]
 
 _logger = unipercept.utils.logutils.get_logger(__name__)
-_I = T.TypeVar("_I")
-
-# _CHECKPOINT_PREFIX = "checkpoint"
-
-
-# def get_checkpoint_prefix(trial_name: str) -> str:
-#     return f"{_CHECKPOINT_PREFIX}"
-
-
-# @functools.lru_cache(maxsize=None)
-# def get_checkpoint_pattern(trial_name: str) -> re.Pattern:
-#     return re.compile(r"^" + get_checkpoint_prefix(trial_name) + r"\-(\d+)$")
-
-
-# def get_checkpoint_name(trial_name: str, name: str) -> str:
-#     return f"{get_checkpoint_prefix(trial_name)}-{name}"
-
 
 @D.dataclass(kw_only=True)
 class TrainState:

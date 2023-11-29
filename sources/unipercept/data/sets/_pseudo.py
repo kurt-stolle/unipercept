@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import functools
-from pathlib import Path
+import torch.utils.data
+from PIL import Image
+from unicore import file_io
+from tqdm import tqdm
 
 import safetensors.torch as safetensors
 import torch
@@ -11,23 +14,16 @@ __all__ = ["PseudoGenerator"]
 
 
 class PseudoGenerator:
-    def __init__(self, depth_model="sayakpaul/glpn-kitti-finetuned-diode-221214-123047"):
+    def __init__(self, depth_model="sayakpaul/glpn-kitti-finetuned-diode-221214-123047", depth_factor: float = 1.0):
         self.depth_name = depth_model
+        self.depth_factor = depth_factor
 
     @functools.cached_property
     def depth_pipeline(self):
-        # from transformers import DPTForDepthEstimation, DPTImageProcessor
-
-        # processor = DPTImageProcessor.from_pretrained(self.depth_name)  # type: ignore
-        # model: nn.Module = DPTForDepthEstimation.from_pretrained(self.depth_name)  # type: ignore
-        # model.eval()
-
-        # return processor, model
         from transformers import pipeline
-
         return pipeline(task="depth-estimation", model=self.depth_name, device="cuda")
 
-    def create_panoptic_source(self, in_paths: tuple[Path, Path], out_path: Path):
+    def create_panoptic_source(self, in_paths: tuple[file_io.Path, file_io.Path], out_path: file_io.Path):
         import numpy as np
         from PIL import Image
 
@@ -50,43 +46,34 @@ class PseudoGenerator:
         pan_path.parent.mkdir(parents=True, exist_ok=True)
         safetensors.save_file({"data": pan.as_subclass(torch.Tensor)}, pan_path)
 
-    def create_depth_source(self, img_path: Path | str, out_path: Path | str) -> None:
+    @torch.inference_mode()
+    def _generate_depth(self, image: Image.Image) -> torch.Tensor:
+        outputs = self.depth_pipeline(image)
+
+        # interpolate to original size
+        prediction = outputs["predicted_depth"]
+        prediction = torch.nn.functional.interpolate(
+            prediction.unsqueeze(1),
+            size=image.size[::-1],
+            mode="bicubic",
+            align_corners=False,
+        ).cpu()
+        return prediction.cpu() * self.depth_factor
+
+
+    def create_depth_source(self, img_path: file_io.Path | str, out_path: file_io.Path | str) -> None:
         """
         Uses pretrained DPT model to generate depth map pseudolabels
         """
-        from PIL import Image
-        from unicore import file_io
-
+        
         img_path = file_io.Path(img_path)
         out_path = file_io.Path(out_path)
-
-        image = Image.open(img_path)
-        # processor, model = self.depth_pipeline
-
-        # # prepare image for the model
-        # inputs = processor(images=image, return_tensors="pt")  # type: ignore
-
-        with torch.no_grad():
-            # outputs = model(**inputs)  # type: ignore
-            # predicted_depth = outputs.predicted_depth
-
-            outputs = self.depth_pipeline(image)
-
-            # interpolate to original size
-            prediction = outputs["predicted_depth"]
-            prediction = torch.nn.functional.interpolate(
-                prediction.unsqueeze(1),
-                size=image.size[::-1],
-                mode="bicubic",
-                align_corners=False,
-            ).cpu()
-
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         assert out_path.name.endswith(".safetensors"), f"Expected {out_path} to end with .safetensors!"
 
-        output = prediction.squeeze(0).cpu()
-
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        safetensors.save_file({"data": output.as_subclass(torch.Tensor)}, out_path, metadata={"model": self.depth_name})
+        image = Image.open(img_path)
+        for output in self._generate_depth(image):
+            safetensors.save_file({"data": output.as_subclass(torch.Tensor)}, out_path, metadata={"model": self.depth_name})
 
     def estimate_depth(self, image: torch.Tensor) -> torch.Tensor:
         from torchvision.transforms.v2.functional import to_pil_image

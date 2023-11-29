@@ -32,8 +32,12 @@ class InferencePipeline(nn.Module):
         panoptic_overlap_thrs: float,
         panoptic_stuff_limit: int,
         panoptic_inst_thrs: float,
+        interpolation_align_corners: bool = False,
+        interpolation_antialias: bool = True,
+        interpolation_mode: str = "bicubic",
     ):
         super().__init__()
+
         self.center_thres = center_thres
         self.sem_thres = sem_thres
         self.center_top_num = center_top_num
@@ -43,6 +47,9 @@ class InferencePipeline(nn.Module):
         self.inst_thres = inst_thres
         self.center_top_num = center_top_num
         self.force_predict = True
+        self.interpolation_align_corners = interpolation_align_corners
+        self.interpolation_antialias = interpolation_antialias
+        self.interpolation_mode = interpolation_mode
 
         assert 0 <= self.inst_thres <= 1, "inst_thres must be in range [0, 1]"
 
@@ -487,11 +494,11 @@ class InferencePipeline(nn.Module):
             mask = mask.unsqueeze(0)
 
         mask_up = nn.functional.interpolate(
-            mask,
-            ctx.captures.images.shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-            antialias=True,
+            input=mask,
+            size=ctx.captures.images.shape[-2:],
+            mode=self.interpolation_mode,
+            align_corners=self.interpolation_align_corners,
+            antialias=self.interpolation_antialias,
         )
 
         if mask_up.ndim > mask.ndim:

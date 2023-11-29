@@ -29,7 +29,6 @@ _LARGE_MASK_AREA_THRESH = 120000
 _OFF_WHITE = (1.0, 1.0, 240.0 / 255)
 _BLACK = (0, 0, 0)
 _RED = (1.0, 0, 0)
-
 _KEYPOINT_THRESHOLD = 0.05
 
 
@@ -317,7 +316,7 @@ class Visualizer:
         pan: PanopticMap,
         *,
         edge_color=_OFF_WHITE,
-        edge_size=1,
+        edge_size=0.5,
         area_threshold: int | None = None,
         alpha=0.7,
         labels: LabelFlags = DEFAULT_LABEL_FLAGS,

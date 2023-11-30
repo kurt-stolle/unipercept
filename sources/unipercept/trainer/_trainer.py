@@ -19,6 +19,7 @@ import accelerate
 import accelerate.utils
 import torch
 import torch.nn as nn
+from omegaconf import OmegaConf
 import torch.optim
 import torch.utils.data
 import wandb
@@ -260,7 +261,7 @@ class Trainer:
         loader_factory: DataLoaderFactory[InputType],
         *,
         trial: Trial | None = None,
-        prefix: str = "eval",
+        prefix: str = "Evaluation",
     ) -> dict[str, float]:
         _logger.info("Starting evaluation")
 
@@ -296,7 +297,7 @@ class Trainer:
         self._mem_tracker.start("pred")
 
         loader = torch.utils.data.DataLoader(datapipe)
-        output = self._inference_loop(model, loader)
+        output = self._inference_loop(model, loader, prefix="Prediction")
 
         self._event(Event.ON_PREDICT, metrics=output.metrics)
         self._mem_tracker.stop_and_update_metrics("pred", output.metrics)
@@ -340,7 +341,8 @@ class Trainer:
 
         assert isinstance(config, DictConfig), f"Expected DictConfig, got {type(config)}"
 
-        return flatten_config(config)
+        # return flatten_config(config)
+        return OmegaConf.to_container(config, resolve=False)
 
     def _init_trackers(self, model: nn.Module) -> None:
         """
@@ -384,7 +386,7 @@ class Trainer:
 
             # wandb_tracker.store_init_configuration(self._state.trial_params)
 
-            if self._xlr.is_main_process:
+            if self._xlr.is_main_process and self._config.debug & DebugMode.INSPECT_MODEL:
                 wandb_tracker.tracker.watch(model, log="all", log_freq=self._config.logging_steps)
         else:
             _logger.info("Not using Weights and Biases tracker.")
@@ -615,13 +617,17 @@ class Trainer:
         metrics: dict[str, T.Any] = {}
         metrics.update(
             _build_speed_metrics(
-                "training",
+                "Training",
                 time_start,
                 sample_amount=total_sesssion_samples,
                 step_amount=total_session_steps,
             )
         )
         metrics["total_flops"] = self._state.total_flops
+
+        for k in list(metrics.keys()):
+            if not k.startswith("Trainer/"):
+                metrics["Trainer/" + k] = metrics.pop(k)
 
         self.is_in_train = False
 
@@ -651,7 +657,7 @@ class Trainer:
             ), "No new logs should be created when nothing changed"
 
             logs: dict[str, float] = {}
-            logs["learning_rate"] = _get_learning_rate(optimizer)
+            logs["Optimizer/lr"] = _get_learning_rate(optimizer)
 
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {k: self._nested_gather(l).mean().item() for k, l in tr_loss.items()}
@@ -661,7 +667,7 @@ class Trainer:
             tr_loss.apply_(lambda _l: _l - _l)
 
             for k, v in tr_loss_scalar.items():
-                logs["loss/" + k] = round(v / (self._state.step - self._globalstep_last_logged), 4)
+                logs["Losses/" + k] = round(v / (self._state.step - self._globalstep_last_logged), 4)
 
             self._globalstep_last_logged = self._state.step
             # self.store_flops()
@@ -698,10 +704,10 @@ class Trainer:
         logs : dict[str, float]
             The logs to be logged.
         """
-        logs["epoch"] = round(self._state.epoch, 2)
-        logs["step"] = self._state.step
-        logs["step_in_epoch"] = self._xlr.step
-        logs["status"] = self.status
+        logs["Trainer/epoch"] = round(self._state.epoch, 2)
+        logs["Trainer/step"] = self._state.step
+        logs["Trainer/epoch_step"] = self._xlr.step
+        logs["Trainer/status"] = self.status
 
         self._event(Event.ON_LOG, logs=logs)  # NOTE: logs may be updated in-place
 
@@ -829,7 +835,7 @@ class Trainer:
         self,
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
-        prefix: str = "eval",
+        prefix: str,
         handlers: T.Sequence[Evaluator] = [],
     ) -> tuple[dict[str, T.Any], int]:
         """
@@ -980,12 +986,12 @@ class Trainer:
 
         # Store metrics
         if hasattr(self, "jit_compilation_time"):
-            metrics[f"{prefix}_jit_compilation_time"] = self.jit_compilation_time  # type: ignore
+            metrics[f"{prefix}/jit_compilation_time"] = self.jit_compilation_time  # type: ignore
 
-        # Prefix all keys with prefix + '_'
+        # Prefix all keys
         for key in list(metrics.keys()):
-            if not key.startswith(f"{prefix}_"):
-                metrics[f"{prefix}_{key}"] = metrics.pop(key)
+            if not key.startswith(f"{prefix}/"):
+                metrics[f"{prefix}/{key}"] = metrics.pop(key)
 
         del dataloader
 

@@ -9,8 +9,11 @@ import typing as T
 from typing_extensions import override
 
 from unipercept.nn.typings import Activation, Norm
+from .norm import GlobalResponseNorm
 
 __all__ = ["MapMLP", "EmbedMLP"]
+
+EPS = torch.finfo(torch.float32).eps
 
 
 class MapMLP(nn.Module):
@@ -28,7 +31,7 @@ class MapMLP(nn.Module):
         norm: Norm | None = nn.LayerNorm,
         bias=True,
         activation: Activation = nn.GELU,
-        eps: float = 1e-8,
+        eps: float = EPS,
     ):
         super().__init__()
 
@@ -40,7 +43,7 @@ class MapMLP(nn.Module):
             raise ValueError(f"Invalid type for `hidden_channels`: {type(hidden_channels)}")
 
         self.eps = eps
-        self.fc1 = nn.Linear(in_channels, hidden_channels, bias=bias)
+        self.fc1 = nn.Linear(in_channels, hidden_channels, bias=bias if norm is None else False)
         self.act = activation()
         self.drop1 = nn.Dropout(dropout, inplace=True)
         self.norm = norm(hidden_channels) if norm is not None else nn.Identity()

@@ -15,9 +15,8 @@ import unipercept as up
 __all__ = ["model", "trainer", "data"]
 
 trainer.config.session_name = get_session_name(__file__)
-trainer.config.train_epochs = 50
-trainer.config.eval_steps = 1000
-trainer.config.logging_steps = 10
+trainer.config.eval_steps = 100
+trainer.config.logging_steps = 50
 
 model.backbone.bottom_up = L(up.nn.backbones.timm.TimmBackbone)(name="resnet18d")
 model.backbone.out_channels = 24

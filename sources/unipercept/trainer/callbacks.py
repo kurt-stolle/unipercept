@@ -500,8 +500,8 @@ class ProgressCallback(CallbackDispatcher):
     @override
     def on_log(self, config: TrainConfig, state: TrainState, control: Signal, logs=None, **kwargs):
         if unipercept.utils.state.check_main_process(True) and self.training_bar is not None:
-            _ = logs.pop("total_flops", None)
-            self.training_bar.write(str(logs))
+            # self.training_bar.write(str(logs))
+            pass
 
     @override
     def on_train_end(self, config: TrainConfig, state: TrainState, control: Signal, **kwargs):

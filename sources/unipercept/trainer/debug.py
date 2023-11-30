@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 class DebugMode(enum.IntFlag):
     NONE = 0
     UNDERFLOW_OVERFLOW = enum.auto()
+    INSPECT_MODEL = enum.auto()
 
 
 class DebugUnderflowOverflow:
@@ -27,7 +28,7 @@ class DebugUnderflowOverflow:
         self.batch_number = 0
         self.total_calls = 0
         self.detected_overflow = False
-        self.prefix = "                 "
+        self.prefix = ""
 
         self.analyse_model()
 

@@ -92,8 +92,6 @@ class GlobalResponseNorm(nn.Module):
 
     @override
     def forward(self, x):
-        assert x.ndim >= 4, "Input tensor must have at least 4 dimensions."
-
         return global_response_norm(
             x,
             self.spatial_dim,

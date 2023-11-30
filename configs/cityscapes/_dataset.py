@@ -45,6 +45,7 @@ data = B(up.data.DataConfig)(
             actions=[
                 L(up.data.ops.TorchvisionOp)(
                     transforms=[
+                        L(transforms.Resize)(size=1024, antialias=True),
                         L(transforms.CenterCrop)(size=(1024 - 32, 2048 - 32)),
                         L(transforms.RandomResize)(min_size=512, max_size=2048, antialias=True),
                         L(transforms.RandomCrop)(size=(512, 1024), pad_if_needed=False),

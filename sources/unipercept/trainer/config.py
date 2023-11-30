@@ -26,10 +26,11 @@ from unipercept.utils.time import get_timestamp
 
 from .debug import DebugMode
 
-logger = get_logger(__name__)
+_logger = get_logger(__name__)
 
 
 _T = T.TypeVar("_T")
+
 
 
 _DEFAULT_EXPERIMENT_TRACKERS: set[str] = {"wandb"}
@@ -113,19 +114,14 @@ class TrainConfig:
             raise ValueError("Either `train_steps` or `train_epochs` must be greater than zero.")
 
     def get_train_epochs(self, steps_per_epoch: int) -> int:
-        # TODO: Remove this feature - translating steps to epochs may cause information loss
-        warnings.warn(
-            "`get_train_epochs` is deprecated and will be removed in a future version. Use `get_train_steps` instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
         if (self.train_steps is not None) and (self.train_epochs is not None):
-            raise ValueError("Only one of `train_steps` and `train_epochs` can be set.")
+            raise ValueError(f"Only one of `train_steps` and `train_epochs` can be set. Got {self.train_steps=} and {self.train_epochs=}.")
         elif self.train_epochs is not None:
             return self.train_epochs
         elif self.train_steps is not None:
-            return self.train_steps // steps_per_epoch
+            epochs =  self.train_steps // steps_per_epoch
+            _logger.debug(f"Converted {self.train_steps} steps to {epochs} epochs.")
+            return epochs
         else:
             raise ValueError("Either `train_steps` or `train_epochs` must be greater than zero.")
 
@@ -428,7 +424,7 @@ class TrainConfig:
 
     def __setup_interactive(self, **kwds) -> None:
         if self.interactive is None:
-            interactive = logger.getEffectiveLevel() > logging.WARN
+            interactive = _logger.getEffectiveLevel() > logging.WARN
         else:
             interactive = self.interactive
         self.interactive = interactive

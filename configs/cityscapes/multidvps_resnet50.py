@@ -14,18 +14,19 @@ __all__ = ["model", "data", "trainer"]
 
 trainer = B(up.trainer.Trainer)(
     config=L(up.trainer.config.TrainConfig)(
-        project_name="multidvps-retro",
+        project_name="multidvps-v23.11.0",
         session_name=get_session_name(__file__),
         train_batch_size=8,
-        train_epochs=100_000,
+        train_steps=100_000,
         infer_batch_size=1,
-        eval_steps=10_000,
-        save_steps=10_000,
+        eval_steps=5_000,
+        save_steps=5_000,
         logging_steps=100,
+        gradient_accumulation_steps=2,
     ),
     optimizer=L(up.trainer.OptimizerFactory)(
         opt="sgd",
-        lr=0.01,
+        lr=0.005,
         momentum=0.9,
         weight_decay=1e-4,
         weight_decay_norm=0.0,
@@ -51,7 +52,7 @@ trainer = B(up.trainer.Trainer)(
 
 model = B(multidvps.MultiDVPS.from_metadata)(
     dataset_name=DATASET_NAME,
-    weighted_num=8,
+    weighted_num=7,
     common_stride=4,
     backbone=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
         bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50d"),
@@ -118,7 +119,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
             },
             in_features=["fpn.1", "fpn.2", "fpn.3", "fpn.4"],
             out_channels=256,
-            common_stride=4,
+            common_stride="${model.common_stride}",
         ),
         heads={
             multidvps.KEY_MASK: L(multidvps.modules.Encoder)(
@@ -145,22 +146,22 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         input_key=multidvps.KEY_SEMANTIC,
         input_dims=256,
         attention_heads=8,
-        dropout=0.0,
+        dropout=0.1,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
                 out_channels=f"${{model.feature_encoder.heads[{multidvps.KEY_MASK}].out_channels}}",
-                dropout=0.0,
+                dropout=0.1,
             ),
             multidvps.KEY_DEPTH: L(up.nn.layers.MapMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
                 out_channels=f"${{model.feature_encoder.heads[{multidvps.KEY_DEPTH}].out_channels}}",
-                dropout=0.0,
+                dropout=0.1,
             ),
             multidvps.KEY_REID: L(up.nn.layers.EmbedMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
                 out_channels=64,
-                dropout=0.5,
+                dropout=0.1,
             ),
         },
     ),
@@ -199,7 +200,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         truth_generator=L(multidvps.modules.supervision.TruthGenerator.from_metadata)(
             name=DATASET_NAME,
             ignore_val=-1,
-            common_stride=4,
+            common_stride="${model.common_stride}",
             min_overlap=0.7,
             gaussian_sigma=3,
         ),
@@ -217,8 +218,8 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         loss_depth_means=L(up.nn.losses.DepthLoss)(scale=1.0),
         loss_depth_values=L(up.nn.losses.DepthLoss)(scale=4.0),
         loss_reid=L(up.nn.losses.TripletMarginSimilarityLoss)(),
-        loss_dgp=L(up.nn.losses.DGPLoss)(scale=0.5),
-        loss_pgt=L(up.nn.losses.PGTLoss)(scale=0.5),
-        loss_pgs=L(up.nn.losses.PGSLoss)(scale=0.5),
+        loss_dgp=L(up.nn.losses.DGPLoss)(scale=1.0),
+        loss_pgt=L(up.nn.losses.PGTLoss)(scale=1.0),
+        loss_pgs=L(up.nn.losses.PGSLoss)(scale=1.0),
     ),
 )

@@ -487,12 +487,13 @@ def get_optimizer_params(
             memo.add(value)
 
             hyperparams = copy.copy(defaults)
-            if isinstance(module, norm_module_types) and weight_decay_norm is not None:
-                hyperparams["weight_decay"] = weight_decay_norm
             if callable(lr_factor_fn):
                 hyperparams["lr"] *= lr_factor_fn(module_name, module_param_name)
 
             hyperparams.update(param_overrides.get(module_param_name, {}))
+
+            if isinstance(module, norm_module_types) and weight_decay_norm is not None:
+                hyperparams["weight_decay"] = weight_decay_norm
 
             if callable(param_fn):
                 param_specifc_overrides = param_fn(module_name, module_param_name, hyperparams)

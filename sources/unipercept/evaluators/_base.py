@@ -25,20 +25,27 @@ class PlotMode(enum.Enum):
     NEVER = enum.auto()
 
 
+class EvaluatorComputeKWArgs(T.Protocol):
+    """
+    A type for the keyword arguments passed to the ``compute`` method of an evaluator.
+    """
+
+    device: torch.types.Device
+    path: str
+
 @D.dataclass(kw_only=True)
 class Evaluator(T.Protocol, metaclass=abc.ABCMeta):
     """
     Implements a stateless evaluator for a given task.
     """
 
-    @abc.abstractmethod
-    def update(self, storage: TensorDictBase, outputs: ModelOutput) -> TensorDict | None:
-        raise NotImplementedError
+    def update(self, storage: TensorDictBase, outputs: ModelOutput) -> None:
+        return None
 
     @abc.abstractmethod
-    def compute(self, storage: TensorDictBase, *, device: torch.types.Device) -> dict[str, int | float | str | bool]:
-        raise NotImplementedError
+    def compute(self, storage: TensorDictBase, **kwargs: EvaluatorComputeKWArgs) -> dict[str, int | float | str | bool | dict]:
+        return {}
 
     @abc.abstractmethod
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
-        raise NotImplementedError
+        return {}

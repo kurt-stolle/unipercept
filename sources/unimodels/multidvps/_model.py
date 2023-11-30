@@ -604,22 +604,26 @@ class MultiDVPS(up.model.ModelBase):
 
         # Sorting index by score
         sort_index = torch.argsort(things.scores, descending=True)
+        sort_index = sort_index[: self.inference_pipeline.center_top_num]
         # things.apply(lambda x: torch.index_select(x, 0, sort_index), inplace=True)
-        things = things[sort_index].contiguous()
+        things = things[sort_index]
+        # things = things.apply(lambda x: x[sort_index, ...], inplace=True)
 
         # Keep only scores above a threshold
         keep_mask = things.scores >= 0.05
         if not keep_mask.any():
             return things[:0]
 
-        things = things.masked_select(keep_mask)  # TODO high memory (@kurt-stolle)
+        # things = things.masked_select(keep_mask)  # TODO high memory (@kurt-stolle)
+        # things = things.apply(lambda x: x[keep_mask, ...], inplace=True)
 
         # Sort again and keep only the top instances
-        sort_index = torch.argsort(things.scores, descending=True)
-        sort_index = sort_index[: self.inference_pipeline.center_top_num]
-        things = things[sort_index]
+        # sort_index = torch.argsort(things.scores, descending=True)
+        # sort_index = sort_index[: self.inference_pipeline.center_top_num]
+        # things = things.apply(lambda x: x[sort_index, ...], inplace=True)
+        # things = things[sort_index]
 
-        return things  # .contiguous()
+        return things.contiguous()
 
     def _predict_stuff(self, ctx: logic.Context) -> logic.StuffInstances:
         kernels, categories, scores = self.inference_pipeline.predict_stuff(

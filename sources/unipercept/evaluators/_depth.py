@@ -24,8 +24,10 @@ _logger = get_logger(__name__)
 PRED_DEPTH = "pred_depth"
 TRUE_DEPTH = "true_depth"
 
+KEY_VALID_PXS = "valid"
 
-@D.dataclass(slots=True, kw_only=True)
+
+@D.dataclass(kw_only=True)
 class DepthWriter(Evaluator):
     """
     Writes depth maps to storage for evaluation purposes.
@@ -49,13 +51,10 @@ class DepthWriter(Evaluator):
         return cls(info=info, **kwargs)
 
     @override
-    def update(self, storage: TensorDictBase, outputs: ModelOutput) -> TensorDict | None:
+    def update(self, storage: TensorDictBase, outputs: ModelOutput):
+        super().update(storage, outputs)
         storage.setdefault(TRUE_DEPTH, outputs.truths.get("depths", None), inplace=True)
         storage.setdefault(PRED_DEPTH, outputs.predictions.get("depths", None), inplace=True)
-
-    @override
-    def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, int | float | str | bool]:
-        return {}
 
     @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
@@ -70,7 +69,7 @@ class DepthWriter(Evaluator):
                 setattr(self, mode_attr, PlotMode.NEVER)
             plot_keys.append(key)
 
-        result = {}
+        result = super().plot(storage)
         for i in range(self.plot_samples):
             for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_depth(storage.get_at(key, i).clone(), self.info)
@@ -84,7 +83,7 @@ class DepthEvaluator(DepthWriter):
         return super().from_metadata(name, **kwargs)
 
     @override
-    def compute(self, storage: TensorDictBase, *, device: torch.types.Device) -> dict[str, int | float | str | bool]:
+    def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs) -> dict[str, int | float | str | bool]:
         # TODO
         num_samples = storage.batch_size[0]
         assert num_samples > 0
@@ -107,10 +106,10 @@ class DepthEvaluator(DepthWriter):
         metrics = {}
 
         for m in metrics_list:  # accumulate metrics
-            valid_pixels = m["valid_pixels"]
-            metrics["valid_pixels"] = metrics.get("valid_pixels", 0) + valid_pixels
+            valid_pixels = m[KEY_VALID_PXS]
+            metrics[KEY_VALID_PXS] = metrics.get(KEY_VALID_PXS, 0) + valid_pixels
             for k, v in m.items():
-                if k == "valid_pixels":
+                if k == KEY_VALID_PXS:
                     continue
                 elif k == "accuracy":
                     assert isinstance(v, dict)
@@ -122,15 +121,15 @@ class DepthEvaluator(DepthWriter):
                     metrics.setdefault(k, 0.0)
                     metrics[k] += v * valid_pixels
         for k, v in metrics.items():  # divide by total pixels
-            if k == "valid_pixels":
+            if k == KEY_VALID_PXS:
                 continue
             elif k == "accuracy":
                 assert isinstance(v, dict)
                 for i in v.keys():
-                    v[i] /= metrics["valid_pixels"]
+                    v[i] /= metrics[KEY_VALID_PXS]
             else:
                 assert isinstance(v, float)
-                v /= metrics["valid_pixels"]
+                v /= metrics[KEY_VALID_PXS]
 
         # Add metrics from parent class
         metrics.update(super().compute(storage, device=device))
@@ -138,13 +137,17 @@ class DepthEvaluator(DepthWriter):
         return metrics
 
 
-class DepthMetrics(T.TypedDict):
-    valid_pixels: int
-    abs_rel: float
-    sq_rel: float
-    rmse: float
-    rmse_log: float
-    accuracy: dict[str, float]
+DepthMetrics = T.TypedDict(
+    "DepthMetrics",
+    {
+        "valid": int,
+        "abs_rel": float,
+        "sq_rel": float,
+        "rmse": float,
+        "log_rmse": float,
+        "accuracy": dict[str, float],
+    },
+)
 
 
 DEFAULT_THRESHOLDS: T.Final[list[int]] = [1, 2, 3]
@@ -164,11 +167,11 @@ def _threshold_to_key(t_base: float, n: int) -> str:
     Returns
     -------
     str
-        String key for the accuracy dict, e.g. "1T25E2" for a threshold of 1.25**2.
+        String key for the accuracy dict, e.g. "1t25**2" for a threshold of 1.25**2.
     """
 
-    base = f"{t_base}".replace(".", "T")
-    exponent = f"E{n}"
+    base = f"{t_base}".replace(".", "t")
+    exponent = f"**{n}"
 
     return f"{base}{exponent}"
 
@@ -227,7 +230,7 @@ def _depth_metrics_single(
     sq_rel = torch.mean(((true - pred) ** 2) / true)
 
     return {
-        "valid_pixels": valid_amt,
+        KEY_VALID_PXS: valid_amt,
         "abs_rel": abs_rel.item(),
         "sq_rel": sq_rel.item(),
         "rmse": rmse.item(),

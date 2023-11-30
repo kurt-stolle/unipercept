@@ -59,15 +59,14 @@ class PanopticWriter(Evaluator):
 
     @override
     def update(self, storage: TensorDictBase, outputs: ModelOutput):
+        super().update(storage, outputs)
         storage.setdefault(TRUE_PANOPTIC, outputs.truths.get("segmentations"), inplace=True)
         storage.setdefault(PRED_PANOPTIC, outputs.predictions.get("segmentations"), inplace=True)
 
     @override
-    def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
-        return {}
-
-    @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
+        result = super().plot(storage)
+
         from unipercept.render.utils import draw_image_segmentation
 
         plot_keys = []
@@ -79,7 +78,6 @@ class PanopticWriter(Evaluator):
                 setattr(self, mode_attr, PlotMode.NEVER)
             plot_keys.append(key)
 
-        result = {}
         for i in range(self.plot_samples):
             for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_segmentation(storage.get_at(key, i).clone(), self.info)
@@ -94,7 +92,7 @@ class PanopticEvaluator(PanopticWriter):
 
     show_progress: bool = False
     show_summary: bool = True
-    show_details: bool = True
+    show_details: bool = False 
 
     @classmethod
     @override
@@ -112,7 +110,8 @@ class PanopticEvaluator(PanopticWriter):
     @override
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
         metrics = super().compute(storage, **kwargs)
-        metrics["panoptic"] = self.compute_pq(storage, **kwargs)
+        metrics["original"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=True)
+        metrics["balanced"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=False)
 
         return metrics
 
@@ -121,18 +120,16 @@ class PanopticEvaluator(PanopticWriter):
         storage: TensorDictBase,
         *,
         device: torch.types.Device,
-        allow_stuff_instances: bool = True,
+        allow_stuff_instances: bool = False,
         allow_unknown_category: bool = False,
     ) -> dict[str, T.Any]:
         """
         Calculate stat scores required to compute the metric for a full batch.
         """
         void_color = _get_void_color(self.object_ids, self.background_ids)
-        cat_id_to_continuous_id = _get_category_id_to_continuous_id(self.object_ids, self.background_ids)
-
         # device = torch.device("cpu")  # using multiprocessing
 
-        num_categories = len(cat_id_to_continuous_id)
+        num_categories = len(self.object_ids) + len(self.background_ids)
         iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
         tp = torch.zeros(num_categories, dtype=torch.int, device=device)  # type: ignore
         fp = torch.zeros_like(iou)
@@ -140,11 +137,8 @@ class PanopticEvaluator(PanopticWriter):
 
         # Loop over each sample independently: segments must not be matched across frames.
         sample_amt = storage.batch_size[0]
-        worker_amt = min(multiprocessing.cpu_count(), 16)
-
+        # worker_amt = min(multiprocessing.cpu_count(), 16)
         assert sample_amt > 0, f"Batch size must be greater than zero, got {sample_amt=}"
-
-        _logger.debug(f"Starting evaluation of {sample_amt} samples in {worker_amt} workers")
 
         n_iter = range(sample_amt)
         if self.show_progress:
@@ -171,9 +165,9 @@ class PanopticEvaluator(PanopticWriter):
             result = _panoptic_quality_update_sample(
                 pred,
                 true,
-                cat_id_to_continuous_id,
                 void_color=void_color,
                 background_ids=self.background_ids if not allow_stuff_instances else None,
+                num_categories=num_categories,
             )
 
             iou += result[0]
@@ -205,40 +199,50 @@ class PanopticEvaluator(PanopticWriter):
         st_mask: torch.Tensor = _isin(torch.arange(num_categories, device=device), list(self.background_ids))
 
         for name, mask in [("all", tn_mask), ("thing", tn_mask & th_mask), ("stuff", tn_mask & st_mask)]:
+            n_masked = n_valid[mask].sum().item()
             summary[name] = {
                 "μPQ": pq[mask].mean().item(),
                 "μSQ": rq[mask].mean().item(),
                 "μRQ": fp[mask].mean().item(),
                 "μIoU": iou[mask].mean().item(),
-                "N": n_valid[mask].sum().item(),
-                "ΣTP": tp[mask].sum().item(),
-                "ΣFP": fp[mask].sum().item(),
-                "ΣFN": fn[mask].sum().item(),
+                "ΣTP": tp[mask].sum().item() / n_masked,
+                "ΣFP": fp[mask].sum().item() / n_masked,
+                "ΣFN": fn[mask].sum().item() / n_masked,
             }
         summary_df = self._tabulate(summary)
         if self.show_summary:
-            self._show_table("Panoptic evaluation summary", tab=summary_df)
+            self._show_table(
+                f"Panoptic evaluation summary ({allow_stuff_instances=}, {allow_unknown_category=})", summary_df
+            )
 
         # Detailed -- per class
         details = {}
 
         for i in range(pq.shape[0]):
-            name = f"({i})"
+            for semcls in self.info.semantic_classes.values():
+                if semcls.unified_id == i:
+                    name = f"{semcls.name}".lower().replace(" ", "_")
+                    break
+            else:
+                name = f"unknown({i})"
+
+            n_masked = n_valid[i].sum().item()
             details[name] = {
                 "μPQ": pq[i].mean().item(),
                 "μSQ": rq[i].mean().item(),
                 "μRQ": fp[i].mean().item(),
                 "μIoU": iou[i].mean().item(),
-                "N": n_valid[i].sum().item(),
-                "ΣTP": tp[i].sum().item(),
-                "ΣFP": fp[i].sum().item(),
-                "ΣFN": fn[i].sum().item(),
+                "ΣTP": tp[i].sum().item() / n_masked,
+                "ΣFP": fp[i].sum().item() / n_masked,
+                "ΣFN": fn[i].sum().item() / n_masked,
             }
         details_df = self._tabulate(details)
         if self.show_details:
-            self._show_table("Panoptic evaluation details", details_df)
+            self._show_table(
+                f"Panoptic evaluation details({allow_stuff_instances=}, {allow_unknown_category=})", details_df
+            )
 
-        return summary
+        return summary | details
 
     def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
         tab_fmt = tab.to_markdown(index=False)
@@ -391,7 +395,7 @@ def _preprocess_mask(
 
     # Remove instance IDs of stuff classes
     inputs.remove_instances_(stuffs)
-     
+
     # Flatten the spatial dimensions of the input tensor, e.g., (B, H, W, C) -> (B*H*W, C).
     out = inputs.to_parts()
     out = torch.flatten(out, 0, -2)
@@ -479,8 +483,8 @@ def _filter_false_positives(
 def _panoptic_quality_update_sample(
     flatten_preds: torch.Tensor,
     flatten_target: torch.Tensor,
-    cat_id_to_continuous_id: dict[int, int],
     void_color: tuple[int, int],
+    num_categories: int,
     background_ids: T.Optional[T.FrozenSet[int]] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -488,7 +492,7 @@ def _panoptic_quality_update_sample(
     """
     background_ids = background_ids or frozenset()
     device = flatten_preds.device
-    num_categories = len(cat_id_to_continuous_id)
+
     iou_sum = torch.zeros(num_categories, dtype=torch.double, device=device)
     true_positives = torch.zeros(num_categories, dtype=torch.int, device=device)
     false_positives = torch.zeros(num_categories, dtype=torch.int, device=device)
@@ -515,29 +519,26 @@ def _panoptic_quality_update_sample(
         if pred_color[0] != target_color[0]:
             continue
         iou = _calculate_iou(pred_color, target_color, pred_areas, target_areas, intersection_areas, void_color)
-        continuous_id = cat_id_to_continuous_id[target_color[0]]
+        sem_id = target_color[0]
         if target_color[0] not in background_ids and iou > 0.5:
             pred_segment_matched.add(pred_color)
             target_segment_matched.add(target_color)
-            iou_sum[continuous_id] += iou
-            true_positives[continuous_id] += 1
+            iou_sum[sem_id] += iou
+            true_positives[sem_id] += 1
         elif target_color[0] in background_ids and iou > 0:
-            iou_sum[continuous_id] += iou
+            iou_sum[sem_id] += iou
 
     for cat_id in _filter_false_negatives(target_areas, target_segment_matched, intersection_areas, void_color):
         if cat_id not in background_ids:
-            continuous_id = cat_id_to_continuous_id[cat_id]
-            false_negatives[continuous_id] += 1
+            false_negatives[cat_id] += 1
 
     for cat_id in _filter_false_positives(pred_areas, pred_segment_matched, intersection_areas, void_color):
         if cat_id not in background_ids:
-            continuous_id = cat_id_to_continuous_id[cat_id]
-            false_positives[continuous_id] += 1
+            false_positives[cat_id] += 1
 
     for cat_id, _ in target_areas:
         if cat_id in background_ids:
-            continuous_id = cat_id_to_continuous_id[cat_id]
-            true_positives[continuous_id] += 1
+            true_positives[cat_id] += 1
 
     return iou_sum, true_positives, false_positives, false_negatives
 

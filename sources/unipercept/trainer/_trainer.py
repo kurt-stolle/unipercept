@@ -32,6 +32,7 @@ from unicore import file_io
 from unicore.utils.status import StatusDescriptor
 from unicore.utils.tensorclass import Tensorclass
 
+from ..utils.time import ProfileAccumulator,profile 
 from ..utils.logutils import get_logger
 from ..utils.seed import set_seed
 from ._optimizer import OptimizerFactory
@@ -904,36 +905,41 @@ class Trainer:
         samples_processed = 0
         batch_size = self._config.infer_batch_size
         write_index = batch_offsets[self._xlr.process_index] * batch_size
+
+        timings = ProfileAccumulator()
+
         for inputs in dataloader:
             samples_in_batch = inputs.batch_size[0]
             assert samples_in_batch <= batch_size, f"Expected batch size {batch_size}, got {samples_in_batch}"
 
             # Prediction step - i.e. run the model in inference mode
-            outputs = self._inference_step(model, inputs)
+            with profile(timings, "model"): 
+                outputs = self._inference_step(model, inputs).cpu()
 
             # Prepare for evaluation
-            results_merged = TensorDict(
-                {"valid": torch.ones(samples_in_batch, dtype=torch.bool)}, batch_size=inputs.batch_size
-            )
-            for evaluator in handlers:
-                evaluator.update(results_merged, outputs)
-
+            with profile(timings, "update"):
+                results_merged = TensorDict(
+                    {"valid": torch.ones(samples_in_batch, dtype=torch.bool)}, batch_size=inputs.batch_size
+                )
+                for evaluator in handlers:
+                    evaluator.update(results_merged, outputs)
+                    
             # Write to MemmapTensor
-            if results_mem is None:
-                assert results_prefix is None
-                results_prefix, results_mem = self._inference_results_allocate(batch_total * batch_size, results_merged)
-            else:
-                assert results_prefix is not None
-            results_mem[write_index : write_index + samples_in_batch] = results_merged.cpu()
-            write_index += samples_in_batch
+            with profile(timings, "write"):
+                if results_mem is None:
+                    assert results_prefix is None
+                    results_prefix, results_mem = self._inference_results_allocate(batch_total * batch_size, results_merged)
+                else:
+                    assert results_prefix is not None
+                results_mem[write_index : write_index + samples_in_batch] = results_merged
+                write_index += samples_in_batch
 
             samples_processed += samples_in_batch
-
             self._event(Event.ON_INFERENCE_STEP, loader=dataloader)
 
-        del inputs
-        del results_merged
-        del outputs
+            print(timings)
+
+        _logger.info(f"Finished inference, profiling report: {timings}")
 
         # Clear the past memory
         self._past = None
@@ -942,7 +948,7 @@ class Trainer:
         self._xlr.wait_for_everyone()
 
         # Run metric computations
-        metrics: dict[str, float | str | int | bool] = {}
+        metrics: dict[str, float | str | int | bool] = {}        
         visuals: dict[str, pil_image.Image] = {}
         if self._xlr.is_main_process:
             if write_index < batch_total:

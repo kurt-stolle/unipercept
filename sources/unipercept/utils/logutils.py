@@ -45,7 +45,7 @@ LOG_LEVELS: T.Final[dict[str, int]] = {
 }
 
 # Default logging level, can be overridden by setting the UNI_LOG_LEVEL environment variable.
-DEFAULT_LEVEL: T.Final[str] = os.getenv("UNI_LOG_LEVEL", "info")
+DEFAULT_LEVEL: T.Final[str] = os.getenv("UNI_LOG_LEVEL", "debug")
 
 # Some packages have long names, so we abbreviate them to keep the logs more readable.
 PACKAGE_ABBREVIATIONS: dict[str, str] = {

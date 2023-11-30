@@ -65,10 +65,11 @@ def apply_optimizer_overrides(
     """
 
     match module_name:
-        case n if n.startswith("backbone"):
-            # reduce the learning rate for the backbone parameters
-            return {"lr": param_hps["lr"] / 2}
-        case n if n.startswith("detector.localizer.*"):
+        # case n if n.startswith("backbone"):
+        # TODO: check whether this still holds (@kurt-stolle)
+        #     # reduce the learning rate for the backbone parameters
+        #     return {"lr": param_hps["lr"] / 2}
+        case n if n.startswith("detector.localizer") and n.endswith("out"):
             # set weight decay to zero for the biases of the localizer
             if param_name == "bias":
                 return {"weight_decay": 0.0}

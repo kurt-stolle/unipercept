@@ -16,6 +16,7 @@ import torch.nn as nn
 import torch.optim
 
 from accelerate import PartialState
+from joblib import parallel_backend
 
 from unipercept.utils.logutils import get_logger
 
@@ -35,6 +36,12 @@ class ParameterHPs(T.TypedDict, total=False):
 
     lr: float
     weight_decay: float
+
+class ParameterDefinition(ParameterHPs):
+    """
+    Definition of a parameter in the optimizer configuration, i.e. 'params' and the hyperparameters for this parameter.
+    """
+    params: list[nn.Parameter]
 
 
 class OptimType(enum.StrEnum):
@@ -439,7 +446,7 @@ def get_optimizer_params(
     lr_factor_fn: T.Optional[T.Callable] = None,
     param_overrides: T.Optional[dict[str, ParameterHPs]] = None,
     param_fn: T.Optional[T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]] = None,
-) -> list[ParameterHPs]:
+) -> list[ParameterDefinition]:
     from ..nn.layers import norm
 
     if param_overrides is None:
@@ -468,7 +475,7 @@ def get_optimizer_params(
         torch.nn.LocalResponseNorm,
         norm.LayerNormCHW,
     )
-    params: list[dict[str, T.Any]] = []
+    params: list[ParameterDefinition] = []
     memo: set[torch.nn.parameter.Parameter] = set()
     for module_name, module in model.named_modules():
         for module_param_name, value in module.named_parameters(recurse=False):
@@ -495,14 +502,15 @@ def get_optimizer_params(
                         f"Skipping parameter '{module_name}.{module_param_name}', as it was filtered out by the parameter function"
                     )
                     continue  # skip this parameter
-                else:
+                elif len(param_specifc_overrides) > 0:
+                    _logger.debug("Overriding hyperparameters for parameter '%s.%s': %s", module_name, module_param_name, str(param_specifc_overrides))
                     hyperparams.update(param_specifc_overrides)
 
             params.append({"params": [value], **hyperparams})
     return _simplify_groups(params)
 
 
-def _expand_param_groups(params: list[dict[str, T.Any]]) -> list[dict[str, T.Any]]:
+def _expand_param_groups(params: list[ParameterDefinition]) -> list[ParameterDefinition]:
     # Transform parameter groups into per-parameter structure.
     # Later items in `params` can overwrite parameters set in previous items.
     ret = defaultdict(dict)
@@ -518,7 +526,7 @@ def _expand_param_groups(params: list[dict[str, T.Any]]) -> list[dict[str, T.Any
     return list(ret.values())
 
 
-def _simplify_groups(params: list[dict[str, T.Any]]) -> list[dict[str, T.Any]]:
+def _simplify_groups(params: list[ParameterDefinition]) -> list[ParameterDefinition]:
     params = _expand_param_groups(params)
     groups = defaultdict(list)  # re-group all parameter groups by their hyperparams
     for item in params:

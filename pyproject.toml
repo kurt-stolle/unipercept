@@ -180,9 +180,8 @@ ignore_init_module_imports = true
 expand_star_imports = true
 
 [tool.pytest.ini_options]
-addopts = "-m 'not integration' -m 'not gpu'"
+addopts = "-m 'not integration' -m 'not gpu' --benchmark-disable"
 pythonpath = ["sources"]
-looponfailroots = ["sources", "tests", "configs"]
 testpaths = "tests"
 junit_family = "xunit2"
 junit_suite_name = "tests"

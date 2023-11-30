@@ -25,10 +25,11 @@ trainer = B(up.trainer.Trainer)(
     ),
     optimizer=L(up.trainer.OptimizerFactory)(
         opt="sgd",
-        lr=0.02,
+        lr=0.01,
         momentum=0.9,
         weight_decay=1e-4,
         weight_decay_norm=0.0,
+        weight_decay_bias=1e-8,
         param_fn=multidvps.apply_optimizer_overrides,
     ),
     scheduler=L(up.trainer.SchedulerFactory)(
@@ -55,7 +56,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     backbone=L(up.nn.backbones.fpn.FeaturePyramidNetwork)(
         bottom_up=L(up.nn.backbones.timm.TimmBackbone)(name="resnet50d"),
         in_features=["ext.2", "ext.3", "ext.4", "ext.5"],
-        out_channels=192,
+        out_channels=256,
         norm=up.nn.layers.norm.LayerNormCHW,
         extra_blocks=L(up.nn.backbones.fpn.LastLevelP6P7)(
             in_channels="${..out_channels}",
@@ -72,7 +73,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
                 num_convs=3,
                 deform=True,
                 coord=L(up.nn.layers.CoordCat2d)(),
-                norm=up.nn.layers.norm.GroupNormCG,
+                norm=up.nn.layers.norm.LayerNormCHW,
                 activation=nn.GELU,
             ),
             squeeze_excite=L(up.nn.layers.SqueezeExcite2d)(
@@ -116,13 +117,13 @@ model = B(multidvps.MultiDVPS.from_metadata)(
                 for f, s in zip(["fpn.1", "fpn.2", "fpn.3", "fpn.4"], [4, 8, 16, 32])
             },
             in_features=["fpn.1", "fpn.2", "fpn.3", "fpn.4"],
-            out_channels=192,
+            out_channels=256,
             common_stride=4,
         ),
         heads={
             multidvps.KEY_MASK: L(multidvps.modules.Encoder)(
                 in_channels=T.cast(int, "${...merger.out_channels}"),
-                out_channels=192,
+                out_channels=256,
                 num_convs=3,
                 deform=True,
                 groups=8,
@@ -142,7 +143,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     ),
     kernel_mapper=L(multidvps.modules.KernelMapper)(
         input_key=multidvps.KEY_SEMANTIC,
-        input_dims=192,
+        input_dims=256,
         attention_heads=8,
         dropout=0.0,
         mapping={
@@ -179,9 +180,9 @@ model = B(multidvps.MultiDVPS.from_metadata)(
     depth_mapper=L(multidvps.modules.DepthHead)(
         feature_key=multidvps.KEY_DEPTH,
         geometry_key=multidvps.KEY_GEOMETRY,
-        min_depth=2,
+        min_depth=3,
         max_depth=DATASET_INFO.depth_max,
-        range_factor=0.5,
+        range_factor=1.0,
     ),
     tracker=L(multidvps.trackers.build_embedding_tracker)(),
     inference_pipeline=L(multidvps.logic.inference.InferencePipeline)(

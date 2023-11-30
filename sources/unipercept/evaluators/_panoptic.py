@@ -6,27 +6,29 @@ Based on the Torchmetrics implementation of the Panoptic Quality metric.
 from __future__ import annotations
 
 import dataclasses as D
-import functools
 import multiprocessing
 import typing as T
-import warnings
+import einops
 
 import torch
 import torch.types
+import pandas as pd
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from tqdm import tqdm
 from typing_extensions import override
 
+
 from ..data.tensors import PanopticMap
 from ..utils.logutils import get_logger
 from ._base import Evaluator, PlotMode
+from . import helpers as H
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
     from ..model import ModelOutput
 
-__all__ = ["PanopticEvaluator"]
+__all__ = ["PanopticEvaluator", "TRUE_PANOPTIC", "PRED_PANOPTIC", "PanopticWriter"]
 
 _logger = get_logger(__name__)
 _ColorType: T.TypeAlias = tuple[
@@ -51,9 +53,9 @@ class PanopticWriter(Evaluator):
 
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        from unicore import catalog
+        from unipercept.data.sets import get_info
 
-        return cls(info=catalog.get_info(name), **kwargs)
+        return cls(info=get_info(name), **kwargs)
 
     @override
     def update(self, storage: TensorDictBase, outputs: ModelOutput):
@@ -91,6 +93,8 @@ class PanopticEvaluator(PanopticWriter):
     """
 
     show_progress: bool = False
+    show_summary: bool = True
+    show_details: bool = True
 
     @classmethod
     @override
@@ -117,28 +121,11 @@ class PanopticEvaluator(PanopticWriter):
         storage: TensorDictBase,
         *,
         device: torch.types.Device,
-        allow_stuff_instances: bool = False,
+        allow_stuff_instances: bool = True,
         allow_unknown_category: bool = False,
     ) -> dict[str, T.Any]:
         """
         Calculate stat scores required to compute the metric for a full batch.
-
-        Computed scores: iou sum, true positives, false positives, false negatives.
-
-        Args:
-            flatten_preds: A flattened prediction tensor, shape (B, num_points, 2).
-            flatten_target: A flattened target tensor, shape (B, num_points, 2).
-            cat_id_to_continuous_id: Mapping from original category IDs to continuous IDs.
-            void_color: an additional, unused color.
-            modified_metric_stuffs: T.Set of stuff category IDs for which the PQ metric is computed using the "modified"
-                formula. If not specified, the original formula is used for all categories.
-
-        Returns:
-            - IOU Sum
-            - True positives
-            - False positives
-            - False negatives
-
         """
         void_color = _get_void_color(self.object_ids, self.background_ids)
         cat_id_to_continuous_id = _get_category_id_to_continuous_id(self.object_ids, self.background_ids)
@@ -194,16 +181,88 @@ class PanopticEvaluator(PanopticWriter):
             fp += result[2]
             fn += result[3]
 
-        den = (tp + 0.5 * fp + 0.5 * fn).double()
-        pq = torch.where(den > 0.0, iou / den, 0.0) * 100.0
+        _logger.debug("Accumulating PQ-related metrics")
 
-        return {
-            "pq": pq.double().mean().item(),
-            "iou": iou.double().mean().item(),
-            "tp": tp.double().mean().item(),
-            "fp": fp.double().mean().item(),
-            "fn": fn.double().mean().item(),
-        }
+        # Compute PQ = SQ * RQ
+        sq = H.stable_divide(iou, tp)
+        rq = H.stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
+        pq = sq * rq
+
+        # Convert to percentages
+        sq *= 100
+        rq *= 100
+        pq *= 100
+
+        # Total valid values
+        n_valid = tp + fp + fn
+
+        # Summarizing values
+        summary = {}
+
+        # Mask out categories that have only true negatives
+        tn_mask: torch.Tensor = n_valid > 0
+        th_mask: torch.Tensor = _isin(torch.arange(num_categories, device=device), list(self.object_ids))
+        st_mask: torch.Tensor = _isin(torch.arange(num_categories, device=device), list(self.background_ids))
+
+        for name, mask in [("all", tn_mask), ("thing", tn_mask & th_mask), ("stuff", tn_mask & st_mask)]:
+            summary[name] = {
+                "μPQ": pq[mask].mean().item(),
+                "μSQ": rq[mask].mean().item(),
+                "μRQ": fp[mask].mean().item(),
+                "μIoU": iou[mask].mean().item(),
+                "N": n_valid[mask].sum().item(),
+                "ΣTP": tp[mask].sum().item(),
+                "ΣFP": fp[mask].sum().item(),
+                "ΣFN": fn[mask].sum().item(),
+            }
+        summary_df = self._tabulate(summary)
+        if self.show_summary:
+            self._show_table("Panoptic evaluation summary", tab=summary_df)
+
+        # Detailed -- per class
+        details = {}
+
+        for i in range(pq.shape[0]):
+            name = f"({i})"
+            details[name] = {
+                "μPQ": pq[i].mean().item(),
+                "μSQ": rq[i].mean().item(),
+                "μRQ": fp[i].mean().item(),
+                "μIoU": iou[i].mean().item(),
+                "N": n_valid[i].sum().item(),
+                "ΣTP": tp[i].sum().item(),
+                "ΣFP": fp[i].sum().item(),
+                "ΣFN": fn[i].sum().item(),
+            }
+        details_df = self._tabulate(details)
+        if self.show_details:
+            self._show_table("Panoptic evaluation details", details_df)
+
+        return summary
+
+    def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
+        tab_fmt = tab.to_markdown(index=False)
+        _logger.info(f"%s:\n%s", msg, tab_fmt)
+
+    def _tabulate(self, result: dict[str, dict[str, float]]) -> pd.DataFrame:
+        data: dict[str, list[float]] = {}
+        groups = []
+
+        for group_name, metrics in result.items():
+            groups.append(group_name.capitalize())
+            for metric_name, metric_value in metrics.items():
+                data[metric_name] = data.get(metric_name, []) + [metric_value]
+
+        data_list = []
+        for key, values in data.items():
+            data_list.append([key] + values)
+
+        df = pd.DataFrame(
+            data_list,
+            columns=["Metric"] + groups,
+        )
+
+        return df
 
 
 def _nested_tuple(nested_list: list) -> tuple:
@@ -247,7 +306,7 @@ def _get_color_areas(inputs: torch.Tensor) -> dict[tuple, torch.Tensor]:
     return dict(zip(_to_tuple(unique_keys), unique_keys_area))
 
 
-def _get_void_color(things: T.Set[int], stuffs: T.Set[int]) -> tuple[int, int]:
+def _get_void_color(things: T.FrozenSet[int], stuffs: T.FrozenSet[int]) -> tuple[int, int]:
     """Get an unused color ID.
 
     Args:
@@ -262,7 +321,7 @@ def _get_void_color(things: T.Set[int], stuffs: T.Set[int]) -> tuple[int, int]:
     return unused_category_id, 0
 
 
-def _get_category_id_to_continuous_id(things: T.Set[int], stuffs: T.Set[int]) -> dict[int, int]:
+def _get_category_id_to_continuous_id(things: T.FrozenSet[int], stuffs: T.FrozenSet[int]) -> dict[int, int]:
     """Convert original IDs to continuous IDs.
 
     Args:
@@ -273,9 +332,9 @@ def _get_category_id_to_continuous_id(things: T.Set[int], stuffs: T.Set[int]) ->
         A mapping from the original category IDs to continuous IDs (i.e., 0, 1, 2, ...).
 
     """
-    # things metrics are stored with a continuous id in [0, len(things)[,
+    # things metrics are stored with a continuous id in [0, len(things)),
     thing_id_to_continuous_id = {thing_id: idx for idx, thing_id in enumerate(things)}
-    # stuff metrics are stored with a continuous id in [len(things), len(things) + len(stuffs)[
+    # stuff metrics are stored with a continuous id in [len(things), len(things) + len(stuffs))
     stuff_id_to_continuous_id = {stuff_id: idx + len(things) for idx, stuff_id in enumerate(stuffs)}
     cat_id_to_continuous_id = {}
     cat_id_to_continuous_id.update(thing_id_to_continuous_id)
@@ -326,18 +385,27 @@ def _preprocess_mask(
     The preprocessed input tensor flattened along the spatial dimensions.
     """
 
-    # flatten the spatial dimensions of the input tensor, e.g., (B, H, W, C) -> (B*H*W, C).
-    out = inputs.detach().as_subclass(PanopticMap).to_parts()
+    # Check that the union of things and stuff is disjoint
+    assert len(things & stuffs) == 0, "Things and stuffs must be disjoint"
+    inputs = inputs.detach().as_subclass(PanopticMap)
+
+    # Remove instance IDs of stuff classes
+    inputs.remove_instances_(stuffs)
+     
+    # Flatten the spatial dimensions of the input tensor, e.g., (B, H, W, C) -> (B*H*W, C).
+    out = inputs.to_parts()
     out = torch.flatten(out, 0, -2)
+    assert out.ndim == 2, out.shape
+
     mask_stuffs = _isin(out[:, 0], list(stuffs))
     mask_things = _isin(out[:, 0], list(things))
-    # reset instance IDs of stuffs
-    mask_stuffs_instance = torch.stack([torch.zeros_like(mask_stuffs), mask_stuffs], dim=-1)
-    out[mask_stuffs_instance] = 0
+
     if not allow_unknown_category and not torch.all(mask_things | mask_stuffs):
         raise ValueError(f"Unknown categories found: {out[~(mask_things|mask_stuffs)]}")
-    # set unknown categories to void color
+
+    # Set unknown categories to void color
     out[~(mask_things | mask_stuffs)] = out.new(void_color)
+
     return out
 
 

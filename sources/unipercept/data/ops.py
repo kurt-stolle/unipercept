@@ -53,7 +53,7 @@ class Op(torch.nn.Module, metaclass=abc.ABCMeta):
 
     @override
     def forward(self, inputs: InputData) -> InputData:
-        assert len(inputs.batch_size) == 0, f"Expected a single batched data point, got {inputs.batch_size}!"
+        # assert len(inputs.batch_size) == 0, f"Expected a single batched data point, got {inputs.batch_size}!"
         inputs = self._run(inputs)
         return inputs
 
@@ -172,9 +172,7 @@ class TorchvisionOp(Op):
 
 
 class PseudoMotion(Op):
-    def __init__(
-        self, frames: int, size: int | T.Sequence[int, int] = 512, scale=1.33, rotation=5, shear=1, p_reverse=0.5
-    ):
+    def __init__(self, frames: int, size: int | T.Sequence[int] = 512, scale=1.33, rotation=5, shear=1, p_reverse=0.5):
         super().__init__()
 
         if scale < 1:
@@ -196,39 +194,51 @@ class PseudoMotion(Op):
         self._upscale = TorchvisionOp(
             [
                 tvt2.Resize(tuple(int(s * scale) for s in size_crop), antialias=True),
-                tvt2.RandomAdjustSharpness(1.5),
+                tvt2.RandomAdjustSharpness(1.2),
                 tvt2.RandomAffine(shear=(-shear, shear), degrees=(-rotation, rotation)),
                 tvt2.RandomPhotometricDistort(),
-                tvt2.GaussianBlur((5, 9)),
             ]
         )
 
     @override
     def _run(self, inputs: InputData) -> InputData:
-        assert len(inputs.batch_size) == 0
+        if inputs.motions is not None:
+            # TODO Implement pseudo motion for motion data (@kurt-stolle)
+            raise NotImplementedError("Psuedo motion for motion data not supported!")
 
-        bs = list(inputs.captures.batch_size)
-        assert bs[-1] == 1, f"Data already is a sequence: {inputs.captures.batch_size}"
+        if inputs.num_frames > self._out_frames:
+            warnings.warn(
+                f"Skipping pseudo motion for {inputs.ids} because {inputs.num_frames=} > {self._out_frames=}",
+                stacklevel=2,
+            )
+            return inputs
 
         inp_list: list[InputData] = []
 
         for i in range(self._out_frames):
-            inp_prev = inputs if i == 0 else self._upscale(inp_list[i - 1].clone())
+            # Either select one of the input frames or upscale the previous pseudo-input
+            if i < inputs.num_frames:
+                inp_prev = inputs.extract_frame(i)
+            else:
+                inp_prev = self._upscale(inp_list[i - 1].clone())
+
+            # Select a crop that matches the desired output size of the sequence
             inp_next = self._select(inp_prev)
+
+            # Append to the list of frames
             inp_list.append(inp_next)
 
+        # Random reversing of the sequence, whicih can be applied even when no pseudo-frames were generated (e.g. when the input sequence already has sufficient frames)
         reverse = torch.rand(1).item() < self._p_reverse
 
         if inputs.captures is not None:
             caps = [item.captures for item in inp_list]
             if reverse:
                 caps.reverse()
-            inputs.captures = torch.cat(caps, dim=0)
-        if inputs.motions is not None:
-            mots = [item.motions for item in inp_list]
-            if reverse:
-                mots.reverse()
-            inputs.motions = torch.cat(mots, dim=0)
+            inputs.captures = torch.stack(caps, dim=0)
+            # if reverse:
+            #     mots.reverse()
+            # inputs.motions = torch.cat(mots, dim=0)
 
         return inputs
 

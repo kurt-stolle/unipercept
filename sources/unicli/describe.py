@@ -16,7 +16,6 @@ __all__ = []
 
 
 def extract_depth_stats(ds: up.data.sets.PerceptionDataset, output_dir: file_io.Path | None = None):
-
     dep_min = float("inf")
     dep_max = float("-inf")
 
@@ -28,7 +27,6 @@ def extract_depth_stats(ds: up.data.sets.PerceptionDataset, output_dir: file_io.
         if output_dir is not None:
             img = up.render.utils.plot_input_data(inputs, info=ds.info)
             img.save(output_dir / f"{inputs.captures.primary_key}.png")
-
 
         dep = inputs.captures.depths
         dep = dep[dep > 0]
@@ -46,9 +44,7 @@ def extract_depth_stats(ds: up.data.sets.PerceptionDataset, output_dir: file_io.
         dep_min = min(dep_min, dep.min().item())
         dep_max = max(dep_max, dep.max().item())
 
-        prog.set_postfix(
-            {"min": dep_min, "max": dep_max}
-        )
+        prog.set_postfix({"min": dep_min, "max": dep_max})
 
     print(f"Min: {dep_min}, Max: {dep_max}")
 
@@ -88,7 +84,7 @@ def handle_request(args) -> T.Any:
         ds = ds_cls(**kwargs)
 
         if args.depth:
-            return extract_depth_stats(ds,  args.output)
+            return extract_depth_stats(ds, args.output)
         elif args.manifest:
             return ds.manifest
         elif args.sequences:
@@ -149,7 +145,9 @@ def main(args):
 @command(help="describe a dataset to std")
 def describe(parser):
     parser.add_argument("--format", default="pprint", help="output format", choices=["yaml", "pprint"])
-    parser.add_argument("--output", "-o", help="directory to store output data and visualizations", default=None, type=file_io.Path)
+    parser.add_argument(
+        "--output", "-o", help="directory to store output data and visualizations", default=None, type=file_io.Path
+    )
 
     mp = parser.add_mutually_exclusive_group()
     mp.add_argument("--info", help="show dataset info", action="store_true")

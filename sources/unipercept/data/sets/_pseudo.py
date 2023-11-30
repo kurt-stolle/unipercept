@@ -21,6 +21,7 @@ class PseudoGenerator:
     @functools.cached_property
     def depth_pipeline(self):
         from transformers import pipeline
+
         return pipeline(task="depth-estimation", model=self.depth_name, device="cuda")
 
     def create_panoptic_source(self, in_paths: tuple[file_io.Path, file_io.Path], out_path: file_io.Path):
@@ -60,12 +61,11 @@ class PseudoGenerator:
         ).cpu()
         return prediction.cpu() * self.depth_factor
 
-
     def create_depth_source(self, img_path: file_io.Path | str, out_path: file_io.Path | str) -> None:
         """
         Uses pretrained DPT model to generate depth map pseudolabels
         """
-        
+
         img_path = file_io.Path(img_path)
         out_path = file_io.Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,7 +73,9 @@ class PseudoGenerator:
 
         image = Image.open(img_path)
         for output in self._generate_depth(image):
-            safetensors.save_file({"data": output.as_subclass(torch.Tensor)}, out_path, metadata={"model": self.depth_name})
+            safetensors.save_file(
+                {"data": output.as_subclass(torch.Tensor)}, out_path, metadata={"model": self.depth_name}
+            )
 
     def estimate_depth(self, image: torch.Tensor) -> torch.Tensor:
         from torchvision.transforms.v2.functional import to_pil_image

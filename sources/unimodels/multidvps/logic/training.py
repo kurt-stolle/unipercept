@@ -47,8 +47,6 @@ class TrainingPipeline(nn.Module):
         loss_location_weight: float | T.Sequence[float] | tuple[float, float],  # things,stuff
         loss_location_thing: losses.SigmoidFocalLoss,
         loss_location_stuff: losses.SigmoidFocalLoss,
-        loss_segment_thing: losses.WeightedThingDiceLoss,
-        loss_segment_stuff: losses.WeightedStuffDiceLoss,
         loss_reid: losses.TripletMarginSimilarityLoss,
         loss_depth_values: nn.Module,
         loss_depth_means: nn.Module,
@@ -57,6 +55,9 @@ class TrainingPipeline(nn.Module):
         loss_pgs: losses.PGSLoss,
         truth_generator: TruthGenerator,
         stuff_channels: int,
+        loss_segment_thing: losses.WeightedThingDiceLoss,
+        loss_segment_stuff: losses.WeightedStuffDiceLoss,
+        loss_segment_weight_adversarial: float | T.Sequence[float] | tuple[float, float] = 0.0,
     ):
         super().__init__()
 
@@ -71,6 +72,7 @@ class TrainingPipeline(nn.Module):
         # Segmentation loss
         self.loss_segment_things = loss_segment_thing
         self.loss_segment_stuff = loss_segment_stuff
+        self.loss_segment_weight_adversarial = to_2tuple(loss_segment_weight_adversarial)
 
         # Depth loss
         self.loss_depth_means = loss_depth_means

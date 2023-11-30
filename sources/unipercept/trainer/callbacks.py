@@ -49,6 +49,7 @@ __all__ = [
 
 _logger = unipercept.utils.logutils.get_logger(__name__)
 
+
 @D.dataclass(kw_only=True)
 class TrainState:
     # Epochs and steps

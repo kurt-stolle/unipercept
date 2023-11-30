@@ -47,7 +47,7 @@ def scale_invariant_logarithmic_error(x: torch.Tensor, y: torch.Tensor, num: int
 
     num_2 = num**2
 
-    # sile_1 = log_err.square().sum()/num 
+    # sile_1 = log_err.square().sum()/num
     # sile_2 = log_err.sum().square()  / num_2
 
     sile_1 = (math.sqrt(num) * log_err).square().sum()

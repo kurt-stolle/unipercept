@@ -22,8 +22,9 @@ if T.TYPE_CHECKING:
     from .model import CameraModel, CaptureData, InputData, ModelBase
     from .utils.config.templates import LazyConfigFile
     from .data.ops import Op
+    from .trainer import Trainer
 
-    StateParam: T.TypeAlias = str | os.PathLike | dict[str, torch.Tensor]
+    StateParam: T.TypeAlias = str | os.PathLike | dict[str, torch.Tensor] | Trainer
     StateDict: T.TypeAlias = dict[str, torch.Tensor]
     ConfigParam: T.TypeAlias = str | os.PathLike | DictConfig | LazyConfigFile
     ImageParam: T.TypeAlias = str | os.PathLike | pil_image.Image | np.ndarray | torch.Tensor
@@ -31,6 +32,7 @@ if T.TYPE_CHECKING:
 __all__ = [
     "read_config",
     "load_checkpoint",
+    "create_trainer",
     "create_model",
     "prepare_dataset",
     "create_inputs",
@@ -128,10 +130,37 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
                 st.load_model(target, state_path, strict=True)
             case _:
                 raise ValueError(f"Checkpoint file must be a .pth or .safetensors file, got {state_path}")
+    elif isinstance(state, Trainer):
+        # State was passed as a Trainer object
+        state.recover(model=target)
     elif isinstance(state, T.Mapping):
         target.load_state_dict(state, strict=True)
     else:
         raise TypeError(f"Expected a checkpoint file path or a dictionary, got {state}")
+
+
+def create_trainer(config: ConfigParam, *, model: nn.Module | None = None) -> Trainer:
+    """
+    Create a trainer from a configuration file. The trainer will be initialized with the default parameters, and
+    the configuration file will be used to override them.
+
+    Parameters
+    ----------
+    config
+        Path to the configuration file (.py or .yaml file).
+
+    Returns
+    -------
+    trainer
+        A trainer instance.
+    """
+    from .utils.config import instantiate
+
+    config = read_config(config)
+    trainer: Trainer = instantiate(config.trainer)
+    trainer.recover(model=model)
+
+    return trainer
 
 
 def create_model(
@@ -177,13 +206,6 @@ def create_model(
 
     if state is not None:
         load_checkpoint(state, model)
-    elif "trainer" in config_or_pickle:
-        trainer: Trainer = instantiate(config_or_pickle.trainer)
-        try:
-            trainer.recover(model)
-            print("Recovered model from training session")
-        except Exception as e:
-            print(f"Could not recover model from training session: {e!r}")
 
     return model.eval().to(device)
 

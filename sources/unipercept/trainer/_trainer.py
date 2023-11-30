@@ -51,82 +51,6 @@ MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
 __all__ = ["Trainer", "TrainerStatus"]
 _logger = get_logger(__name__)
 
-
-def _build_accelerator(config: TrainConfig) -> accelerate.Accelerator:
-    from accelerate.accelerator import ProjectConfiguration
-    from accelerate.utils import DistributedDataParallelKwargs
-
-    root = file_io.Path(config.root).resolve()
-
-    project_dir = root / "outputs"
-    logging_dir = root / "logs"
-
-    project_dir.mkdir(parents=True, exist_ok=True)
-    logging_dir.mkdir(parents=True, exist_ok=True)
-
-    _logger.info("Using directory: %s", str(root))
-
-    acc = accelerate.Accelerator(
-        project_dir=project_dir,
-        project_config=ProjectConfiguration(
-            project_dir=str(project_dir), logging_dir=str(logging_dir), automatic_checkpoint_naming=True, total_limit=4
-        ),
-        kwargs_handlers=[
-            DistributedDataParallelKwargs(
-                find_unused_parameters=config.find_unused_parameters,
-                broadcast_buffers=False,
-                gradient_as_bucket_view=True,
-            )
-        ],
-        step_scheduler_with_optimizer=False,
-        log_with=list(config.trackers),
-        dispatch_batches=False,
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-    )
-
-    _logger.info("Current process: %d / %d", acc.process_index + 1, acc.num_processes)
-
-    return acc
-
-
-def _build_speed_metrics(
-    prefix: str, start_time: float, *, sample_amount: int | None = None, step_amount: int | None = None
-) -> dict[str, T.Any]:
-    """
-    Measure and return speed performance metrics.
-
-    This function requires a time snapshot `start_time` before the operation to be measured starts and this function
-    should be run immediately after the operation to be measured has completed.
-
-    Parameters
-    ----------
-    prefix : str
-        The prefix to use for the metric names.
-    start_time : float
-        The time in seconds before the operation to be measured has started.
-    sample_amount : int, optional
-        The number of samples processed by the operation to be measured.
-    step_amount : int, optional
-        The number of steps processed by the operation to be measured.
-
-    Returns
-    -------
-    dict[str, Any]
-        A dictionary containing the measured metrics.
-    """
-    delta_time = time.time() - start_time
-    result = {f"{prefix}_time": round(delta_time, 4)}
-    if delta_time == 0:
-        return result
-    if sample_amount is not None:
-        samples_per_second = sample_amount / delta_time
-        result[f"{prefix}_samples_per_second"] = round(samples_per_second, 3)
-    if step_amount is not None:
-        steps_per_second = step_amount / delta_time
-        result[f"{prefix}_steps_per_second"] = round(steps_per_second, 3)
-    return result
-
-
 InputType: T.TypeAlias = TensorDict | Tensorclass
 TrainingOutputType: T.TypeAlias = T.Dict[str, torch.Tensor]
 InferenceOutputType: T.TypeAlias = T.Sequence[T.Dict[str, T.Any]]
@@ -727,7 +651,7 @@ class Trainer:
             ), "No new logs should be created when nothing changed"
 
             logs: dict[str, float] = {}
-            logs["learning_rate"] = get_learning_rate(optimizer)
+            logs["learning_rate"] = _get_learning_rate(optimizer)
 
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {k: self._nested_gather(l).mean().item() for k, l in tr_loss.items()}
@@ -895,6 +819,7 @@ class Trainer:
             else:
                 _logger.debug("Using existing results directory on worker %d: %s", self._xlr.process_index, prefix)
                 mem = TensorDict.load_memmap(prefix=str(prefix))
+
         # assert mem.is_memmap(), "Expected results memory to be memmapped"
 
         self._xlr.wait_for_everyone()
@@ -982,7 +907,7 @@ class Trainer:
 
             # Prepare for evaluation
             results_merged = TensorDict(
-                {"valid": torch.ones(samples_in_batch, dtype=torch.bool)}, batch_size=inputs.batch_size, device="cpu"
+                {"valid": torch.ones(samples_in_batch, dtype=torch.bool)}, batch_size=inputs.batch_size
             )
             for evaluator in handlers:
                 evaluator.update(results_merged, outputs)
@@ -993,15 +918,14 @@ class Trainer:
                 results_prefix, results_mem = self._inference_results_allocate(batch_total * batch_size, results_merged)
             else:
                 assert results_prefix is not None
-            results_mem[write_index : write_index + samples_in_batch] = results_merged
+            results_mem[write_index : write_index + samples_in_batch] = results_merged.cpu()
             write_index += samples_in_batch
 
             samples_processed += samples_in_batch
 
-            del inputs
-
             self._event(Event.ON_INFERENCE_STEP, loader=dataloader)
 
+        del inputs
         del results_merged
         del outputs
 
@@ -1133,7 +1057,12 @@ def floating_point_ops(model, inputs: InputType):
     return flops_fn(inputs)
 
 
-def get_learning_rate(optimizer: torch.optim.Optimizer) -> float:
+def _get_learning_rate(optimizer: torch.optim.Optimizer) -> float:
+    """
+    Get the average learning rate of an optimizer, which is the average of the learning rates of all parameter groups.
+
+    TODO: Should this be changed to the maximum or per-group learning rate? (@kurt-stolle)
+    """
     lr_list = list(
         map(
             lambda lr: lr.item() if torch.is_tensor(lr) else float(lr),
@@ -1144,3 +1073,91 @@ def get_learning_rate(optimizer: torch.optim.Optimizer) -> float:
         )
     )
     return sum(lr_list) / len(lr_list)
+
+
+def _build_accelerator(config: TrainConfig) -> accelerate.Accelerator:
+    """
+    We use HuggingFace Accelerate as the back-end for training. This function builds the Accelerator object.
+
+    Parameters
+    ----------
+    config : TrainConfig
+        The configuration object.
+
+    Returns
+    -------
+    accelerate.Accelerator
+        The accelerator object.
+    """
+    from accelerate.accelerator import ProjectConfiguration
+    from accelerate.utils import DistributedDataParallelKwargs
+
+    root = file_io.Path(config.root).resolve()
+
+    project_dir = root / "outputs"
+    logging_dir = root / "logs"
+
+    project_dir.mkdir(parents=True, exist_ok=True)
+    logging_dir.mkdir(parents=True, exist_ok=True)
+
+    _logger.info("Using directory: %s", str(root))
+
+    acc = accelerate.Accelerator(
+        project_dir=project_dir,
+        project_config=ProjectConfiguration(
+            project_dir=str(project_dir), logging_dir=str(logging_dir), automatic_checkpoint_naming=True, total_limit=4
+        ),
+        kwargs_handlers=[
+            DistributedDataParallelKwargs(
+                find_unused_parameters=config.find_unused_parameters,
+                broadcast_buffers=False,
+                gradient_as_bucket_view=True,
+            )
+        ],
+        step_scheduler_with_optimizer=False,
+        log_with=list(config.trackers),
+        dispatch_batches=False,
+        gradient_accumulation_steps=config.gradient_accumulation_steps,
+    )
+
+    _logger.info("Current process: %d / %d", acc.process_index + 1, acc.num_processes)
+
+    return acc
+
+
+def _build_speed_metrics(
+    prefix: str, start_time: float, *, sample_amount: int | None = None, step_amount: int | None = None
+) -> dict[str, T.Any]:
+    """
+    Measure and return speed performance metrics.
+
+    This function requires a time snapshot `start_time` before the operation to be measured starts and this function
+    should be run immediately after the operation to be measured has completed.
+
+    Parameters
+    ----------
+    prefix : str
+        The prefix to use for the metric names.
+    start_time : float
+        The time in seconds before the operation to be measured has started.
+    sample_amount : int, optional
+        The number of samples processed by the operation to be measured.
+    step_amount : int, optional
+        The number of steps processed by the operation to be measured.
+
+    Returns
+    -------
+    dict[str, Any]
+        A dictionary containing the measured metrics.
+    """
+    delta_time = time.time() - start_time
+    result = {f"{prefix}_time": round(delta_time, 4)}
+    if delta_time == 0:
+        return result
+    if sample_amount is not None:
+        samples_per_second = sample_amount / delta_time
+        result[f"{prefix}_samples_per_second"] = round(samples_per_second, 3)
+    if step_amount is not None:
+        steps_per_second = step_amount / delta_time
+        result[f"{prefix}_steps_per_second"] = round(steps_per_second, 3)
+    return result

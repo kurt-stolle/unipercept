@@ -57,6 +57,26 @@ data = B(up.data.DataConfig)(
             sampler=L(up.data.SamplerFactory)(sampler="training"),
             config=L(up.data.DataLoaderConfig)(),
         ),
+        "finetune": L(up.data.DataLoaderFactory)(
+            dataset=L(L(up.get_dataset)(name="cityscapes/vps"))(
+                split="train",
+                all=False,
+                queue_fn=L(up.data.collect.GroupAdjacentTime)(
+                    num_frames=2,
+                    required_capture_sources=L(up.utils.config.make_set)(items=["image", "panoptic"]),
+                ),
+            ),
+            actions=[
+                L(up.data.ops.TorchvisionOp)(
+                    transforms=[
+                        L(transforms.Resize)(size=1024, antialias=True),
+                        L(transforms.RandomHorizontalFlip)(),
+                    ]
+                ),
+            ],
+            sampler=L(up.data.SamplerFactory)(sampler="training"),
+            config=L(up.data.DataLoaderConfig)(),
+        ),
         "test": L(up.data.DataLoaderFactory)(
             dataset=L(L(up.get_dataset)(name="cityscapes/vps"))(
                 split="val",

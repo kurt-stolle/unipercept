@@ -162,7 +162,7 @@ class Metadata:
         Returns the IDs of all object classes, i.e. those that can be is_thingly detected.
         """
         return frozenset(self.thing_offsets.keys())
-    
+
     object_ids = thing_ids
 
     @property
@@ -196,7 +196,7 @@ class Metadata:
         Returns the IDs of all semantic classes, which may include is_thing classes depending on the segmentation mode.
         """
         return frozenset(self.stuff_offsets.keys())
-    
+
     @property
     def background_ids(self) -> frozenset[int]:
         """

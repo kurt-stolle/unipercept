@@ -37,10 +37,45 @@ from unipercept.nn.layers.tracking import StatefulTracker
 
 import unipercept as up
 
-__all__ = ["MultiDVPS"]
+__all__ = ["MultiDVPS", "apply_optimizer_overrides"]
 
 
 _M = T.TypeVar("_M", bound=nn.Module)
+
+
+def apply_optimizer_overrides(
+    module_name: str, param_name: str, param_hps: dict[str, T.Any]
+) -> dict[str, T.Any] | None:
+    """
+    Overrides the optimizer parameter-specific configuration. Called by the optimizer factory.
+
+    Parameters
+    ----------
+    module_name : str
+        Name of the module that contains the parameter, e.g. "module.submodule.subsubmodule".
+    param_name : str
+        Name of the parameter.
+    param_hps : dict[str, T.Any]
+        Hyperparameters of the parameter, as currently proposed in the optimizer.
+
+    Returns
+    -------
+    dict[str, T.Any] | None
+        The new hyperparameters for the parameter, or ``None`` to disable optimization for that parameter.
+    """
+
+    match module_name:
+        case n if n.startswith("backbone"):
+            # reduce the learning rate for the backbone parameters
+            return {"lr": param_hps["lr"] / 2}
+        case n if n.startswith("detector.localizer.*"):
+            # set weight decay to zero for the biases of the localizer
+            if param_name == "bias":
+                return {"weight_decay": 0.0}
+            else:
+                return {}
+        case _:
+            return {}
 
 
 class MultiDVPS(up.model.ModelBase):
@@ -569,14 +604,14 @@ class MultiDVPS(up.model.ModelBase):
         # Sorting index by score
         sort_index = torch.argsort(things.scores, descending=True)
         # things.apply(lambda x: torch.index_select(x, 0, sort_index), inplace=True)
-        things = things[sort_index]
+        things = things[sort_index].contiguous()
 
         # Keep only scores above a threshold
         keep_mask = things.scores >= 0.05
         if not keep_mask.any():
             return things[:0]
 
-        things = things.masked_select(keep_mask)
+        things = things.masked_select(keep_mask)  # TODO high memory (@kurt-stolle)
 
         # Sort again and keep only the top instances
         sort_index = torch.argsort(things.scores, descending=True)

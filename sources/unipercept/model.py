@@ -56,6 +56,13 @@ class CaptureData(Tensorclass):
     depths: DepthMap | None
     boxes: list[BoundingBoxes] | None
 
+    @property
+    def num_frames(self) -> int:
+        """
+        Return the amount of frames (i.e. pair dimension of captures) in the input data.
+        """
+        return self.images.shape[-4]  # Images are (..., F, 3, H, W)
+
     def __post_init__(self):
         assert (
             self.images.ndim >= 3 and self.images.shape[-3] == 3
@@ -140,19 +147,69 @@ class MotionData(Tensorclass):
 class InputData(Tensorclass):
     """Describes the input data to any model in the UniPercept framework."""
 
-    ids: torch.Tensor  # N
-    captures: CaptureData  # N
-    motions: MotionData | None  # N
-    cameras: CameraModel  # N
+    ids: torch.Tensor = field(
+        metadata={
+            "shape": ["B", 2],
+            "help": "Unique IDs for each item in the batch, consisting of a group ID and item ID, usually encoding information like sequence and frame number during inference time.",
+        }
+    )
+    captures: CaptureData = field(
+        metadata={
+            "shape": ["B", "F"],
+            "help": "Capture data for each frame in the batch. The first dimension is the batch dimension, the second dimension is the frame/pair dimension.",
+        }
+    )
+    motions: MotionData | None = field(
+        metadata={
+            "shape": ["B", "F"],
+            "help": "Motion data between frames, if available. The motion at the first frame is by definition zero.",
+        }
+    )
+    cameras: CameraModel = field(
+        metadata={"shape": ["B"], "help": "Camera parameters for each capture item in the batch."}
+    )
     content_boxes: torch.Tensor = field(
         metadata={
+            "shape": ["B", 4],
             "help": (
                 "Bounding boxes that describe the content of the image. "
                 "Useful in cases where some of the images in a batch "
                 "are padded, e.g. when using a sampler that samples from a dataset with images of different sizes."
-            )
+            ),
         }
     )
+
+    @property
+    def num_frames(self) -> int:
+        """
+        Return the amount of frames (i.e. pair dimension of captures) in the input data.
+        """
+        return self.captures.num_frames
+
+    def extract_frame(self, index: int) -> T.Self:
+        """
+        Return a single frame of the input data, resulting in an input data object with only a single capture and no motions.
+
+        Parameters
+        ----------
+        index : int
+            The index of the frame to extract.
+        Returns
+        -------
+        InputData
+            The input data with only the extracted frame.
+        """
+        if index < 0 or index >= self.num_frames:
+            raise ValueError(f"Index must be between 0 and {self.num_frames}, got {index}")
+
+        return self.__class__(
+            ids=self.ids.clone(),
+            captures=self.captures[..., index].clone(),
+            motions=None,
+            cameras=self.cameras.clone(),
+            content_boxes=self.content_boxes.clone(),
+            batch_size=self.batch_size,
+        )
 
     def __post_init__(self):
         assert (

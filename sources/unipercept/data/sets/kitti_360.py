@@ -101,7 +101,7 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
 
     def _discover_sources(self) -> T.Mapping[FileID, CaptureSources]:
         sources_map: dict[FileID, CaptureSources] = {}
-        pseudo_gen = PseudoGenerator(depth_factor=80/10.0)
+        pseudo_gen = PseudoGenerator(depth_factor=80 / 10.0)
 
         # Create mapping of ID -> dt.CaptureSources
         files_list = sorted(self._discover_files(), key=lambda id: (id.drive, id.camera, id.frame))

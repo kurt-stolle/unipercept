@@ -17,14 +17,31 @@ import torch.optim
 
 from accelerate import PartialState
 
-__all__ = ["create_optimizer", "OptimType", "OptimPackage", "OptimizerFactory"]
+from unipercept.utils.logutils import get_logger
+
+__all__ = ["create_optimizer", "OptimType", "OptimPackage", "OptimizerFactory", "ParameterHPs"]
+
+_logger = get_logger(__name__)
 
 Optimizer: T.TypeAlias = torch.optim.Optimizer
 Params: T.TypeAlias = T.Iterable[nn.Parameter]
 ModelOrParams: T.TypeAlias = nn.Module | Params
 
 
+class ParameterHPs(T.TypedDict, total=False):
+    """
+    Hyperparameters for a single parameter in the optimizer configuration.
+    """
+
+    lr: float
+    weight_decay: float
+
+
 class OptimType(enum.StrEnum):
+    """
+    Optimizer types supported by this module. Mostly intended to provide a clear API in configuration files.
+    """
+
     SGD = enum.auto()
     MOMENTUM = enum.auto()
     SGDP = enum.auto()
@@ -103,8 +120,9 @@ def create_optimizer(
     momentum: float = 0.9,
     weight_decay_norm: T.Optional[float] = None,
     weight_decay_bias: T.Optional[float] = None,
-    lr_factor_func: T.Optional[T.Callable] = None,
-    param_overrides: T.Optional[dict[str, dict[str, float]]] = None,
+    lr_factor_fn: T.Optional[T.Callable] = None,
+    param_overrides: T.Optional[dict[str, ParameterHPs]] = None,
+    param_fn: T.Optional[T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]] = None,
     **opt_args: T.Any,
 ) -> Optimizer:
     """
@@ -148,8 +166,9 @@ def create_optimizer(
         weight_decay,
         weight_decay_bias=weight_decay_bias,
         weight_decay_norm=weight_decay_norm,
-        lr_factor_func=lr_factor_func,
+        lr_factor_fn=lr_factor_fn,
         param_overrides=param_overrides,
+        param_fn=param_fn,
     )
 
     # Copy the optimizer arguments to avoid modifying the original dictionary
@@ -417,22 +436,23 @@ def get_optimizer_params(
     *,
     weight_decay_norm: T.Optional[float] = None,
     weight_decay_bias: T.Optional[float] = None,
-    lr_factor_func: T.Optional[T.Callable] = None,
-    param_overrides: T.Optional[dict[str, dict[str, float]]] = None,
-) -> list[dict[str, T.Any]]:
+    lr_factor_fn: T.Optional[T.Callable] = None,
+    param_overrides: T.Optional[dict[str, ParameterHPs]] = None,
+    param_fn: T.Optional[T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]] = None,
+) -> list[ParameterHPs]:
     from ..nn.layers import norm
 
     if param_overrides is None:
         param_overrides = {}
-    defaults = {"lr": lr, "weight_decay": weight_decay}
-    bias_overrides = {}
+    defaults: ParameterHPs = {"lr": lr, "weight_decay": weight_decay}
+    bias_overrides: ParameterHPs = {}
     if weight_decay_bias is not None:
         bias_overrides["weight_decay"] = weight_decay_bias
     if len(bias_overrides):
         if "bias" in param_overrides:
             raise ValueError("Conflicting overrides for 'bias'")
         param_overrides["bias"] = bias_overrides
-    if lr_factor_func is not None:
+    if lr_factor_fn is not None:
         if lr is None:
             raise ValueError("lr_factor_func requires base_lr")
     norm_module_types = (
@@ -462,10 +482,22 @@ def get_optimizer_params(
             hyperparams = copy.copy(defaults)
             if isinstance(module, norm_module_types) and weight_decay_norm is not None:
                 hyperparams["weight_decay"] = weight_decay_norm
-            if lr_factor_func is not None:
-                hyperparams["lr"] *= lr_factor_func(f"{module_name}.{module_param_name}")
+            if callable(lr_factor_fn):
+                hyperparams["lr"] *= lr_factor_fn(module_name, module_param_name)
 
             hyperparams.update(param_overrides.get(module_param_name, {}))
+
+            if callable(param_fn):
+                param_specifc_overrides = param_fn(module_name, module_param_name, hyperparams)
+                if param_specifc_overrides is None:
+                    value.requires_grad_(False)
+                    _logger.debug(
+                        f"Skipping parameter '{module_name}.{module_param_name}', as it was filtered out by the parameter function"
+                    )
+                    continue  # skip this parameter
+                else:
+                    hyperparams.update(param_specifc_overrides)
+
             params.append({"params": [value], **hyperparams})
     return _simplify_groups(params)
 

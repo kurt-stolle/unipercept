@@ -1,5 +1,7 @@
 """
 Implements an evaluator for panoptic segmentation tasks.
+
+Based on the Torchmetrics implementation of the Panoptic Quality metric.
 """
 from __future__ import annotations
 
@@ -18,7 +20,7 @@ from typing_extensions import override
 
 from ..data.tensors import PanopticMap
 from ..utils.logutils import get_logger
-from ._base import Evaluator
+from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
@@ -42,7 +44,10 @@ class PanopticWriter(Evaluator):
     """
 
     info: Metadata = D.field(repr=False)
-    render_samples: int = 1
+
+    plot_samples: int = 1
+    plot_true: PlotMode = PlotMode.ONCE
+    plot_pred: PlotMode = PlotMode.ALWAYS
 
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
@@ -63,9 +68,18 @@ class PanopticWriter(Evaluator):
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         from unipercept.render.utils import draw_image_segmentation
 
+        plot_keys = []
+        for key, mode_attr in ((TRUE_PANOPTIC, "plot_true"), (PRED_PANOPTIC, "plot_pred")):
+            mode = getattr(self, mode_attr)
+            if mode == PlotMode.NEVER:
+                continue
+            elif mode == PlotMode.ONCE:
+                setattr(self, mode_attr, PlotMode.NEVER)
+            plot_keys.append(key)
+
         result = {}
-        for i in range(self.render_samples):
-            for key in (PRED_PANOPTIC, TRUE_PANOPTIC):
+        for i in range(self.plot_samples):
+            for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_segmentation(storage.get_at(key, i).clone(), self.info)
         return result
 
@@ -84,18 +98,17 @@ class PanopticEvaluator(PanopticWriter):
         return super().from_metadata(name, **kwargs)
 
     @property
-    def thing_cats(self) -> set[int]:
-        return set(self.info.thing_ids)
+    def object_ids(self) -> frozenset[int]:
+        return self.info.object_ids
 
     @property
-    def stuff_cats(self) -> set[int]:
-        return set(self.info.stuff_ids) - self.thing_cats
+    def background_ids(self) -> frozenset[int]:
+        return self.info.background_ids
 
     @override
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
         metrics = super().compute(storage, **kwargs)
-        metrics["pq_ori"] = self.compute_pq(storage, **kwargs, use_modified=False)
-        metrics["pq_mod"] = self.compute_pq(storage, **kwargs, use_modified=True)
+        metrics["panoptic"] = self.compute_pq(storage, **kwargs)
 
         return metrics
 
@@ -104,7 +117,7 @@ class PanopticEvaluator(PanopticWriter):
         storage: TensorDictBase,
         *,
         device: torch.types.Device,
-        use_modified: bool = False,
+        allow_stuff_instances: bool = False,
         allow_unknown_category: bool = False,
     ) -> dict[str, T.Any]:
         """
@@ -127,8 +140,8 @@ class PanopticEvaluator(PanopticWriter):
             - False negatives
 
         """
-        void_color = _get_void_color(self.thing_cats, self.stuff_cats)
-        cat_id_to_continuous_id = _get_category_id_to_continuous_id(self.thing_cats, self.stuff_cats)
+        void_color = _get_void_color(self.object_ids, self.background_ids)
+        cat_id_to_continuous_id = _get_category_id_to_continuous_id(self.object_ids, self.background_ids)
 
         # device = torch.device("cpu")  # using multiprocessing
 
@@ -155,15 +168,15 @@ class PanopticEvaluator(PanopticWriter):
             true = storage.get_at(TRUE_PANOPTIC, n).clone().to(device=device)
 
             pred = _preprocess_mask(
-                self.thing_cats,
-                self.stuff_cats,
+                self.object_ids,
+                self.background_ids,
                 pred,
                 void_color=void_color,
                 allow_unknown_category=allow_unknown_category,
             )
             true = _preprocess_mask(
-                self.thing_cats,
-                self.stuff_cats,
+                self.object_ids,
+                self.background_ids,
                 true,
                 void_color=void_color,
                 allow_unknown_category=True,
@@ -173,7 +186,7 @@ class PanopticEvaluator(PanopticWriter):
                 true,
                 cat_id_to_continuous_id,
                 void_color=void_color,
-                stuffs_modified_metric=self.stuff_cats if use_modified else None,
+                background_ids=self.background_ids if not allow_stuff_instances else None,
             )
 
             iou += result[0]
@@ -286,8 +299,8 @@ def _isin(arr: torch.Tensor, values: list) -> torch.Tensor:
 
 
 def _preprocess_mask(
-    things: T.Set[int],
-    stuffs: T.Set[int],
+    things: T.FrozenSet[int],
+    stuffs: T.FrozenSet[int],
     inputs: PanopticMap,
     void_color: tuple[int, int],
     allow_unknown_category: bool,
@@ -311,7 +324,6 @@ def _preprocess_mask(
     Returns
     -------
     The preprocessed input tensor flattened along the spatial dimensions.
-
     """
 
     # flatten the spatial dimensions of the input tensor, e.g., (B, H, W, C) -> (B*H*W, C).
@@ -339,20 +351,6 @@ def _calculate_iou(
 ) -> torch.Tensor:
     """
     Helper function that calculates the IoU from precomputed areas of segments and their intersections.
-
-    Args:
-        pred_color: The `(category_id, instance_id)`, or "color", of a predicted segment that is being matched with a
-            target segment.
-        target_color: The `(category_id, instance_id)`, or "color", of a ground truth segment that is being matched
-            with a predicted segment.
-        pred_areas: Mapping from colors of the predicted segments to their extents.
-        target_areas: Mapping from colors of the ground truth segments to their extents.
-        intersection_areas: Mapping from tuples of `(pred_color, target_color)` to their extent.
-        void_color: An additional color that is masked out during metrics calculation.
-
-    Returns:
-        The calculated IoU as a torch.torch.Tensor containing a single scalar value.
-
     """
     if pred_color[0] != target_color[0]:
         raise ValueError(
@@ -381,16 +379,6 @@ def _filter_false_negatives(
 
     False negatives occur when a ground truth segment is not matched with a prediction.
     Areas that are mostly void in the prediction are ignored.
-
-    Args:
-        target_areas: Mapping from colors of the ground truth segments to their extents.
-        target_segment_matched: T.Set of ground truth segments that have been matched to a prediction.
-        intersection_areas: Mapping from tuples of `(pred_color, target_color)` to their extent.
-        void_color: An additional color that is masked out during metrics calculation.
-
-    Yields:
-        Category IDs of segments that account for false negatives.
-
     """
     false_negative_colors = set(target_areas) - target_segment_matched
     false_negative_colors.discard(void_color)
@@ -411,16 +399,6 @@ def _filter_false_positives(
 
     False positives occur when a predicted segment is not matched with a corresponding target one.
     Areas that are mostly void in the target are ignored.
-
-    Args:
-        pred_areas: Mapping from colors of the predicted segments to their extents.
-        pred_segment_matched: T.Set of predicted segments that have been matched to a ground truth.
-        intersection_areas: Mapping from tuples of `(pred_color, target_color)` to their extent.
-        void_color: An additional color that is masked out during metrics calculation.
-
-    Yields:
-        Category IDs of segments that account for false positives.
-
     """
     false_positive_colors = set(pred_areas) - pred_segment_matched
     false_positive_colors.discard(void_color)
@@ -435,34 +413,12 @@ def _panoptic_quality_update_sample(
     flatten_target: torch.Tensor,
     cat_id_to_continuous_id: dict[int, int],
     void_color: tuple[int, int],
-    stuffs_modified_metric: T.Optional[T.Set[int]] = None,
+    background_ids: T.Optional[T.FrozenSet[int]] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Calculate stat scores required to compute the metric **for a single sample**.
-
-    Computed scores: iou sum, true positives, false positives, false negatives.
-
-    NOTE: For the modified PQ case, this implementation uses the `true_positives` output tensor to aggregate the actual
-        TPs for things classes, but the number of target segments for stuff classes.
-        The `iou_sum` output tensor, instead, aggregates the IoU values at different thresholds (i.e., 0.5 for things
-        and 0 for stuffs).
-        This allows seamlessly using the same `.compute()` method for both PQ variants.
-
-    Args:
-        flatten_preds: A flattened prediction tensor referring to a single sample, shape (num_points, 2).
-        flatten_target: A flattened target tensor referring to a single sample, shape (num_points, 2).
-        cat_id_to_continuous_id: Mapping from original category IDs to continuous IDs
-        void_color: an additional, unused color.
-        stuffs_modified_metric: T.Set of stuff category IDs for which the PQ metric is computed using the "modified"
-            formula. If not specified, the original formula is used for all categories.
-
-    Returns:
-        - IOU Sum
-        - True positives
-        - False positives
-        - False negatives.
-
     """
-    stuffs_modified_metric = stuffs_modified_metric or set()
+    Calculate stat scores required to compute the metric for a single sample.
+    """
+    background_ids = background_ids or frozenset()
     device = flatten_preds.device
     num_categories = len(cat_id_to_continuous_id)
     iou_sum = torch.zeros(num_categories, dtype=torch.double, device=device)
@@ -492,26 +448,26 @@ def _panoptic_quality_update_sample(
             continue
         iou = _calculate_iou(pred_color, target_color, pred_areas, target_areas, intersection_areas, void_color)
         continuous_id = cat_id_to_continuous_id[target_color[0]]
-        if target_color[0] not in stuffs_modified_metric and iou > 0.5:
+        if target_color[0] not in background_ids and iou > 0.5:
             pred_segment_matched.add(pred_color)
             target_segment_matched.add(target_color)
             iou_sum[continuous_id] += iou
             true_positives[continuous_id] += 1
-        elif target_color[0] in stuffs_modified_metric and iou > 0:
+        elif target_color[0] in background_ids and iou > 0:
             iou_sum[continuous_id] += iou
 
     for cat_id in _filter_false_negatives(target_areas, target_segment_matched, intersection_areas, void_color):
-        if cat_id not in stuffs_modified_metric:
+        if cat_id not in background_ids:
             continuous_id = cat_id_to_continuous_id[cat_id]
             false_negatives[continuous_id] += 1
 
     for cat_id in _filter_false_positives(pred_areas, pred_segment_matched, intersection_areas, void_color):
-        if cat_id not in stuffs_modified_metric:
+        if cat_id not in background_ids:
             continuous_id = cat_id_to_continuous_id[cat_id]
             false_positives[continuous_id] += 1
 
     for cat_id, _ in target_areas:
-        if cat_id in stuffs_modified_metric:
+        if cat_id in background_ids:
             continuous_id = cat_id_to_continuous_id[cat_id]
             true_positives[continuous_id] += 1
 

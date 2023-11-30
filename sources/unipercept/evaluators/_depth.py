@@ -14,7 +14,7 @@ from typing_extensions import override
 
 from ..data.tensors import DepthMap
 from ..utils.logutils import get_logger
-from ._base import Evaluator
+from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
@@ -32,7 +32,10 @@ class DepthWriter(Evaluator):
     """
 
     info: Metadata = D.field(repr=False)
-    render_samples: int = 1
+
+    plot_samples: int = 1
+    plot_true: PlotMode = PlotMode.ONCE
+    plot_pred: PlotMode = PlotMode.ALWAYS
 
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
@@ -58,9 +61,18 @@ class DepthWriter(Evaluator):
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         from unipercept.render.utils import draw_image_depth
 
+        plot_keys = []
+        for key, mode_attr in ((TRUE_DEPTH, "plot_true"), (PRED_DEPTH, "plot_pred")):
+            mode = getattr(self, mode_attr)
+            if mode == PlotMode.NEVER:
+                continue
+            elif mode == PlotMode.ONCE:
+                setattr(self, mode_attr, PlotMode.NEVER)
+            plot_keys.append(key)
+
         result = {}
-        for i in range(self.render_samples):
-            for key in (PRED_DEPTH, TRUE_DEPTH):
+        for i in range(self.plot_samples):
+            for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_depth(storage.get_at(key, i).clone(), self.info)
         return result
 

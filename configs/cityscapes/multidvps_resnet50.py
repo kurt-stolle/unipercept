@@ -14,17 +14,22 @@ __all__ = ["model", "data", "trainer"]
 
 trainer = B(up.trainer.Trainer)(
     config=L(up.trainer.config.TrainConfig)(
-        project_name="multidvps",
+        project_name="multidvps-retro",
         session_name=get_session_name(__file__),
         train_batch_size=8,
-        train_epochs=400,
+        train_epochs=100_000,
         infer_batch_size=1,
         eval_steps=10_000,
         save_steps=10_000,
-        logging_steps=1000,
+        logging_steps=100,
     ),
     optimizer=L(up.trainer.OptimizerFactory)(
-        opt="sgd", lr=0.02, momentum=0.9, weight_decay=1e-4, weight_decay_norm=0.0, weight_decay_bias=1e-12
+        opt="sgd",
+        lr=0.02,
+        momentum=0.9,
+        weight_decay=1e-4,
+        weight_decay_norm=0.0,
+        param_fn=multidvps.apply_optimizer_overrides,
     ),
     scheduler=L(up.trainer.SchedulerFactory)(
         scd="poly",
@@ -139,7 +144,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         input_key=multidvps.KEY_SEMANTIC,
         input_dims=192,
         attention_heads=8,
-        dropout=0.5,
+        dropout=0.0,
         mapping={
             multidvps.KEY_MASK: L(up.nn.layers.MapMLP)(
                 in_channels=T.cast(int, "${...input_dims}"),
@@ -176,6 +181,7 @@ model = B(multidvps.MultiDVPS.from_metadata)(
         geometry_key=multidvps.KEY_GEOMETRY,
         min_depth=2,
         max_depth=DATASET_INFO.depth_max,
+        range_factor=0.5,
     ),
     tracker=L(multidvps.trackers.build_embedding_tracker)(),
     inference_pipeline=L(multidvps.logic.inference.InferencePipeline)(

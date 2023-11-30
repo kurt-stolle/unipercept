@@ -158,7 +158,7 @@ class PanopticMap(_Mask):
 
         if len(meta_kwds) > 0:
             raise TypeError(f"Unexpected keyword arguments: {tuple(meta_kwds.keys())}")
-        
+
         labels.remove_instances_(info.background_ids)
 
         return labels

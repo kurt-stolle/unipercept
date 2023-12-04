@@ -14,7 +14,7 @@ __all__ = ["PseudoGenerator"]
 
 
 class PseudoGenerator:
-    def __init__(self, depth_model="sayakpaul/glpn-kitti-finetuned-diode-221214-123047", depth_factor: float = 1.0):
+    def __init__(self, depth_model="sayakpaul/glpn-kitti-finetuned-diode-221214-123047", depth_factor: float = 8.0):
         self.depth_name = depth_model
         self.depth_factor = depth_factor
 

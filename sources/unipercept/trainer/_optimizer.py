@@ -37,10 +37,12 @@ class ParameterHPs(T.TypedDict, total=False):
     lr: float
     weight_decay: float
 
+
 class ParameterDefinition(ParameterHPs):
     """
     Definition of a parameter in the optimizer configuration, i.e. 'params' and the hyperparameters for this parameter.
     """
+
     params: list[nn.Parameter]
 
 
@@ -504,7 +506,12 @@ def get_optimizer_params(
                     )
                     continue  # skip this parameter
                 elif len(param_specifc_overrides) > 0:
-                    _logger.debug("Overriding hyperparameters for parameter '%s.%s': %s", module_name, module_param_name, str(param_specifc_overrides))
+                    _logger.debug(
+                        "Overriding hyperparameters for parameter '%s.%s': %s",
+                        module_name,
+                        module_param_name,
+                        str(param_specifc_overrides),
+                    )
                     hyperparams.update(param_specifc_overrides)
 
             params.append({"params": [value], **hyperparams})

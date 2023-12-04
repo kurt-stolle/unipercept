@@ -4,19 +4,23 @@ import accelerate
 import functools
 import dataclasses as D
 
+
 @D.dataclass(kw_only=True, slots=True)
 class _ProcessStateManager:
     interactive: bool = False
 
+
 def _accelerate_state():
     return accelerate.PartialState()
+
 
 @functools.lru_cache(maxsize=None)
 def _unipercept_state():
     return _ProcessStateManager()
 
+
 def get_interactive():
-    return _unipercept_state().interactive    
+    return _unipercept_state().interactive
 
 
 def get_process_index(local=False):

@@ -60,7 +60,7 @@ class TruthGenerator(nn.Module):
             min_overlap=self.min_overlap,
             num_cats=self.num_thing,
             embeddings=self.thing_embeddings,
-            pad_to=160,
+            # pad_to=160,
         )
 
         self.downsample = partial(downsample, stride=self.common_stride)
@@ -95,7 +95,7 @@ class TruthGenerator(nn.Module):
         *,
         hw_image: torch.Size,
         hw_embedding: torch.Size,
-        hw_detections: Mapping[str, torch.Size],
+        hw_detections: T.Dict[str, torch.Size],
     ) -> Truths:
         """
         Generate ground truth of multi-stages according to the input.

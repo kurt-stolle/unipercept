@@ -14,7 +14,7 @@ def true_info():
 
     from unipercept.data.sets import get_info
 
-    return get_info("kitti/step")
+    return get_info("kitti-step")
 
 
 @pytest.fixture(scope="module")
@@ -57,9 +57,9 @@ def test_panoptic_evaluator(true_panoptic: torch.Tensor, true_info):
                     pred_panoptic.unsqueeze(0),
                     PanopticMap.from_parts(
                         torch.randint(
-                            0, max(true_info.stuff_ids | true_info.thing_ids), (sample_amt-1, sample_h, sample_w)
+                            0, max(true_info.stuff_ids | true_info.thing_ids), (sample_amt - 1, sample_h, sample_w)
                         ).long(),
-                        torch.zeros((sample_amt-1, sample_h, sample_w)).long(),
+                        torch.zeros((sample_amt - 1, sample_h, sample_w)).long(),
                     ),
                 ]
             ),

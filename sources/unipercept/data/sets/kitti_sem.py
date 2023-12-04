@@ -75,8 +75,7 @@ def get_info() -> Metadata:
     )
 
 
-@catalog.register_dataset("semkitti/dvps")
-class SemKITTIDataset(PerceptionDataset, info=get_info):
+class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
     """
     Implements the SemKITTI-DVPS dataset introduced by *ViP-DeepLab: [...]* (Qiao et al, 2021).
 

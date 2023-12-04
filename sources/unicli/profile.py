@@ -115,7 +115,7 @@ def main(args):
 
     # Get the loader
     _logger.info("Preparing dataset")
-    loader, info = up.prepare_dataset(config, variant=args.loader, batch_size=1)
+    loader, info = up.create_dataset(config, variant=args.loader, batch_size=1)
 
     # Profile with snapshot
     _logger.info("Profiling model with snapshot")

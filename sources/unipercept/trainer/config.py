@@ -32,7 +32,6 @@ _logger = get_logger(__name__)
 _T = T.TypeVar("_T")
 
 
-
 _DEFAULT_EXPERIMENT_TRACKERS: set[str] = {"wandb"}
 
 
@@ -115,11 +114,13 @@ class TrainConfig:
 
     def get_train_epochs(self, steps_per_epoch: int) -> int:
         if (self.train_steps is not None) and (self.train_epochs is not None):
-            raise ValueError(f"Only one of `train_steps` and `train_epochs` can be set. Got {self.train_steps=} and {self.train_epochs=}.")
+            raise ValueError(
+                f"Only one of `train_steps` and `train_epochs` can be set. Got {self.train_steps=} and {self.train_epochs=}."
+            )
         elif self.train_epochs is not None:
             return self.train_epochs
         elif self.train_steps is not None:
-            epochs =  self.train_steps // steps_per_epoch
+            epochs = self.train_steps // steps_per_epoch
             _logger.debug(f"Converted {self.train_steps} steps to {epochs} epochs.")
             return epochs
         else:

@@ -1,23 +1,21 @@
 """
 This file defines some basic API methods for working with UniPercept models, data and other submodules.
 """
-
 from __future__ import annotations
 
-import operator
 import os
 import typing as T
 
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.types
-from omegaconf import DictConfig
-from PIL import Image as pil_image
-from unicore import file_io
 
 
 if T.TYPE_CHECKING:
+    import numpy as np
+    import torch
+    import torch.nn as nn
+    from omegaconf import DictConfig
+    from unicore import file_io
+    import torch.types
+    from PIL import Image as pil_image
     from .data.sets import Metadata
     from .model import CameraModel, CaptureData, InputData, ModelBase
     from .utils.config.templates import LazyConfigFile
@@ -34,13 +32,17 @@ __all__ = [
     "load_checkpoint",
     "create_trainer",
     "create_model",
-    "prepare_dataset",
+    "create_dataset",
     "create_inputs",
     "prepare_images",
-    "read_image",
     "get_dataset",
     "get_info",
 ]
+
+
+###########################
+# ALIASES FROM SUBMODULES #
+###########################
 
 
 def get_dataset(name: str):
@@ -52,13 +54,17 @@ def get_dataset(name: str):
     return get_dataset(name)
 
 
-def get_info(name: str):
+def get_info():
     """
     Alias for `unipercept.data.sets.get_info`.
     """
     from .data.sets import get_info
 
     return get_info(name)
+
+##########################
+# READING CONFIGURATIONS #
+##########################
 
 
 def read_config(config: ConfigParam) -> DictConfig:
@@ -92,6 +98,10 @@ def read_config(config: ConfigParam) -> DictConfig:
         return config
     else:
         raise TypeError(f"Expected a configuration file path or a DictConfig, got {config}")
+
+#######################
+# WORKING WITH MODELS #
+#######################
 
 
 def load_checkpoint(state: StateParam, target: nn.Module) -> None:
@@ -139,6 +149,10 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
         raise TypeError(f"Expected a checkpoint file path or a dictionary, got {state}")
 
 
+####################
+# CREATION METHODS #
+####################
+
 def create_trainer(config: ConfigParam, *, model: nn.Module | None = None) -> Trainer:
     """
     Create a trainer from a configuration file. The trainer will be initialized with the default parameters, and
@@ -164,7 +178,7 @@ def create_trainer(config: ConfigParam, *, model: nn.Module | None = None) -> Tr
 
 
 def create_model(
-    config_or_pickle: ConfigParam, *, state: StateParam | None = None, device: str | torch.types.Device = "cpu"
+    config: ConfigParam, *, state: StateParam | None = None, device: str | torch.types.Device = "cpu"
 ) -> ModelBase:
     """
     Load a model from a configuration file. If the configuration file is part of a traning session, the latest
@@ -189,8 +203,8 @@ def create_model(
     from .utils.config import instantiate
 
     if (
-        isinstance(config_or_pickle, (str, os.PathLike))
-        and (pickle_path := file_io.Path(config_or_pickle)).is_file()
+        isinstance(config, (str, os.PathLike))
+        and (pickle_path := file_io.Path(config)).is_file()
         and pickle_path.suffix == ".bin"
     ):
         if state is not None:
@@ -201,8 +215,8 @@ def create_model(
             raise TypeError(f"Expected binary file to load an `nn.Module` class, got {type(model)}")
         return model
 
-    config_or_pickle = read_config(config_or_pickle)
-    model: ModelBase = instantiate(config_or_pickle.model)
+    config = read_config(config)
+    model: ModelBase = instantiate(config.model)
 
     if state is not None:
         load_checkpoint(state, model)
@@ -210,7 +224,7 @@ def create_model(
     return model.eval().to(device)
 
 
-def prepare_dataset(
+def create_dataset(
     config: ConfigParam, variant: str = "test", batch_size: int = 1, return_loader: bool = True
 ) -> tuple[T.Iterator[InputData], Metadata]:
     """
@@ -258,7 +272,7 @@ def prepare_images(
     batch_size: int = 1,
     suffix: T.Collection[str] = (".jpg", ".png"),
     separator: str | None = os.sep,
-    return_loader: bool = False,
+    return_loader: bool = True,
     ops: T.Sequence[Op] = [],
 ):
     """
@@ -357,53 +371,37 @@ def prepare_images(
     return loader if return_loader else iter(loader)
 
 
-class _ImageFolder(torch.utils.data.Dataset):
-    def __init__(self, paths: T.Sequence[tuple[str, tuple[int, int]]], ops: T.Sequence[Op]):
-        self.paths = paths
-        self.ops = ops
 
-    def __len__(self):
-        return len(self.paths)
+# def read_image(image: ImageParam) -> torch.Tensor:
+#     """
+#     Read an image from a file or coerce it to a Tensor if it is in PIL or NumPy. If a Tensor is passed, it is
+#     returned as-is.
 
-    def __getitem__(self, index):
-        path, (sequence_id, frame_id) = self.paths[index]
+#     Parameters
+#     ----------
+#     image
+#         The image file path, a PIL image, a NumPy array or a Tensor.
 
-        input = create_inputs(path, sequence_offset=sequence_id, frame_offset=frame_id)[0]
-        for op in self.ops:
-            input = op(input)
-        return input
+#     Returns
+#     -------
+#     image
+#         The image as a Tensor.
+#     """
+#     from torchvision.transforms.v2.functional import pil_to_tensor
 
-
-def read_image(image: ImageParam) -> torch.Tensor:
-    """
-    Read an image from a file or coerce it to a Tensor if it is in PIL or NumPy. If a Tensor is passed, it is
-    returned as-is.
-
-    Parameters
-    ----------
-    image
-        The image file path, a PIL image, a NumPy array or a Tensor.
-
-    Returns
-    -------
-    image
-        The image as a Tensor.
-    """
-    from torchvision.transforms.v2.functional import pil_to_tensor
-
-    if isinstance(image, str) or isinstance(image, os.PathLike):
-        image_path = file_io.Path(image)
-        if not image_path.is_file():
-            raise FileNotFoundError(f"Could not find image file at {image_path}")
-        image = pil_image.open(image_path)
-    if isinstance(image, pil_image.Image):
-        return pil_to_tensor(image)
-    elif isinstance(image, np.ndarray):
-        return torch.from_numpy(image)
-    elif isinstance(image, torch.Tensor):
-        return image
-    else:
-        raise TypeError(f"Expected an image file path, a PIL image, a NumPy array or a Tensor, got {image}")
+#     if isinstance(image, str) or isinstance(image, os.PathLike):
+#         image_path = file_io.Path(image)
+#         if not image_path.is_file():
+#             raise FileNotFoundError(f"Could not find image file at {image_path}")
+#         image = pil_image.open(image_path)
+#     if isinstance(image, pil_image.Image):
+#         return pil_to_tensor(image)
+#     elif isinstance(image, np.ndarray):
+#         return torch.from_numpy(image)
+#     elif isinstance(image, torch.Tensor):
+#         return image
+#     else:
+#         raise TypeError(f"Expected an image file path, a PIL image, a NumPy array or a Tensor, got {image}")
 
 
 def create_inputs(
@@ -419,13 +417,15 @@ def create_inputs(
     Parameters
     ----------
     images
-        The image(s) to create the ``InputData`` from.
+        The image(s) to create the ``InputData`` from. If a tensor is passed, then it will be moved to the CPU.
 
     Returns
     -------
     input
         An ``InputData`` object.
     """
+    from torchvision.io import read_image
+    from torchvision.transforms.v2.functional import pil_to_tensor
 
     from .data.tensors import Image
     from .model import InputData, CaptureData, CameraModel
@@ -435,8 +435,18 @@ def create_inputs(
     if not isinstance(images, T.Sequence):
         images = [images]
 
-    for image in images:
-        batch.append(read_image(image))
+    for image_spec in images:
+        if isinstance(image_spec, str) or isinstance(image_spec, os.PathLike):
+            image_path = file_io.Path(image_spec)
+            if not image_path.is_file():
+                raise FileNotFoundError(f"Could not find image file at {image_path}")
+            image = read_image(str(image_path))
+        elif isinstance(image_spec, pil_image.Image):
+            image = pil_to_tensor(image_spec)
+        else:
+            image = torch.as_tensor(image_spec).cpu()
+        assert image.ndim == 3 and image.shape[0] == 3, f"Expected am RGB image, got {image.shape}"
+        batch.append(image)
 
     ids = torch.stack(
         [
@@ -446,7 +456,7 @@ def create_inputs(
         dim=1,
     )
 
-    return InputData(
+    inputs = InputData(
         ids=ids,
         captures=CaptureData(
             times=torch.arange(len(batch), dtype=torch.float32).unsqueeze_(1),
@@ -467,3 +477,4 @@ def create_inputs(
         ),
         batch_size=[len(batch)],
     )
+    return inputs

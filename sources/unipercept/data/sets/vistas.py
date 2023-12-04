@@ -296,10 +296,17 @@ CLASSES = [
 ]
 
 
-def get_info(*, use_cityscapes: bool = False):
+def get_info(variant: str = ""):
+    match variant:
+        case "cityscapes":
+            use_cityscapes = True
+        case "":
+            use_cityscapes = False
+        case _:
+            raise ValueError(f"Unknown variant {variant!r}")
     return info_factory(
         CLASSES if not use_cityscapes else CLASSES_AS_CITYSCAPES,
-        depth_max=10.0,
+        depth_max=80.0,
         fps=17.0,
     )
 
@@ -368,21 +375,3 @@ class VistasDataset(PerceptionDataset, info=get_info, id="vistas"):
 
         return {"timestamp": datetime.utcnow().isoformat(), "version": "1.0", "sequences": sequences}
 
-
-class VistasCSDataset(VistasDataset, info=functools.partial(get_info, use_cityscapes=True), id="vistas-cs"):
-    """
-    Vistas dataset mapped to Cityscapes labeling scheme.
-    """
-
-    pass
-
-
-if __name__ == "__main__":
-    for ds_cls in (VistasCSDataset, VistasDataset):
-        print("#" * 80)
-        print(ds_cls.__name__)
-        for split in ("train", "val", "test"):
-            print("-" * 80)
-            ds = ds_cls(split=split)
-            print(ds)
-            print(ds._build_manifest())

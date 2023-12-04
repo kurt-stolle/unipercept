@@ -46,8 +46,7 @@ def get_info():
     )
 
 
-@catalog.register_dataset("kitti/step")
-class KITTISTEPDataset(PerceptionDataset, info=get_info):
+class KITTISTEPDataset(PerceptionDataset, info=get_info, id="kitti-step"):
     """Implements KITTI-STEP."""
 
     root = "//datasets/kitti-step"

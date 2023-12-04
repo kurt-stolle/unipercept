@@ -9,9 +9,10 @@ import typing as T
 
 import torch
 from typing_extensions import deprecated, override
-from unicore import catalog
+from unicore.catalog import DataManager
 from unicore.utils.dataset import Dataset as _BaseDataset
 from unicore.utils.frozendict import frozendict
+from unicore.utils.tensorclass import Tensorclass
 
 from unipercept.data.tensors import PanopticMap
 from unipercept.utils.camera import build_calibration_matrix
@@ -23,14 +24,14 @@ if T.TYPE_CHECKING:
 
 from ..types import COCOCategory, Manifest, QueueItem
 
-__all__ = ["PerceptionDataset", "Metadata", "SClass", "SType", "StuffMode", "get_default_queue_fn", "info_factory"]
+__all__ = ["PerceptionDataset", "Metadata", "SClass", "SType", "StuffMode", "info_factory", "get_dataset", "get_info", "list_datasets", "list_info", "get_manifest", "get_queue", "get_datapipe"]
 
 # ---------------- #
 # HELPER FUNCTIONS #
 # ---------------- #
 
 
-def get_default_queue_fn() -> ExtractIndividualFrames:
+def _individual_frames_queue() -> ExtractIndividualFrames:
     from unipercept.data.collect import ExtractIndividualFrames
 
     return ExtractIndividualFrames()
@@ -70,7 +71,7 @@ class RGB:
 # CANONICAL CATEGORIES #
 # -------------------- #
 
-CANONICAL_ROOT_NAME = "<ROOT>"
+_CANONICAL_ROOT_NAME = "<ROOT>"
 
 
 @D.dataclass(slots=True, frozen=True, kw_only=True, weakref_slot=True, unsafe_hash=True)
@@ -92,11 +93,11 @@ class CanonicalClass:
 
     def __post_init__(self):
         if self.parent is None:
-            if self.name != CANONICAL_ROOT_NAME:
-                raise ValueError(f"Root category must have name {CANONICAL_ROOT_NAME}.")
+            if self.name != _CANONICAL_ROOT_NAME:
+                raise ValueError(f"Root category must have name {_CANONICAL_ROOT_NAME}.")
         else:
-            if self.name == CANONICAL_ROOT_NAME:
-                raise ValueError(f"Non-root category must not have name {CANONICAL_ROOT_NAME}.")
+            if self.name == _CANONICAL_ROOT_NAME:
+                raise ValueError(f"Non-root category must not have name {_CANONICAL_ROOT_NAME}.")
 
     @property
     def is_root(self) -> bool:
@@ -127,7 +128,6 @@ class StuffMode(E.StrEnum):
     WITH_THING = E.auto()
 
 
-# class Metadata(T.TypedDict):
 @D.dataclass(slots=True, frozen=True, kw_only=True, weakref_slot=True, unsafe_hash=True)
 class Metadata:
     """
@@ -224,23 +224,6 @@ class Metadata:
 
     def get(self, key: str, default: T.Any = None) -> T.Any:
         return getattr(self, key, default)
-
-    # Legacy metadata (consider this deprecated)
-    # stuff_all_classes: bool
-    # stuff_with_things: bool
-    # num_thing: int
-    # num_stuff: int
-    # thing_classes: tuple[str]
-    # stuff_classes: tuple[str]
-    # thing_colors: tuple[RGB]
-    # stuff_colors: tuple[RGB]
-    # thing_translations: frozendict[int, int]
-    # thing_embeddings: frozendict[int, int]
-    # stuff_translations: frozendict[int, int]
-    # stuff_embeddings: frozendict[int, int]
-    # thing_train_id2contiguous_id: frozendict[int, int]
-    # stuff_train_id2contiguous_id: frozendict[int, int]
-
     # Implementation of deprecated properties from new metadata
     @property
     @deprecated("Use `stuff_mode` instead.")
@@ -419,10 +402,6 @@ def info_factory(
     """Generate dataset metadata object."""
 
     sem_seq = sorted(
-        # filter(
-        #     lambda c: c["unified_id"] >= 0 and not c.is_void,
-        #     sem_seq,
-        # ),
         sem_seq,
         key=lambda c: (int(1e6) if c.get("is_thing") else 0) + c["unified_id"],
     )
@@ -467,113 +446,41 @@ def info_factory(
         semantic_classes=frozendict(sem_map),
     )
 
-    # num_thing = 0
-    # num_stuff = 0
-    # depth_fixed = {}
-    # thing_classes = []
-    # stuff_classes = []
-    # thing_colors = []
-    # stuff_colors = []
-    # thing_translations = {}
-    # thing_embeddings = {}
-    # stuff_translations = {}
-    # stuff_embeddings = {}
-    # thing_train_id2contiguous_id = {}
-    # stuff_train_id2contiguous_id = {}
-    # cats_tracked = []
+# ------------------ #
+# DATASET MANAGEMENT #
+# ------------------ #
 
-    # # Create definition of training IDs, which differ for stuff and things
-    # for k in categories:
-    #     dataset_id = k["id"]
-    #     train_id = k["trainId"]
-    #     if k["trainId"] == ignore_label:
-    #         continue
+_manager: DataManager[PerceptionDataset, Metadata] = DataManager()
 
-    #     if bool(k.get("isthing")) == 1:
-    #         id_duplicate = train_id in thing_embeddings
-    #         thing_translations[dataset_id] = train_id
-
-    #         if not id_duplicate:
-    #             assert train_id not in stuff_embeddings, f"Train ID {train_id} is duplicated in stuff."
-
-    #             thing_classes.append(k["name"])
-    #             thing_colors.append(RGB(*k["color"]))
-    #             thing_embeddings[train_id] = num_thing
-    #             num_thing += 1
-
-    #         if stuff_all_classes:
-    #             stuff_translations[dataset_id] = train_id
-    #             if not id_duplicate:
-    #                 stuff_embeddings[train_id] = num_stuff
-    #                 num_stuff += 1
-    #     else:
-    #         id_duplicate = train_id in stuff_embeddings
-    #         if not id_duplicate:
-    #             stuff_classes.append(k["name"])
-    #             stuff_colors.append(RGB(*k["color"]))
-    #         if stuff_with_things and not stuff_all_classes:
-    #             stuff_translations[dataset_id] = train_id
-    #             if not id_duplicate:
-    #                 num_stuff += 1
-    #                 stuff_embeddings[train_id] = num_stuff + 1
-    #         else:
-    #             stuff_translations[dataset_id] = train_id
-    #             if not id_duplicate:
-    #                 stuff_embeddings[train_id] = num_stuff
-    #                 num_stuff += 1
-
-    # # Sanity check
-    # assert 0 in thing_embeddings.values()
-    # assert 0 in stuff_embeddings.values()
-
-    # # Create train ID to color mapping
-    # colors: dict[int, RGB] = {}
-    # colors |= {k: thing_colors[v] for k, v in thing_embeddings.items()}
-    # colors |= {k: stuff_colors[v] for k, v in stuff_embeddings.items()}
-
-    # # Create inverse translations
-    # for key, value in thing_embeddings.items():
-    #     thing_train_id2contiguous_id[value] = key
-    # for key, value in stuff_embeddings.items():
-    #     stuff_train_id2contiguous_id[value] = key
-
-    # return Metadata(
-    #     colors=frozendict(colors),
-    #     stuff_all_classes=stuff_all_classes,
-    #     stuff_with_things=stuff_with_things,
-    #     ignore_label=ignore_label,
-    #     fps=fps,
-    #     num_thing=num_thing,
-    #     num_stuff=num_stuff,
-    #     label_divisor=label_divisor,
-    #     depth_max=depth_max,
-    #     depth_fixed=frozendict(depth_fixed),
-    #     thing_classes=tuple(thing_classes),
-    #     stuff_classes=tuple(stuff_classes),
-    #     thing_colors=tuple(thing_colors),
-    #     stuff_colors=tuple(stuff_colors),
-    #     thing_translations=frozendict(thing_translations),
-    #     thing_embeddings=frozendict(thing_embeddings),
-    #     stuff_translations=frozendict(stuff_translations),
-    #     stuff_embeddings=frozendict(stuff_embeddings),
-    #     thing_train_id2contiguous_id=frozendict(thing_train_id2contiguous_id),
-    #     stuff_train_id2contiguous_id=frozendict(stuff_train_id2contiguous_id),
-    #     cats_tracked=frozenset(thing_train_id2contiguous_id.values()),
-    # )
+get_dataset = _manager.get_dataset
+get_info = _manager.get_info
+list_datasets = _manager.list_datasets
+list_info = _manager.list_info
 
 
-# ----------------- #
-# DATASET BASECLASS #
-# ----------------- #
+def get_manifest(name, **kwargs):
+    """Returns only the manifest of a dataset."""
+    return get_dataset(name)(queue_fn=None, **kwargs).manifest
+
+
+def get_queue(name, **kwargs):
+    """Return only the queue of a dataset."""
+    return get_dataset(name)(**kwargs).queue
+
+
+def get_datapipe(name, **kwargs):
+    """Returns only the pipeline of a dataset, i.e. the actual loaded images."""
+    return get_dataset(name)(**kwargs).datapipe
+
 
 
 class PerceptionDataset(
-    _BaseDataset[Manifest, QueueItem, "InputData", Metadata],
+    _BaseDataset[Manifest, QueueItem, Tensorclass, Metadata],
 ):
     """Baseclass for datasets that are composed of captures and motions."""
 
     queue_fn: T.Callable[[Manifest], up.data.collect.QueueGeneratorType] = dataclasses.field(
-        default_factory=get_default_queue_fn
+        default_factory=_individual_frames_queue
     )
 
     @override
@@ -582,13 +489,13 @@ class PerceptionDataset(
 
         if not cls.__name__.startswith("_"):
             if id is not None:
-                id_canon = catalog.canonicalize_id(id)
+                id_canon = _manager.parse_key(id)
                 if id != id_canon:
                     raise ValueError(
                         f"Directly specifying an ID that is not canonical not allowed: '{id}' should be '{id_canon}'!"
                     )
 
-            catalog.register_dataset(id)(cls)  # is a decorator
+            _manager.register_dataset(id, info=cls._create_info)(cls)  # is a decorator
         elif id is not None:
             raise ValueError(f"Opinionated: classes starting with '_' should not have an ID, got: {id}")
 
@@ -624,7 +531,7 @@ class PerceptionDataset(
 
     @classmethod
     def _load_motion_data(
-        cls, sources: T.Sequence[up.data.types.MotionSources], info: up.data.types.Metadata
+        cls, sources: T.Sequence[up.data.types.MotionSources], info: Metadata
     ) -> up.model.MotionData:
         raise NotImplementedError(f"{cls.__name__} does not implement motion sources!")
 

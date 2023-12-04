@@ -445,7 +445,7 @@ class MultiDVPS(up.model.ModelBase):
     # ----------------- #
     # Inference methods #
     # ----------------- #
-
+    @torch.no_grad()
     def _forward_inference(self, inputs: up.model.InputData, ctx: logic.Context) -> up.model.ModelOutput:
         """Implements the forward logic for inference, i.e. testing/evaluation mode."""
 
@@ -461,23 +461,25 @@ class MultiDVPS(up.model.ModelBase):
             ctx_batch = ctx[i : i + 1].flatten()
 
             # Upscale depth feature
-            # if KEY_DEPTH in ctx_batch.embeddings.keys():
-            #     feat_depth = ctx_batch.embeddings.get(KEY_DEPTH)
-            #     feat_depth = self.inference_pipeline.upscale_to_input_size(ctx_batch, feat_depth)
-
-            #     ctx_batch.embeddings = ctx_batch.embeddings.set(KEY_DEPTH, feat_depth)
-            for k in ctx_batch.embeddings.keys():
-                feat_depth = ctx_batch.embeddings.get(k)
+            if KEY_DEPTH in ctx_batch.embeddings.keys():
+                feat_depth = ctx_batch.embeddings.get(KEY_DEPTH)
                 feat_depth = self.inference_pipeline.upscale_to_input_size(ctx_batch, feat_depth)
 
-                ctx_batch.embeddings = ctx_batch.embeddings.set(k, feat_depth)
+                ctx_batch.embeddings = ctx_batch.embeddings.set(KEY_DEPTH, feat_depth)
+            # # Upscale all features
+            # for k in ctx_batch.embeddings.keys():
+            #     feat_depth = ctx_batch.embeddings.get(k)
+            #     feat_depth = self.inference_pipeline.upscale_to_input_size(ctx_batch, feat_depth)
+
+            #     ctx_batch.embeddings = ctx_batch.embeddings.set(k, feat_depth)
 
             # Predict depth-aware panoptic segmentation
             outputs_batch = self._predict(inputs_batch, ctx_batch)  # .contiguous()
             outputs.append(outputs_batch)
 
-        return torch.stack(outputs)  # type: ignore
+        return torch.stack(outputs).contiguous()  # type: ignore
 
+    @torch.jit.script_if_tracing
     def _predict(self, inputs: up.model.InputData, ctx: logic.Context) -> up.model.ModelOutput:
         assert len(ctx.batch_size) == 1, "Inference pipeline accepts only single samples"
         assert len(inputs.batch_size) == 0, "Inference pipeline accepts only single samples"
@@ -508,16 +510,19 @@ class MultiDVPS(up.model.ModelBase):
         outputs.predictions[OUT_PANOPTIC] = panoptic
         if inputs.captures.segmentations is not None:
             outputs.truths[OUT_PANOPTIC] = inputs.captures.segmentations[-1, :, :]  # select last entry in pair
-
         outputs.predictions[OUT_DEPTH] = depth
         if inputs.captures.depths is not None:
             outputs.truths[OUT_DEPTH] = inputs.captures.depths[-1, :, :]
 
-        if things.num_instances > 0:
-            self._apply_tracking_(inputs, outputs)
+        self._apply_tracking_(inputs, outputs)
 
-        return outputs
+        for key in list(outputs.predictions.keys()):
+            if key not in self.inference_pipeline.outputs:
+                outputs.predictions.del_(key)
 
+        return outputs.contiguous()
+
+    @torch.jit.script_if_tracing
     def _apply_tracking_(self, inputs: up.model.InputData, outputs: up.model.ModelOutput) -> None:
         ins = outputs.predictions[OUT_OBJECT]
 
@@ -611,11 +616,11 @@ class MultiDVPS(up.model.ModelBase):
 
         # Keep only scores above a threshold
         keep_mask = things.scores >= 0.05
-        if not keep_mask.any():
-            return things[:0]
+        # if not keep_mask.any():
+        #     return things[:0]
+        things = things.masked_select(keep_mask)
 
         # things = things.masked_select(keep_mask)  # TODO high memory (@kurt-stolle)
-        # things = things.apply(lambda x: x[keep_mask, ...], inplace=True)
 
         # Sort again and keep only the top instances
         # sort_index = torch.argsort(things.scores, descending=True)

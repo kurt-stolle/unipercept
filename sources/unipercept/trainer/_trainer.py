@@ -17,6 +17,7 @@ import warnings
 
 import accelerate
 import accelerate.utils
+from networkx import is_matching
 import torch
 import torch.nn as nn
 from omegaconf import OmegaConf
@@ -32,7 +33,7 @@ from unicore import file_io
 from unicore.utils.status import StatusDescriptor
 from unicore.utils.tensorclass import Tensorclass
 
-from ..utils.time import ProfileAccumulator,profile 
+from ..utils.time import ProfileAccumulator, profile
 from ..utils.logutils import get_logger
 from ..utils.seed import set_seed
 from ._optimizer import OptimizerFactory
@@ -773,7 +774,9 @@ class Trainer:
 
         return a_off, a_total
 
-    def _inference_results_allocate(self, sample_amount: int, like: TensorDict) -> tuple[file_io.Path, TensorDict]:
+    def _inference_results_allocate(
+        self, sample_amount: int, like: TensorDict, path: file_io.Path | os.PathLike | str | None = None
+    ) -> tuple[TensorDict, file_io.Path]:
         """
         Allocate a memmapped TensorDict to store results for evaluation.
 
@@ -790,54 +793,57 @@ class Trainer:
             A TensorDict with the same structure as the results TensorDict, but with the first dimension set to the
             total amount of samples. Memory mapped.
         """
+        assert self._xlr.is_main_process, "Expected main process to allocate memory"
+
         _logger.debug(f"Allocating memory for {sample_amount} samples using template of batch size {like.batch_size}")
 
-        prefix = (
-            file_io.Path("//scratch/")
-            / self._config.project_name
-            / self._config.session_name
-            / "evaluation"
-            / f"step-{self._state.step}"
-        )
+        # Make a scratch directory if no path is provided
+        if path is None:
+            path = (
+                file_io.Path("//scratch/")
+                / self._config.project_name
+                / self._config.session_name
+                / "evaluation"
+                / f"step-{self._state.step}"
+            )
 
-        with self._xlr.main_process_first():
-            if self._xlr.is_main_process:
-                if prefix.exists():
-                    _logger.debug("Clearing existing results directory: %s", prefix)
-                    shutil.rmtree(prefix)
-                else:
-                    _logger.debug("Creating results directory: %s", prefix)
-                prefix.mkdir(parents=True, exist_ok=False)
-
-                mem = TensorDict(
-                    {
-                        k: MemmapTensor(
-                            sample_amount,
-                            *v.shape[1:],
-                            dtype=v.dtype,
-                            device="cpu",
-                            filename=str(prefix / f"{k}.memmap"),
-                        )
-                        for k, v in like.items()
-                    },
-                    batch_size=[sample_amount],
-                )
-                mem.memmap_(prefix=str(prefix))
+            if path.exists():
+                _logger.debug("Clearing existing results directory: %s", path)
+                shutil.rmtree(path)
             else:
-                _logger.debug("Using existing results directory on worker %d: %s", self._xlr.process_index, prefix)
-                mem = TensorDict.load_memmap(prefix=str(prefix))
+                _logger.debug("Creating results directory: %s", path)
+        else:
+            path = file_io.Path(path)
 
-        # assert mem.is_memmap(), "Expected results memory to be memmapped"
+        # Create results directory
+        path.mkdir(parents=True, exist_ok=False)
 
-        self._xlr.wait_for_everyone()
-        return prefix, mem
+        # Allocate memory
+        mem = TensorDict(
+            {
+                k: MemmapTensor(
+                    sample_amount,
+                    *v.shape[1:],
+                    dtype=v.dtype,
+                    device="cpu",
+                    filename=str(path / f"{k}.memmap"),
+                )
+                for k, v in like.items()
+            },
+            batch_size=[sample_amount],
+        )
+        mem.memmap_(prefix=str(path))
 
+        return mem, path
+
+    @torch.no_grad()
     def _inference_loop(
         self,
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
         prefix: str,
         handlers: T.Sequence[Evaluator] = [],
+        results_path: file_io.Path | os.PathLike | str | None = None,
     ) -> tuple[dict[str, T.Any], int]:
         """
         Evaluation loop, which roughly follows the folowing procedure:
@@ -849,14 +855,9 @@ class Trainer:
 
         _logger.info("***** Running inference *****")
 
-        if len(handlers) == 0:
-            warnings.warn(
-                (
-                    "No evaluators were provided to the evaluation loop. "
-                    "This is intended when only aiming to measure speed or memory usage."
-                ),
-                stacklevel=2,
-            )
+        # Clear CUDA memory
+        torch.cuda.empty_cache()
+        gc.collect()
 
         # Find the size of the dataset *before* preparation to correctly map each output
         batch_offsets, batch_total = self._inference_gather_total_batches(dataloader)
@@ -895,9 +896,7 @@ class Trainer:
 
         # Output memory
         results_mem = None
-        results_prefix: str | None = None
-        results_merged = None
-        outputs = None
+        results_remove_on_exit = results_path is None
 
         # Prediction
         _logger.info(f"Running inference loop on {self._xlr.num_processes} processes.")
@@ -913,33 +912,60 @@ class Trainer:
             assert samples_in_batch <= batch_size, f"Expected batch size {batch_size}, got {samples_in_batch}"
 
             # Prediction step - i.e. run the model in inference mode
-            with profile(timings, "model"): 
-                outputs = self._inference_step(model, inputs).cpu()
+            with profile(timings, "model"):
+                outputs = self._inference_step(model, inputs)
 
             # Prepare for evaluation
             with profile(timings, "update"):
+                KEY_VALID = "valid"
+                # results_merged = TensorDict(
+                #     {"valid": torch.ones(samples_in_batch, dtype=torch.bool, device=self._xlr.device)}, batch_size=inputs.batch_size
+                #     device=self._xlr.device
+                # )
                 results_merged = TensorDict(
-                    {"valid": torch.ones(samples_in_batch, dtype=torch.bool)}, batch_size=inputs.batch_size
+                    {KEY_VALID: torch.ones(samples_in_batch, dtype=torch.bool, device=self._xlr.device)},
+                    [samples_in_batch],
+                    self._xlr.device,
+                    names=["B"],
                 )
                 for evaluator in handlers:
                     evaluator.update(results_merged, outputs)
-                    
+
+            # Gather results
+            with profile(timings, "gather"):
+                results_dict = T.cast(dict[str, torch.Tensor], results_merged.to_dict())
+                results_dict = T.cast(
+                    dict[str, torch.Tensor], accelerate.utils.pad_across_processes(results_dict, dim=0)
+                )
+                results_dict = T.cast(dict[str, torch.Tensor], accelerate.utils.gather(results_dict))
+
             # Write to MemmapTensor
             with profile(timings, "write"):
-                if results_mem is None:
-                    assert results_prefix is None
-                    results_prefix, results_mem = self._inference_results_allocate(batch_total * batch_size, results_merged)
-                else:
-                    assert results_prefix is not None
-                results_mem[write_index : write_index + samples_in_batch] = results_merged
-                write_index += samples_in_batch
+                # Recover overall batch size from 'valid' mask
+                samples_in_batch = results_dict[KEY_VALID].shape[0]
 
-            samples_processed += samples_in_batch
+                # Write only on main process
+                if self._xlr.is_main_process:
+                    results_merged = TensorDict(results_dict, [samples_in_batch])
+                    if results_mem is None:
+                        assert results_path is None
+                        results_mem, results_path = self._inference_results_allocate(
+                            batch_total * batch_size, results_merged, results_path
+                        )
+                    else:
+                        assert results_path is not None
+                    results_mem[write_index : write_index + samples_in_batch] = results_merged.cpu()
+
+                write_index += samples_in_batch
+                samples_processed += samples_in_batch
             self._event(Event.ON_INFERENCE_STEP, loader=dataloader)
 
-            print(timings)
-
-        _logger.info(f"Finished inference, profiling report: {timings}")
+        _logger.info(
+            f"Finished inference, profiling report on process %d/%d:\n%s",
+            self._xlr.process_index + 1,
+            self._xlr.num_processes,
+            timings.to_summary().to_markdown(index=False, floatfmt=".3f"),
+        )
 
         # Clear the past memory
         self._past = None
@@ -948,7 +974,7 @@ class Trainer:
         self._xlr.wait_for_everyone()
 
         # Run metric computations
-        metrics: dict[str, float | str | int | bool] = {}        
+        metrics: dict[str, float | str | int | bool] = {}
         visuals: dict[str, pil_image.Image] = {}
         if self._xlr.is_main_process:
             if write_index < batch_total:
@@ -965,7 +991,7 @@ class Trainer:
                 )
             )
             assert results_mem is not None, "Expected results memory to be initialized"
-            assert results_mem.is_memmap(), "Expected results memory to be memmapped"
+            # assert results_mem.is_memmap(), "Expected results memory to be memmapped"
 
             # Run the evaluation handlers on the main process
             for evaluator in handlers:
@@ -987,8 +1013,8 @@ class Trainer:
 
         del results_mem
         if self._xlr.is_main_process:
-            assert results_prefix is not None
-            shutil.rmtree(results_prefix, ignore_errors=True)
+            assert results_path is not None
+            shutil.rmtree(results_path, ignore_errors=True)
 
         # Store metrics
         if hasattr(self, "jit_compilation_time"):

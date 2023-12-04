@@ -15,6 +15,7 @@ import unipercept as up
 from unipercept.utils.function import multi_apply
 from unipercept.utils.tensor import cat_nonempty, topk_score
 
+from ..keys import OUT_BACKGROUND, OUT_OBJECT, OUT_DEPTH, OUT_PANOPTIC
 from ..modules import DepthPrediction, Detection
 from ._structures import Context, StuffInstances, ThingInstances
 
@@ -35,6 +36,7 @@ class InferencePipeline(nn.Module):
         interpolation_align_corners: bool = False,
         interpolation_antialias: bool = True,
         interpolation_mode: str = "bicubic",
+        outputs: T.Sequence[str] = (OUT_DEPTH, OUT_PANOPTIC),
     ):
         super().__init__()
 
@@ -50,6 +52,7 @@ class InferencePipeline(nn.Module):
         self.interpolation_align_corners = interpolation_align_corners
         self.interpolation_antialias = interpolation_antialias
         self.interpolation_mode = interpolation_mode
+        self.outputs = outputs
 
         assert 0 <= self.inst_thres <= 1, "inst_thres must be in range [0, 1]"
 

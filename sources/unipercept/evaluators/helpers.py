@@ -13,6 +13,7 @@ DTYPE_INT: T.Final = torch.int64
 DTYPE_FLOAT: T.Final = torch.float64
 EPS: T.Final[float] = torch.finfo(DTYPE_FLOAT).eps
 
+
 def stable_divide(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     Divide two floating point numbers, but avoid division by zero by adding a small epsilon value.

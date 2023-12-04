@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import typing as T
 import warnings
+import PIL
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 import numpy as np
 import PIL.Image as pil_image
 import torch
@@ -191,7 +193,109 @@ def draw_image_segmentation(
         ax.imshow(out)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
 
-    return pil_image.fromarray(out)
+    return pil_image.fromarray(out).convert("RGB")
+
+def draw_layers(
+    layers: torch.Tensor,
+    /,
+    palette: str = "viridis",
+    ax: MatplotlibAxesObject | None = None,
+    background: torch.Tensor | None = None,
+) -> PILImageObject:
+    """
+    Draw a layered tensor by rendering each layer as a colored heatmap.
+
+    Parameters
+    ----------
+    layers : torch.Tensor
+        The tensor to draw, with dimensions (..., L, H, W), where L is the amount of layers.
+    palette : str, optional
+        The name of the palette to use, by default "viridis". Each heatmap layer will use a different color from the
+        palette.
+    ax : MatplotlibAxesObject, optional
+        The axes to draw to, by default None.
+    Returns
+    -------
+    PILImageObject
+        The rendered image.
+    """
+
+    import seaborn as sns
+
+    layers = layers.detach()
+
+    for _ in range(max(0, layers.ndim - 3)): 
+        layers.squeeze_(0)
+ 
+    if layers.ndim != 3: 
+        raise ValueError(f"Expected map with (1...)LHW dimensions, got {layers.shape}!")
+
+
+    # Normalize all layers to floats between 0 and 1
+    layers = (layers - layers.min()) / (layers.max() - layers.min())
+    layers.clamp_(0, 1)
+
+    # Get the desired colormap
+    cmap: colors.Colormap = sns.color_palette(palette, n_colors=layers.shape[0], as_cmap=True)
+
+    # Allocate the output RGB image
+    out_list: list[PILImageObject] = []
+    one = np.ones((layers.shape[-2], layers.shape[-1]), dtype=np.float32())
+
+    # Overlay each layer on top of the output image
+    for i, layer in enumerate(layers):
+    
+        out_layer = cmap(one * ((i+1) / layers.shape[0]), layer.numpy())
+        # out_layer[3] *= layer.numpy()
+
+        out_list.append(pil_image.fromarray(_float_to_uint8(out_layer)))
+
+    out = out_list.pop()
+    for out_layer in out_list:
+        out = pil_image.alpha_composite(out, out_layer)
+
+    if ax is not None:
+        ax.imshow(np.frombuffer(out))
+        ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+    return _rgba_to_rgb(out, background=background)
+
+def draw_map(
+    map: torch.Tensor,
+    /,
+    palette: str = "viridis",
+    ax: MatplotlibAxesObject | None = None,
+    background: torch.Tensor | None = None
+) -> PILImageObject:
+    """
+    Draws a map directly from a tensor, without using the Visualizer class.
+    """
+    import seaborn as sns
+
+    map = map.detach()
+
+    for _ in range(max(0, map.ndim - 2)): 
+        map.squeeze_(0)
+ 
+    if map.ndim != 2: 
+        raise ValueError(f"Expected map with (1...)HW dimensions, got {map.shape}!")
+
+
+    # Normalize the map to floats between 0 and 1
+    map = (map - map.min()) / (map.max() - map.min())
+    map.clamp_(0, 1)
+
+    # Convert to RGB
+    cmap = sns.color_palette(palette, as_cmap=True)
+    out = cmap(map.numpy()) 
+
+    if ax is not None:
+        ax.imshow(out)
+        ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+    out = pil_image.fromarray(_float_to_uint8(out))
+    return _rgba_to_rgb(out, background=background)
+    
+
+
 
 
 def draw_image_depth(
@@ -212,13 +316,46 @@ def draw_image_depth(
     assert dep.ndim == 2, f"Expected image with HW dimensions, got {dep.shape}!"
 
     dep = dep.detach() / info.depth_max
-    dep.clamp_(0, 1).numpy()
+    dep.clamp_(0, 1)
 
     cmap = sns.color_palette(palette, as_cmap=True)
-    out = cmap(dep)
+    out = cmap(dep.numpy())
 
     if ax is not None:
         ax.imshow(out)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
 
-    return pil_image.fromarray(np.uint8(out * 255))
+    out = pil_image.fromarray(_float_to_uint8(out))
+    return _rgba_to_rgb(out)
+
+def _rgba_to_rgb(img: PILImageObject, background: PILImageObject | torch.Tensor | None = None) -> PILImageObject:
+    """
+    Convert an RGBA image to RGB by removing the alpha channel
+    """
+    from torchvision.transforms.v2.functional import to_pil_image
+
+    out = pil_image.new("RGB", img.size, (0,0,0))
+    if background is not None:
+        if isinstance(background, torch.Tensor):
+            background = to_pil_image(background)
+        assert isinstance(background, pil_image.Image), f"{type(background)=}"
+        out.paste(background.resize(img.size, resample=pil_image.Resampling.BILINEAR))
+    out.paste(img, mask=img.split()[3]) # 3 is the alpha channel
+
+    return out
+
+def _figure_to_pil(fig) -> PILImageObject:
+    """
+    Convert a Matplotlib figure to a PIL Image
+    """
+    return pil_image.frombytes('RGB', fig.canvas.get_width_height(),fig.canvas.tostring_rgb())
+
+def _float_to_uint8(mat) -> np.ndarray:
+    """
+    Convert a float matrix to uint8
+    """
+
+    mat = mat * 255.999
+    mat = np.clip(mat, 0, 255)
+    
+    return mat.astype(np.uint8)

@@ -49,7 +49,7 @@ class ThingAssigner(nn.Module):
         gaussian_sigma: int,
         min_overlap: float,
         embeddings: dict[int, int],
-        pad_to: int | None = 92,
+        pad_to: int | None = 160,
     ):
         """
         Discovers and organized thing-class objects in the ground truth.
@@ -69,7 +69,7 @@ class ThingAssigner(nn.Module):
         embeddings : dict[int, int]
             The embeddings for each thing category, i.e. translates contiguous train ID to thing-specific train ID.
         pad_to : Optional[int], optional
-            The size to pad the ground truth to, by default 92. When set to None, padding is automatically determined
+            The size to pad the ground truth to. When set to None, padding is automatically determined
             based on the amount of ground truth objects.
         """
         super().__init__()

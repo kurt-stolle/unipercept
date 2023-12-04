@@ -8,13 +8,13 @@ from unipercept.utils.config import call as L
 
 __all__ = ["data"]
 
-DATASET_NAME = "cityscapes/vps"
-DATASET_INFO: up.data.sets.Metadata = up.data.sets.get_info("cityscapes/vps")
+DATASET_NAME = "cityscapes-vps"
+DATASET_INFO: up.data.sets.Metadata = up.data.sets.get_info("cityscapes-vps")
 
 data = B(up.data.DataConfig)(
     loaders={
         "train": L(up.data.DataLoaderFactory)(
-            dataset=L(L(up.get_dataset)(name="cityscapes/vps"))(
+            dataset=L(L(up.get_dataset)(name="cityscapes-vps"))(
                 split="train",
                 all=False,
                 queue_fn=L(up.data.collect.GroupAdjacentTime)(
@@ -59,7 +59,7 @@ data = B(up.data.DataConfig)(
             config=L(up.data.DataLoaderConfig)(),
         ),
         "finetune": L(up.data.DataLoaderFactory)(
-            dataset=L(L(up.get_dataset)(name="cityscapes/vps"))(
+            dataset=L(L(up.get_dataset)(name="cityscapes-vps"))(
                 split="train",
                 all=False,
                 queue_fn=L(up.data.collect.GroupAdjacentTime)(
@@ -79,7 +79,7 @@ data = B(up.data.DataConfig)(
             config=L(up.data.DataLoaderConfig)(),
         ),
         "test": L(up.data.DataLoaderFactory)(
-            dataset=L(L(up.get_dataset)(name="cityscapes/vps"))(
+            dataset=L(L(up.get_dataset)(name="cityscapes-vps"))(
                 split="val",
                 all=False,
                 queue_fn=L(up.data.collect.GroupAdjacentTime)(

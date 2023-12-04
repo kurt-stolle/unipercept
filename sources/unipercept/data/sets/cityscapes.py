@@ -317,7 +317,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         return {"timestamp": datetime.utcnow().isoformat(), "version": "1.0", "sequences": sequences}
 
 
-class CityscapesVPSDataset(CityscapesDataset, info=get_info, id="cityscapes/vps"):
+class CityscapesVPSDataset(CityscapesDataset, info=get_info, id="cityscapes-vps"):
     """
     Cityscapes dataset with the following modifications:
 

@@ -17,7 +17,7 @@ SAMPLE_IDS = [
 ]
 
 
-@pytest.fixture(scope="session", params=["cityscapes", "cityscapes/vps"])
+@pytest.fixture(scope="session", params=["cityscapes", "cityscapes-vps"])
 def cityscapes_mock(request, tmp_path_factory: pytest.TempPathFactory):
     root = tmp_path_factory.mktemp("cityscapes")
     split = "train"
@@ -108,7 +108,7 @@ def test_cityscapes_static(split):
 def test_cityscapes_vps(split, all, pair_size):
     from unipercept.data.sets.cityscapes import CityscapesVPSDataset
 
-    ds_cls = get_dataset("cityscapes/vps")
+    ds_cls = get_dataset("cityscapes-vps")
     assert ds_cls is CityscapesVPSDataset, ds_cls
     if not file_io.isdir(ds_cls.root):
         pytest.skip(f"Dataset {ds_cls.__name__} not installed @ {file_io.get_local_path(ds_cls.root)}")

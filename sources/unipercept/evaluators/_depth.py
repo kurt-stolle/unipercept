@@ -45,9 +45,9 @@ class DepthWriter(Evaluator):
         This method is a stub for a ``from_metadata`` classmethod that would use the metadata of a dataset to
         instantiate this evaluator.
         """
-        from unicore import catalog
+        from unipercept.data.sets import get_info
 
-        info = catalog.get_info(name)
+        info = get_info(name)
         return cls(info=info, **kwargs)
 
     @override
@@ -83,7 +83,9 @@ class DepthEvaluator(DepthWriter):
         return super().from_metadata(name, **kwargs)
 
     @override
-    def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs) -> dict[str, int | float | str | bool]:
+    def compute(
+        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
+    ) -> dict[str, int | float | str | bool]:
         # TODO
         num_samples = storage.batch_size[0]
         assert num_samples > 0

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import argparse
 import typing as T
-
+import accelerate
 import torch
 import torch.nn as nn
 
@@ -79,28 +79,37 @@ def main(args):
         _logger.info("Disabling JIT compilation")
         os.environ["PYTORCH_JIT"] = "0"
 
-    config: _config_t = args.config
+    lazy_config: _config_t = args.config
 
     # Handle training tags
     if len(args.tag) > 0:
-        config.trainer.tags += args.tag
+        lazy_config.trainer.tags += args.tag
 
-    trainer: up.trainer.Trainer = _lazy.instantiate(config.trainer)
-    config_path = trainer.path / "config.yaml"
+    # Before creating the trainer across processes, check if the config file exists and recover the trainer if it does.
+    lazy_trainer = lazy_config.trainer
+    lazy_trainer.config = _lazy.instantiate(lazy_trainer.config)
+    config_path = file_io.Path(lazy_trainer.config.root) / "config.yaml"
+    do_recover = config_path.exists()
 
-    if config_path.exists():
+    state = accelerate.PartialState()
+    state.wait_for_everyone()  # Ensure the config file is not created before all processes validate its existence
+
+    trainer: up.trainer.Trainer = _lazy.instantiate(lazy_config.trainer)
+
+    if do_recover:
         _logger.info(
             "A serialized config YAML file exists at %s. Recovering trainer at latest checkpoint.",
             config_path,
         )
         trainer.recover()
-    elif trainer._xlr.is_main_process:
+    elif state.is_main_process:
         _logger.info("Storing serialized config to YAML file %s", trainer.path)
-        LazyConfig.save(config, str(config_path))
+        LazyConfig.save(lazy_config, str(config_path))
 
+    # Setup dataloaders
     loaders: dict[str, up.data.DataLoaderFactory] = _lazy.instantiate(args.config.data.loaders)
 
-    model_factory = ModelFactory(config.model, args.weights or None)
+    model_factory = ModelFactory(lazy_config.model, args.weights or None)
 
     if args.evaluation:
         results = trainer.evaluate(model_factory, loaders[args.dataloader_test])

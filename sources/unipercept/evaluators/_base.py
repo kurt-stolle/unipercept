@@ -4,6 +4,7 @@ Implements the baseclass for evaluators
 from __future__ import annotations
 import dataclasses as D
 import abc
+from multiprocessing import Process
 import typing as T
 
 import torch
@@ -33,6 +34,7 @@ class EvaluatorComputeKWArgs(T.Protocol):
     device: torch.types.Device
     path: str
 
+
 @D.dataclass(kw_only=True)
 class Evaluator(T.Protocol, metaclass=abc.ABCMeta):
     """
@@ -43,7 +45,9 @@ class Evaluator(T.Protocol, metaclass=abc.ABCMeta):
         return None
 
     @abc.abstractmethod
-    def compute(self, storage: TensorDictBase, **kwargs: EvaluatorComputeKWArgs) -> dict[str, int | float | str | bool | dict]:
+    def compute(
+        self, storage: TensorDictBase, **kwargs: EvaluatorComputeKWArgs
+    ) -> dict[str, int | float | str | bool | dict]:
         return {}
 
     @abc.abstractmethod

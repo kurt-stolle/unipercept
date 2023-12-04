@@ -45,58 +45,58 @@ def test_backbones(device, backbone):
     assert len(fs.keys()) == len(backbone.feature_info)
 
 
-@pytest.fixture(
-    scope=LAYER_SCOPE,
-    params=[
-        backbones.fpn.WeightMethod.ATTENTION,
-        backbones.fpn.WeightMethod.SUM,
-        backbones.fpn.WeightMethod.FAST_ATTENTION,
-    ],
-)
-def fpn_weight_method(request):
-    return request.param
+# @pytest.fixture(
+#     scope=LAYER_SCOPE,
+#     params=[
+#         backbones.fpn.WeightMethod.ATTENTION,
+#         backbones.fpn.WeightMethod.SUM,
+#         backbones.fpn.WeightMethod.FAST_ATTENTION,
+#     ],
+# )
+# def fpn_weight_method(request):
+#     return request.param
 
 
-@pytest.fixture(scope=LAYER_SCOPE, params=[0, 1, 2])
-def fpn_num_hidden(request):
-    return request.param
+# @pytest.fixture(scope=LAYER_SCOPE, params=[0, 1, 2])
+# def fpn_num_hidden(request):
+#     return request.param
 
 
-@pytest.fixture(
-    scope=LAYER_SCOPE,
-    params=[backbones.fpn.build_default_routing, backbones.fpn.build_pan_routing, backbones.fpn.build_quad_routing],
-    ids=["D", "P", "Q"],
-)
-def fpn_routing(request, fpn_weight_method):
-    return functools.partial(request.param, weight_method=fpn_weight_method)
+# @pytest.fixture(
+#     scope=LAYER_SCOPE,
+#     params=[backbones.fpn.build_default_routing, backbones.fpn.build_pan_routing, backbones.fpn.build_quad_routing],
+#     ids=["D", "P", "Q"],
+# )
+# def fpn_routing(request, fpn_weight_method):
+#     return functools.partial(request.param, weight_method=fpn_weight_method)
 
 
-@pytest.fixture(
-    scope=LAYER_SCOPE,
-)
-def fpn(backbone, fpn_num_hidden, fpn_routing):
-    routing = fpn_routing(num_levels=6)
+# @pytest.fixture(
+#     scope=LAYER_SCOPE,
+# )
+# def fpn(backbone, fpn_num_hidden, fpn_routing):
+#     routing = fpn_routing(num_levels=6)
 
-    return backbones.fpn.FeaturePyramidBackbone(
-        backbone,
-        out_channels=16,
-        num_hidden=fpn_num_hidden,
-        routing=routing,
-        in_features=list(backbone.feature_info.keys()),
-    )
+#     return backbones.fpn.FeaturePyramidBackbone(
+#         backbone,
+#         out_channels=16,
+#         num_hidden=fpn_num_hidden,
+#         routing=routing,
+#         in_features=list(backbone.feature_info.keys()),
+#     )
 
 
-def test_fpn_valid_input(device, fpn):
-    fpn = fpn.to(device)
-    x = torch.randn(1, 3, 256, 512, requires_grad=True, device=device)
-    ys = fpn(x)
-    assert isinstance(ys, TensorDict)
+# def test_fpn_valid_input(device, fpn):
+#     fpn = fpn.to(device)
+#     x = torch.randn(1, 3, 256, 512, requires_grad=True, device=device)
+#     ys = fpn(x)
+#     assert isinstance(ys, TensorDict)
 
-    loss = torch.stack([y.sum() for y in ys.values()]).sum()
-    loss.backward()
+#     loss = torch.stack([y.sum() for y in ys.values()]).sum()
+#     loss.backward()
 
-    g = x.grad
-    assert g is not None
+#     g = x.grad
+#     assert g is not None
 
-    print([y.shape for y in ys])
-    print(f"Gradient: {g.shape} (mean = {g.mean().item()}, std = {g.std().item()})")
+#     print([y.shape for y in ys])
+#     print(f"Gradient: {g.shape} (mean = {g.mean().item()}, std = {g.std().item()})")

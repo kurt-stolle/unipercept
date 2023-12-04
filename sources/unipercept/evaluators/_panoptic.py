@@ -92,7 +92,7 @@ class PanopticEvaluator(PanopticWriter):
 
     show_progress: bool = False
     show_summary: bool = True
-    show_details: bool = False 
+    show_details: bool = False
 
     @classmethod
     @override

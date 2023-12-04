@@ -24,7 +24,7 @@ from typing_extensions import override
 from unicore.utils.pickle import as_picklable
 
 from .tensors import BoundingBoxes, PanopticMap, DepthMap, BoundingBoxFormat
-from unipercept.utils.logutils import get_logger
+from unipercept.log import get_logger
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData

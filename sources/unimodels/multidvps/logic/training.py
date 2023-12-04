@@ -107,9 +107,9 @@ class TrainingPipeline(nn.Module):
         """
         Initialize from a dataset/datainfo name using the Metadata object.
         """
-        from unipercept.data.sets import Metadata, get_info
+        from unipercept import get_info
 
-        info: Metadata = get_info(name)
+        info = get_info(name)
         return cls(stuff_channels=info.stuff_amount, **kwargs)
 
     @torch.jit.export

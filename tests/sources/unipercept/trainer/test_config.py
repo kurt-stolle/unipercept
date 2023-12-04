@@ -1,6 +1,6 @@
 import pytest
 
-from unipercept.trainer.config import TrainConfig
+from unipercept.engine.params import EngineParams
 
 
 @pytest.mark.parametrize(
@@ -16,13 +16,13 @@ def test_epochs_step(tmp_path, attr_step, attr_epoch, fn_to_step, fn_to_epoch):
     steps_per_epoch = 9
     steps = epochs * steps_per_epoch
 
-    cfg_epochs = TrainConfig(project_name="testing", session_name="testing", root=str(tmp_path), **{attr_epoch: epochs})  # type: ignore
+    cfg_epochs = EngineParams(project_name="testing", session_name="testing", root=str(tmp_path), **{attr_epoch: epochs})  # type: ignore
     assert cfg_epochs.__getattribute__(attr_epoch) == epochs
 
     epochs2epochs = cfg_epochs.__getattribute__(fn_to_epoch)(steps_per_epoch)
     assert epochs2epochs == epochs
 
-    cfg_steps = TrainConfig(project_name="testing", session_name="testing", root=str(tmp_path), **{attr_step: steps})  # type: ignore
+    cfg_steps = EngineParams(project_name="testing", session_name="testing", root=str(tmp_path), **{attr_step: steps})  # type: ignore
     assert cfg_steps.__getattribute__(attr_step) == steps
 
     steps2steps = cfg_steps.__getattribute__(fn_to_step)(steps_per_epoch)

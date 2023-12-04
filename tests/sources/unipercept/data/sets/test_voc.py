@@ -1,6 +1,6 @@
 import pytest
 
-from unipercept.data.sets import get_dataset, get_info
+from unipercept import get_dataset, get_info
 
 
 @pytest.mark.parametrize("split", ["train", "val", "test", "trainval"])

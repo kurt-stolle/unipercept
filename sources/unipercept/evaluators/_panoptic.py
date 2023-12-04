@@ -20,7 +20,7 @@ from typing_extensions import override
 
 
 from ..data.tensors import PanopticMap
-from ..utils.logutils import get_logger
+from ..log import get_logger
 from ._base import Evaluator, PlotMode
 from . import helpers as H
 
@@ -53,7 +53,7 @@ class PanopticWriter(Evaluator):
 
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        from unipercept.data.sets import get_info
+        from unipercept import get_info
 
         return cls(info=get_info(name), **kwargs)
 

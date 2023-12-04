@@ -1,13 +1,14 @@
 from unipercept.utils.time import profile, ProfileAccumulator
 import time
 
+
 def test_time_profiler():
     acc = ProfileAccumulator()
 
     for i in range(10):
         with profile(acc, "test"):
             time.sleep(i * 1e-4)
-    
+
     for i in range(5):
         with profile(acc, "test2"):
             time.sleep(i * 1e-3)

@@ -14,7 +14,7 @@ import torch.distributed as dist
 from torch.utils.data.sampler import Sampler
 from typing_extensions import override
 
-from unipercept.utils.logutils import get_logger
+from unipercept.log import get_logger
 from unipercept.utils.state import get_process_count, get_process_index
 
 __all__ = ["TrainingSampler", "InferenceSampler", "SamplerFactory"]

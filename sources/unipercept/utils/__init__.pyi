@@ -1,7 +1,6 @@
 from . import (
     abbreviate,
     camera,
-    config,
     conifg,
     dicttools,
     function,

@@ -13,7 +13,7 @@ from tensordict import TensorDict, TensorDictBase
 from typing_extensions import override
 
 from ..data.tensors import DepthMap
-from ..utils.logutils import get_logger
+from ..log import get_logger
 from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
@@ -45,7 +45,7 @@ class DepthWriter(Evaluator):
         This method is a stub for a ``from_metadata`` classmethod that would use the metadata of a dataset to
         instantiate this evaluator.
         """
-        from unipercept.data.sets import get_info
+        from unipercept import get_info
 
         info = get_info(name)
         return cls(info=info, **kwargs)

@@ -12,7 +12,7 @@ def true_info():
     The true panoptic segmentation.
     """
 
-    from unipercept.data.sets import get_info
+    from unipercept import get_info
 
     return get_info("kitti-step")
 

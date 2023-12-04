@@ -6,14 +6,33 @@ import time
 from datetime import datetime
 import contextlib
 import statistics
-
+import enum as E
 from typing_extensions import override
 
 __all__ = ["get_timestamp", "ProfileAccumulator", "profile"]
 
 
-def get_timestamp() -> str:
-    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+class TimestampFormat(E.StrEnum):
+    UNIX = E.auto()
+    ISO = E.auto()
+    LOCALE = E.auto()
+
+
+def get_timestamp(*, format: TimestampFormat = TimestampFormat.ISO) -> str:
+    """
+    Returns a timestamp in the given format.
+    """
+    now = datetime.now()
+
+    match format:
+        case TimestampFormat.UNIX:
+            return str(int(now.timestamp()))
+        case TimestampFormat.ISO:
+            return now.isoformat(timespec="seconds")
+        case TimestampFormat.LOCALE:
+            return now.strftime("%c")
+        case _:
+            raise ValueError(f"Invalid timestamp format: {format}")
 
 
 class profile(contextlib.ContextDecorator):
@@ -72,7 +91,8 @@ class ProfileAccumulator(T.MutableMapping):
 
     def to_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(
-            [(k, v*1e-9) for k, iv in self.data.items() for _, v in enumerate(iv)], columns=[self._KEY_NAME, self._KEY_TIME]
+            [(k, v * 1e-9) for k, iv in self.data.items() for _, v in enumerate(iv)],
+            columns=[self._KEY_NAME, self._KEY_TIME],
         )
 
     def to_summary(self) -> pd.DataFrame:

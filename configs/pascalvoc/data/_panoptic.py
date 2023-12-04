@@ -4,8 +4,8 @@ import evaluators
 import torchvision.transforms.v2 as transforms
 
 import unipercept as up
-from unipercept.utils.config._lazy import bind as B
-from unipercept.utils.config._lazy import call as L
+from unipercept.config._lazy import bind as B
+from unipercept.config._lazy import call as L
 
 __all__ = ["data"]
 

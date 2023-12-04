@@ -195,6 +195,7 @@ def draw_image_segmentation(
 
     return pil_image.fromarray(out).convert("RGB")
 
+
 def draw_layers(
     layers: torch.Tensor,
     /,
@@ -224,12 +225,11 @@ def draw_layers(
 
     layers = layers.detach()
 
-    for _ in range(max(0, layers.ndim - 3)): 
+    for _ in range(max(0, layers.ndim - 3)):
         layers.squeeze_(0)
- 
-    if layers.ndim != 3: 
-        raise ValueError(f"Expected map with (1...)LHW dimensions, got {layers.shape}!")
 
+    if layers.ndim != 3:
+        raise ValueError(f"Expected map with (1...)LHW dimensions, got {layers.shape}!")
 
     # Normalize all layers to floats between 0 and 1
     layers = (layers - layers.min()) / (layers.max() - layers.min())
@@ -244,8 +244,7 @@ def draw_layers(
 
     # Overlay each layer on top of the output image
     for i, layer in enumerate(layers):
-    
-        out_layer = cmap(one * ((i+1) / layers.shape[0]), layer.numpy())
+        out_layer = cmap(one * ((i + 1) / layers.shape[0]), layer.numpy())
         # out_layer[3] *= layer.numpy()
 
         out_list.append(pil_image.fromarray(_float_to_uint8(out_layer)))
@@ -259,12 +258,13 @@ def draw_layers(
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
     return _rgba_to_rgb(out, background=background)
 
+
 def draw_map(
     map: torch.Tensor,
     /,
     palette: str = "viridis",
     ax: MatplotlibAxesObject | None = None,
-    background: torch.Tensor | None = None
+    background: torch.Tensor | None = None,
 ) -> PILImageObject:
     """
     Draws a map directly from a tensor, without using the Visualizer class.
@@ -273,12 +273,11 @@ def draw_map(
 
     map = map.detach()
 
-    for _ in range(max(0, map.ndim - 2)): 
+    for _ in range(max(0, map.ndim - 2)):
         map.squeeze_(0)
- 
-    if map.ndim != 2: 
-        raise ValueError(f"Expected map with (1...)HW dimensions, got {map.shape}!")
 
+    if map.ndim != 2:
+        raise ValueError(f"Expected map with (1...)HW dimensions, got {map.shape}!")
 
     # Normalize the map to floats between 0 and 1
     map = (map - map.min()) / (map.max() - map.min())
@@ -286,16 +285,13 @@ def draw_map(
 
     # Convert to RGB
     cmap = sns.color_palette(palette, as_cmap=True)
-    out = cmap(map.numpy()) 
+    out = cmap(map.numpy())
 
     if ax is not None:
         ax.imshow(out)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
     out = pil_image.fromarray(_float_to_uint8(out))
     return _rgba_to_rgb(out, background=background)
-    
-
-
 
 
 def draw_image_depth(
@@ -328,27 +324,30 @@ def draw_image_depth(
     out = pil_image.fromarray(_float_to_uint8(out))
     return _rgba_to_rgb(out)
 
+
 def _rgba_to_rgb(img: PILImageObject, background: PILImageObject | torch.Tensor | None = None) -> PILImageObject:
     """
     Convert an RGBA image to RGB by removing the alpha channel
     """
     from torchvision.transforms.v2.functional import to_pil_image
 
-    out = pil_image.new("RGB", img.size, (0,0,0))
+    out = pil_image.new("RGB", img.size, (0, 0, 0))
     if background is not None:
         if isinstance(background, torch.Tensor):
             background = to_pil_image(background)
         assert isinstance(background, pil_image.Image), f"{type(background)=}"
         out.paste(background.resize(img.size, resample=pil_image.Resampling.BILINEAR))
-    out.paste(img, mask=img.split()[3]) # 3 is the alpha channel
+    out.paste(img, mask=img.split()[3])  # 3 is the alpha channel
 
     return out
+
 
 def _figure_to_pil(fig) -> PILImageObject:
     """
     Convert a Matplotlib figure to a PIL Image
     """
-    return pil_image.frombytes('RGB', fig.canvas.get_width_height(),fig.canvas.tostring_rgb())
+    return pil_image.frombytes("RGB", fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+
 
 def _float_to_uint8(mat) -> np.ndarray:
     """
@@ -357,5 +356,5 @@ def _float_to_uint8(mat) -> np.ndarray:
 
     mat = mat * 255.999
     mat = np.clip(mat, 0, 255)
-    
+
     return mat.astype(np.uint8)

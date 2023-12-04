@@ -13,22 +13,22 @@ from torch import nn
 from unimodels import multidvps
 
 import unipercept as up
-from unipercept.utils.config import get_project_name, get_session_name
-from unipercept.utils.config._lazy import bind as B
-from unipercept.utils.config._lazy import call as L
-from unipercept.utils.config._lazy import use_activation, use_norm
+from unipercept.config import get_project_name, get_session_name
+from unipercept.config._lazy import bind as B
+from unipercept.config._lazy import call as L
+from unipercept.config._lazy import use_activation, use_norm
 
 from .data._panoptic import DATASET_INFO, data
 
-__all__ = ["model", "data", "trainer"]
+__all__ = ["model", "data", "engine"]
 
 MULTI_DIMS = 256
 MASK_DIMS = 128
 DEPTH_DIMS = 96
 REID_DIMS = 64
 
-trainer = B(up.trainer.Trainer)(
-    config=L(up.trainer.config.TrainConfig)(
+engine = B(up.engine.Engine)(
+    config=L(up.engine.params.EngineParams)(
         project_name=get_project_name(__file__),
         session_name=get_session_name(),
         train_batch_size=8,
@@ -36,14 +36,14 @@ trainer = B(up.trainer.Trainer)(
         eval_steps=20,
         save_epochs=1,
     ),
-    optimizer=L(up.trainer.OptimizerFactory)(
+    optimizer=L(up.engine.OptimizerFactory)(
         opt="adamw",
     ),
-    scheduler=L(up.trainer.SchedulerFactory)(
+    scheduler=L(up.engine.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
     ),
-    callbacks=[up.trainer.callbacks.FlowCallback, up.trainer.callbacks.ProgressCallback],
+    callbacks=[up.engine.callbacks.FlowCallback, up.engine.callbacks.ProgressCallback],
 )
 
 model = B(multidvps.MultiDVPS)(

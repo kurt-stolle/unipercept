@@ -9,7 +9,6 @@ __version__ = "1.0.0"
 from . import describe, echo, profile, train, backbones
 from ._cmd import *
 from ._config import *
-from ._info import *
 
 __all__ = ["command", "__version__"]
 

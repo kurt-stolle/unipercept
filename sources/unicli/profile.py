@@ -17,14 +17,14 @@ from tqdm import tqdm
 from unicore import file_io
 
 import unipercept as up
-from unipercept.utils.config import templates
-from unipercept.utils.logutils import get_logger
+from unipercept.config import templates
+from unipercept.log import get_logger
 from unipercept.utils.time import get_timestamp
 
 from ._cmd import command
 
 _logger = get_logger(__name__)
-_config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.trainer.Trainer, nn.Module]
+_config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]
 
 
 def _step_training(model: nn.Module, data: up.model.InputData) -> None:
@@ -60,9 +60,7 @@ def _find_session_path(config: _config_t) -> file_io.Path:
     Find the path to the session file.
     """
     try:
-        path = file_io.Path(
-            f"//output/{config.trainer.config.project_name}/{config.trainer.config.session_name}/profile"
-        )
+        path = file_io.Path(f"//output/{config.engine.params.project_name}/{config.engine.params.session_name}/profile")
     except KeyError:
         path = file_io.Path(f"//output/uncategorized/{get_timestamp()}/profile")
         _logger.warning("No session file found in config, using default path")
@@ -94,7 +92,7 @@ def main(args):
     config: _config_t = args.config
 
     # Print the configuration
-    _logger.info("Configuration:\n%s", pformat(up.utils.config.flatten_config(config)))
+    _logger.info("Configuration:\n%s", pformat(up.config.flatten_config(config)))
 
     # Save the results
     path_export = _find_session_path(config)

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import unipercept as up
 from omegaconf import DictConfig, ListConfig
 
 cfg_skip = set()
@@ -16,12 +17,10 @@ assert len(cfg_files) > 0, "No configuration files found in: " + cfg_root.as_pos
 
 @pytest.fixture(params=cfg_files, ids=lambda p: "cfg:" + p.as_posix().replace(".py", ""), scope="session")
 def cfg(request):
-    from detectron2.config import LazyConfig
-
     cfg_path = cfg_root / request.param
 
-    cfg = LazyConfig.load(str(cfg_path))
+    cfg = up.read_config(cfg_path)
 
     assert cfg is not None
-    assert isinstance(cfg, (DictConfig, ListConfig)), type(cfg)
+    assert isinstance(cfg, (DictConfig)), type(cfg)
     return cfg

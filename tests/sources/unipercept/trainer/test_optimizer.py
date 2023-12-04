@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch.optim
 
-from unipercept.trainer._optimizer import OptimizerFactory, OptimPackage, OptimType
+from unipercept.engine._optimizer import OptimizerFactory, OptimPackage, OptimType
 
 
 @pytest.mark.parametrize("optim_package", [t for t in OptimPackage])

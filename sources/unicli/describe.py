@@ -51,7 +51,7 @@ def extract_depth_stats(ds: up.data.sets.PerceptionDataset, output_dir: file_io.
 
 def handle_request(args) -> T.Any:
     if args.info:
-        from unipercept.data.sets import get_info
+        from unipercept import get_info
 
         return get_info(args.dataset)
     else:
@@ -60,7 +60,7 @@ def handle_request(args) -> T.Any:
 
         import yaml
 
-        from unipercept.data.sets import get_dataset
+        from unipercept import get_dataset
 
         ds_cls = get_dataset(args.dataset)
 

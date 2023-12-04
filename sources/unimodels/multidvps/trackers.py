@@ -52,7 +52,7 @@ def build_embedding_tracker() -> up.nn.layers.tracking.StatefulTracker:
 
 
 def build_depth_guided_tracker_from_metadata(name: str) -> up.nn.layers.tracking.StatefulTracker:
-    info: up.data.sets.Metadata = up.data.sets.get_info(name)
+    info: up.data.sets.Metadata = up.get_info(name)
     return up.nn.layers.tracking.StatefulTracker(
         tracker=unitrack.MultiStageTracker(
             fields=[

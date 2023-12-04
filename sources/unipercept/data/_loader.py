@@ -16,7 +16,7 @@ from torch.utils.data import (
 from typing_extensions import override
 
 from unipercept.data.ops import Op, apply_dataset
-from unipercept.utils.logutils import get_logger
+from unipercept.log import get_logger
 from unipercept.utils.state import get_process_count
 
 if T.TYPE_CHECKING:

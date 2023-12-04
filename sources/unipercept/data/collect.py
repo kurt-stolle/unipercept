@@ -8,7 +8,7 @@ from regex import W
 from typing_extensions import override
 
 import unipercept.data.types as data_types
-from unipercept.utils.logutils import get_logger
+from unipercept.log import get_logger
 
 __all__ = ["GroupAdjacentTime", "ExtractIndividualFrames", "QueueGeneratorType", "KnownCaptureSources"]
 

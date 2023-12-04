@@ -16,7 +16,7 @@ __all__ = ["add_config_args"]
 _NONINTERACTIVE_MODE = False
 _BULLET_STYLES = dict(bullet=" >", margin=2, pad_right=2)
 
-up.data.sets.list_datasets()  # trigger dataset registration
+up.list_datasets()  # trigger dataset registration
 
 
 class ConfigSource(enum.StrEnum):
@@ -44,7 +44,7 @@ class ConfigLoad(argparse.Action):
 
         name, *overrides = values
 
-        cfg = up.utils.config.LazyConfig.load(name)
+        cfg = up.config.LazyConfig.load(name)
         cfg = self.apply_overrides(cfg, overrides)
 
         setattr(namespace, self.dest, cfg)
@@ -55,7 +55,7 @@ class ConfigLoad(argparse.Action):
         return values
 
     @staticmethod
-    def interactive_select(configs_root=up.utils.config.CONFIG_ROOT) -> str:
+    def interactive_select(configs_root=up.config.CONFIG_ROOT) -> str:
         print("No configuration file specified (--config <path> [config.key=value ...]).")
 
         # Prompt 1: Where to look for configurations?
@@ -70,7 +70,7 @@ class ConfigLoad(argparse.Action):
 
         match choice:
             case ConfigSource.TEMPLATES:
-                configs_root = file_io.Path(up.utils.config.CONFIG_ROOT)
+                configs_root = file_io.Path(up.config.CONFIG_ROOT)
             case ConfigSource.CHECKPOINTS:
                 configs_root = file_io.Path("//output/")
             case _:

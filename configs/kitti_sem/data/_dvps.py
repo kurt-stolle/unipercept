@@ -9,8 +9,8 @@ import torchvision.transforms.v2 as transforms
 
 import unipercept as up
 import unipercept.data.sets.cityscapes
-from unipercept.utils.config import bind as B
-from unipercept.utils.config import call as L
+from unipercept.config import bind as B
+from unipercept.config import call as L
 
 __all__ = ["data"]
 

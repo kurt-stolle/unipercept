@@ -14,7 +14,7 @@ from typing_extensions import override
 
 import unipercept.nn.layers as _ML
 import unipercept.nn.typings as _MT
-from unipercept.utils.logutils import get_logger
+from unipercept.log import get_logger
 
 from ._base import Backbone, BackboneFeatureInfo, BackboneFeatures
 

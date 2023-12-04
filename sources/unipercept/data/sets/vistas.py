@@ -374,4 +374,3 @@ class VistasDataset(PerceptionDataset, info=get_info, id="vistas"):
             sequences[seq_key] = seq_item
 
         return {"timestamp": datetime.utcnow().isoformat(), "version": "1.0", "sequences": sequences}
-

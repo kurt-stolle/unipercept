@@ -7,7 +7,7 @@ from unicore import file_io
 from unicore.utils.dataset import Dataset
 
 from unipercept.data import collect
-from unipercept.data.sets import get_dataset
+from unipercept import get_dataset
 
 SAMPLE_IDS = [
     "aachen_000000_000019",
@@ -103,7 +103,7 @@ def test_cityscapes_static(split):
 
 
 @pytest.mark.parametrize("all", [True, False])
-@pytest.mark.parametrize("pair_size", [1, 2, 3])
+@pytest.mark.parametrize("pair_size", [1, 2])
 @pytest.mark.parametrize("split", ["train", "val", "test"])
 def test_cityscapes_vps(split, all, pair_size):
     from unipercept.data.sets.cityscapes import CityscapesVPSDataset

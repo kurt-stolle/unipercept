@@ -62,7 +62,7 @@ def get_info():
     return info_factory(categories=categories, depth_max=80.0, label_divisor=int(1e8))
 
 
-class WildDashDataset(PerceptionDataset, info=get_info):
+class WildDashDataset(PerceptionDataset, id="wilddash", info=get_info):
     """WildDash dataset."""
 
     root = "//datasets/wilddash"

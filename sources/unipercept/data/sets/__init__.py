@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing_extensions import deprecated
-from unicore.catalog import DataManager
 
 from . import (
     cityscapes,

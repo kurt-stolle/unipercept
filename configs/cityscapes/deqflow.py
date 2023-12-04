@@ -2,16 +2,16 @@ import deqflow2  # https://github.com/kurt-stolle/deq-flow
 from unimodels import deqflow
 
 import unipercept as up
-from unipercept.utils.config import get_project_name, get_session_name
-from unipercept.utils.config._lazy import bind as B
-from unipercept.utils.config._lazy import call as L
+from unipercept.config import get_project_name, get_session_name
+from unipercept.config._lazy import bind as B
+from unipercept.config._lazy import call as L
 
 from ._dataset import DATASET_INFO, DATASET_NAME, data
 
-__all__ = ["model", "data", "trainer"]
+__all__ = ["model", "data", "engine"]
 
-trainer = B(up.trainer.Trainer)(
-    config=L(up.trainer.config.TrainConfig)(
+engine = B(up.engine.Engine)(
+    config=L(up.engine.params.EngineParams)(
         project_name=get_project_name(__file__),
         session_name=get_session_name(__file__),
         train_batch_size=4,
@@ -20,14 +20,14 @@ trainer = B(up.trainer.Trainer)(
         eval_epochs=1,
         save_epochs=1,
     ),
-    optimizer=L(up.trainer.OptimizerFactory)(
+    optimizer=L(up.engine.OptimizerFactory)(
         opt="adamw",
     ),
-    scheduler=L(up.trainer.SchedulerFactory)(
+    scheduler=L(up.engine.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
     ),
-    callbacks=[up.trainer.callbacks.FlowCallback, up.trainer.callbacks.ProgressCallback],
+    callbacks=[up.engine.callbacks.FlowCallback, up.engine.callbacks.ProgressCallback],
 )
 
 model = deqflow.DEQFlowWrapper(

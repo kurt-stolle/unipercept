@@ -4,16 +4,17 @@ import typing as T
 import torch.nn as nn
 import unimodels.multidvps as multidvps
 import unipercept as up
-from unipercept.utils.config import bind as B
-from unipercept.utils.config import call as L
-from unipercept.utils.config import get_session_name, make_set
+from unipercept.config import bind as B
+from unipercept.config import call as L
+from unipercept.config import get_session_name, make_set
+import unipercept.integrations.wandb as up_wandb
 
 from ._dataset import DATASET_INFO, DATASET_NAME, data
 
-__all__ = ["model", "data", "trainer"]
+__all__ = ["model", "data", "engine"]
 
-trainer = B(up.trainer.Trainer)(
-    config=L(up.trainer.config.TrainConfig)(
+engine = B(up.engine.Engine)(
+    params=L(up.engine.EngineParams)(
         project_name="multidvps-v23.11.0",
         session_name=get_session_name(__file__),
         train_batch_size=8,
@@ -23,24 +24,26 @@ trainer = B(up.trainer.Trainer)(
         save_steps=5_000,
         logging_steps=100,
         gradient_accumulation_steps=2,
+        trackers=L(make_set)(items=["wandb"]),
     ),
-    optimizer=L(up.trainer.OptimizerFactory)(
+    optimizer=L(up.engine.OptimizerFactory)(
         opt="sgd",
-        lr=0.005,
+        lr=0.01,
         momentum=0.9,
         weight_decay=1e-4,
         weight_decay_norm=0.0,
-        weight_decay_bias=1e-8,
+        weight_decay_bias=0.0,
         param_fn=multidvps.apply_optimizer_overrides,
     ),
-    scheduler=L(up.trainer.SchedulerFactory)(
+    scheduler=L(up.engine.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
         cooldown_epochs=0,
     ),
     callbacks=[
-        L(up.trainer.callbacks.FlowCallback)(),
-        L(up.trainer.callbacks.ProgressCallback)(),
+        L(up.engine.callbacks.FlowCallback)(),
+        L(up.engine.callbacks.ProgressCallback)(),
+        L(up_wandb.WandBCallback)(),
     ],
     evaluators=[
         L(up.evaluators.DepthEvaluator.from_metadata)(name=DATASET_NAME),

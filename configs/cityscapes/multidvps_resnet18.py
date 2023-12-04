@@ -7,16 +7,17 @@ from __future__ import annotations
 
 
 from unimodels import multidvps
-from unipercept.utils.config import get_session_name, call as L, bind as B
-from .multidvps_resnet50 import model, trainer, data
+from unipercept.config import get_session_name, call as L, bind as B
+from .multidvps_resnet50 import model, engine, data
 
 import unipercept as up
 
-__all__ = ["model", "trainer", "data"]
+__all__ = ["model", "engine", "data"]
 
-trainer.config.session_name = get_session_name(__file__)
-trainer.config.eval_steps = 100
-trainer.config.logging_steps = 50
+engine.params.session_name = get_session_name(__file__)
+engine.params.eval_steps = 100
+engine.params.save_steps = 100
+engine.params.logging_steps = 50
 
 model.backbone.bottom_up = L(up.nn.backbones.timm.TimmBackbone)(name="resnet18d")
 model.backbone.out_channels = 24

@@ -19,7 +19,7 @@ from typing_extensions import override
 from unicore import catalog, file_io
 
 from unipercept.render import colormap
-from unipercept.utils.logutils import get_logger
+from unipercept.log import get_logger
 
 _logger = get_logger(__name__)
 
@@ -86,7 +86,7 @@ def get_info() -> up.data.sets.Metadata:
 # -------------------- #
 # Dataset and variants #
 # -------------------- #
-class PascalVOCDataset(PerceptionDataset, info=get_info):
+class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
     """
     Pascal VOC w/ panoptic segmentation.
 

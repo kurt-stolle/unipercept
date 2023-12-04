@@ -1,27 +1,19 @@
 import pytest
 import torch
 from detectron2.config import instantiate
-from omegaconf import DictConfig
-from unicore import file_io
+import unipercept as up
 
 
 def test_instantiate_model(cfg):
-    ins = instantiate(cfg.model)
-    assert ins is not None
-    assert isinstance(ins, torch.nn.Module), type(ins)
+    up.create_model(cfg)
 
 
-def test_instantiate_trainer(cfg):
-    cfg = cfg.train
-
-    assert cfg is not None
-    for attr in ["device", "output_dir", "max_iter", "ddp", "amp", "init_checkpoint", "checkpointer"]:
-        assert hasattr(cfg, attr), attr
+def test_instantiate_engine(cfg):
+    up.create_engine(cfg)
 
 
-@pytest.mark.parametrize("loader_key", ["train", "test"])
-def test_instantiate_loader(cfg, loader_key):
-    import torch.utils.data
+def test_instantiate_data(cfg):
+    up.create_loaders(cfg)
 
     from unipercept.data import DataLoaderFactory
     from unipercept.model import InputData

@@ -6,7 +6,7 @@ import inspect
 from typing import Callable, Concatenate, Generic, Optional, ParamSpec, TypeAlias
 
 from unipercept import __version__
-from unipercept.utils.logutils import get_logger
+from unipercept.log import get_logger
 
 __all__ = ["command", "logger"]
 

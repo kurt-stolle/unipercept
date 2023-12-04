@@ -3,13 +3,13 @@ from __future__ import annotations
 import torchvision.transforms.v2 as transforms
 
 import unipercept as up
-from unipercept.utils.config import bind as B
-from unipercept.utils.config import call as L
+from unipercept.config import bind as B
+from unipercept.config import call as L
 
 __all__ = ["data"]
 
 DATASET_NAME = "cityscapes-vps"
-DATASET_INFO: up.data.sets.Metadata = up.data.sets.get_info("cityscapes-vps")
+DATASET_INFO: up.data.sets.Metadata = up.get_info("cityscapes-vps")
 
 data = B(up.data.DataConfig)(
     loaders={
@@ -19,7 +19,7 @@ data = B(up.data.DataConfig)(
                 all=False,
                 queue_fn=L(up.data.collect.GroupAdjacentTime)(
                     num_frames=2,
-                    required_capture_sources=L(up.utils.config.make_set)(items=["image", "panoptic"]),
+                    required_capture_sources=L(up.config.make_set)(items=["image", "panoptic"]),
                 ),
             ),
             actions=[
@@ -39,7 +39,7 @@ data = B(up.data.DataConfig)(
             dataset=L(L(up.get_dataset)(name="cityscapes"))(
                 split="train",
                 queue_fn=L(up.data.collect.ExtractIndividualFrames)(
-                    required_capture_sources=L(up.utils.config.make_set)(items=["image", "panoptic"]),
+                    required_capture_sources=L(up.config.make_set)(items=["image", "panoptic"]),
                 ),
             ),
             actions=[
@@ -64,7 +64,7 @@ data = B(up.data.DataConfig)(
                 all=False,
                 queue_fn=L(up.data.collect.GroupAdjacentTime)(
                     num_frames=2,
-                    required_capture_sources=L(up.utils.config.make_set)(items=["image", "panoptic"]),
+                    required_capture_sources=L(up.config.make_set)(items=["image", "panoptic"]),
                 ),
             ),
             actions=[
@@ -84,7 +84,7 @@ data = B(up.data.DataConfig)(
                 all=False,
                 queue_fn=L(up.data.collect.GroupAdjacentTime)(
                     num_frames=1,
-                    required_capture_sources=L(up.utils.config.make_set)(items=["image", "panoptic"]),
+                    required_capture_sources=L(up.config.make_set)(items=["image", "panoptic"]),
                 ),
             ),
             actions=[

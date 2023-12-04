@@ -11,13 +11,13 @@ from unicore import file_io
 import os
 import unipercept as up
 import safetensors
-from unipercept.utils.config import LazyConfig, _lazy, templates
-from unipercept.utils.logutils import create_table, get_logger
+from unipercept.config import LazyConfig, _lazy, templates
+from unipercept.log import create_table, get_logger
 
 from ._cmd import command
 
 _logger = get_logger(__name__)
-_config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.trainer.Trainer, nn.Module]
+_config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]
 
 
 class ModelFactory:
@@ -25,7 +25,7 @@ class ModelFactory:
         self.model_config = model_config
         self.checkpoint_path = file_io.Path(checkpoint_path) if checkpoint_path is not None else None
 
-    def __call__(self, trial: up.trainer.Trial | None) -> nn.Module:
+    def __call__(self, trial: up.engine.Trial | None) -> nn.Module:
         model = T.cast(nn.Module, _lazy.instantiate(self.model_config))
 
         if self.checkpoint_path is not None:
@@ -83,27 +83,27 @@ def main(args):
 
     # Handle training tags
     if len(args.tag) > 0:
-        lazy_config.trainer.tags += args.tag
+        lazy_config.engine.tags += args.tag
 
-    # Before creating the trainer across processes, check if the config file exists and recover the trainer if it does.
-    lazy_trainer = lazy_config.trainer
-    lazy_trainer.config = _lazy.instantiate(lazy_trainer.config)
-    config_path = file_io.Path(lazy_trainer.config.root) / "config.yaml"
+    # Before creating the engine across processes, check if the config file exists and recover the engine if it does.
+    lazy_engine = lazy_config.engine
+    lazy_engine.params = _lazy.instantiate(lazy_engine.params)
+    config_path = file_io.Path(lazy_engine.params.root) / "config.yaml"
     do_recover = config_path.exists()
 
     state = accelerate.PartialState()
     state.wait_for_everyone()  # Ensure the config file is not created before all processes validate its existence
 
-    trainer: up.trainer.Trainer = _lazy.instantiate(lazy_config.trainer)
+    engine: up.engine.Engine = _lazy.instantiate(lazy_config.engine)
 
     if do_recover:
         _logger.info(
-            "A serialized config YAML file exists at %s. Recovering trainer at latest checkpoint.",
+            "A serialized config YAML file exists at %s. Recovering engine at latest checkpoint.",
             config_path,
         )
-        trainer.recover()
+        engine.recover()
     elif state.is_main_process:
-        _logger.info("Storing serialized config to YAML file %s", trainer.path)
+        _logger.info("Storing serialized config to YAML file %s", engine.path)
         LazyConfig.save(lazy_config, str(config_path))
 
     # Setup dataloaders
@@ -112,10 +112,10 @@ def main(args):
     model_factory = ModelFactory(lazy_config.model, args.weights or None)
 
     if args.evaluation:
-        results = trainer.evaluate(model_factory, loaders[args.dataloader_test])
+        results = engine.evaluate(model_factory, loaders[args.dataloader_test])
         _logger.info("Evaluation results: \n%s", create_table(results, format="long"))
     else:
-        trainer.train(
+        engine.train(
             model_factory,
             loaders[args.dataloader_train],
             trial=None,

@@ -18,13 +18,20 @@ from unipercept.data.tensors import PanopticMap
 from unipercept.utils.camera import build_calibration_matrix
 
 if T.TYPE_CHECKING:
-    import unipercept as up
     from unipercept.data.collect import ExtractIndividualFrames
     from unipercept.model import InputData
 
 from ..types import COCOCategory, Manifest, QueueItem
 
-__all__ = ["PerceptionDataset", "Metadata", "SClass", "SType", "StuffMode", "info_factory", "get_dataset", "get_info", "list_datasets", "list_info", "get_manifest", "get_queue", "get_datapipe"]
+__all__ = [
+    "PerceptionDataset",
+    "Metadata",
+    "SClass",
+    "SType",
+    "StuffMode",
+    "info_factory",
+    "catalog",
+]
 
 # ---------------- #
 # HELPER FUNCTIONS #
@@ -224,6 +231,7 @@ class Metadata:
 
     def get(self, key: str, default: T.Any = None) -> T.Any:
         return getattr(self, key, default)
+
     # Implementation of deprecated properties from new metadata
     @property
     @deprecated("Use `stuff_mode` instead.")
@@ -446,32 +454,12 @@ def info_factory(
         semantic_classes=frozendict(sem_map),
     )
 
+
 # ------------------ #
 # DATASET MANAGEMENT #
 # ------------------ #
 
-_manager: DataManager[PerceptionDataset, Metadata] = DataManager()
-
-get_dataset = _manager.get_dataset
-get_info = _manager.get_info
-list_datasets = _manager.list_datasets
-list_info = _manager.list_info
-
-
-def get_manifest(name, **kwargs):
-    """Returns only the manifest of a dataset."""
-    return get_dataset(name)(queue_fn=None, **kwargs).manifest
-
-
-def get_queue(name, **kwargs):
-    """Return only the queue of a dataset."""
-    return get_dataset(name)(**kwargs).queue
-
-
-def get_datapipe(name, **kwargs):
-    """Returns only the pipeline of a dataset, i.e. the actual loaded images."""
-    return get_dataset(name)(**kwargs).datapipe
-
+catalog: DataManager["PerceptionDataset", Metadata] = DataManager()
 
 
 class PerceptionDataset(
@@ -489,13 +477,13 @@ class PerceptionDataset(
 
         if not cls.__name__.startswith("_"):
             if id is not None:
-                id_canon = _manager.parse_key(id)
+                id_canon = catalog.parse_key(id)
                 if id != id_canon:
                     raise ValueError(
                         f"Directly specifying an ID that is not canonical not allowed: '{id}' should be '{id_canon}'!"
                     )
 
-            _manager.register_dataset(id, info=cls._create_info)(cls)  # is a decorator
+            catalog.register_dataset(id, info=cls._create_info)(cls)  # is a decorator
         elif id is not None:
             raise ValueError(f"Opinionated: classes starting with '_' should not have an ID, got: {id}")
 
@@ -530,9 +518,7 @@ class PerceptionDataset(
         return cap_data
 
     @classmethod
-    def _load_motion_data(
-        cls, sources: T.Sequence[up.data.types.MotionSources], info: Metadata
-    ) -> up.model.MotionData:
+    def _load_motion_data(cls, sources: T.Sequence[up.data.types.MotionSources], info: Metadata) -> up.model.MotionData:
         raise NotImplementedError(f"{cls.__name__} does not implement motion sources!")
 
     _data_cache: T.ClassVar[dict[str, up.model.InputData]] = {}

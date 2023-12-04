@@ -152,7 +152,7 @@ class MultiDVPS(up.model.ModelBase):
 
     @classmethod
     def from_metadata(cls, dataset_name: str, **kwargs) -> T.Self:
-        info = up.data.sets.get_info(dataset_name)
+        info = up.get_info(dataset_name)
 
         return cls(
             id_map_stuff=info.stuff_train_id2contiguous_id,

@@ -4,17 +4,17 @@ import typing as T
 from logging import warn
 
 import unipercept as up
-from unipercept.utils.config import get_project_name, get_session_name
-from unipercept.utils.config._lazy import bind as B
-from unipercept.utils.config._lazy import call as L
+from unipercept.config import get_project_name, get_session_name
+from unipercept.config._lazy import bind as B
+from unipercept.config._lazy import call as L
 
 from ..cityscapes.multidvps_resnet50 import model
 from .data._dvps import data
 
-__all__ = ["model", "data", "trainer"]
+__all__ = ["model", "data", "engine"]
 
-trainer = B(up.trainer.Trainer)(
-    config=L(up.trainer.config.TrainConfig)(
+engine = B(up.engine.Engine)(
+    config=L(up.engine.params.EngineParams)(
         project_name=get_project_name(__file__),
         session_name=get_session_name(),
         # train_steps=120_000,
@@ -22,12 +22,12 @@ trainer = B(up.trainer.Trainer)(
         eval_epochs=1,
         save_epochs=1,
     ),
-    optimizer=L(up.trainer._optimizer.OptimizerFactory)(
+    optimizer=L(up.engine._optimizer.OptimizerFactory)(
         opt="adamw",
     ),
-    scheduler=L(up.trainer._scheduler.SchedulerFactory)(
+    scheduler=L(up.engine._scheduler.SchedulerFactory)(
         scd="poly",
         warmup_epochs=1,
     ),
-    callbacks=[up.trainer.callbacks.FlowCallback, up.trainer.callbacks.ProgressCallback],
+    callbacks=[up.engine.callbacks.FlowCallback, up.engine.callbacks.ProgressCallback],
 )

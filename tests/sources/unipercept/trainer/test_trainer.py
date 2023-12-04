@@ -7,18 +7,18 @@ import unipercept as up
 
 @pytest.fixture()
 def train_config(tmpdir):
-    return up.trainer.TrainConfig(project_name="test", root=str(tmpdir))
+    return up.engine.EngineParams(project_name="test", root=str(tmpdir))
 
 
-def test_trainer(model_factory, train_config, loader_factory):
+def test_engine(model_factory, train_config, loader_factory):
     callbacks = [
-        up.trainer.callbacks.FlowCallback(),
-        up.trainer.callbacks.Logger(),
+        up.engine.callbacks.FlowCallback(),
+        up.engine.callbacks.Logger(),
     ]
-    trainer = up.trainer.Trainer(
-        config=train_config,
-        scheduler=up.trainer.SchedulerFactory("poly"),
-        optimizer=up.trainer.OptimizerFactory("sgd", lr=0.1),
+    engine = up.engine.Engine(
+        params=train_config,
+        scheduler=up.engine.SchedulerFactory("poly"),
+        optimizer=up.engine.OptimizerFactory("sgd", lr=0.1),
         callbacks=callbacks,
     )
-    trainer.train(model_factory, loader_factory, None)
+    engine.train(model_factory, loader_factory, None)

@@ -5,7 +5,7 @@ import torch.optim
 from timm.scheduler.cosine_lr import CosineLRScheduler as TimmCosineLRScheduler
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 
-from unipercept.trainer import SchedType, SchedulerFactory
+from unipercept.engine import SchedType, SchedulerFactory
 
 
 @pytest.mark.parametrize("sched_type", [t for t in SchedType])

@@ -53,7 +53,7 @@ class DepthWriter(Evaluator):
     @override
     def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput):
         super().update(storage, inputs, outputs)
-        storage.setdefault(TRUE_DEPTH, inputs.captures.get("depths", None), inplace=True)
+        storage.setdefault(TRUE_DEPTH, inputs.captures.depths, inplace=True)
         storage.setdefault(PRED_DEPTH, outputs.predictions.get("depths", None), inplace=True)
 
     @override

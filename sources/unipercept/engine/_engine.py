@@ -24,7 +24,7 @@ import torch.optim
 import torch.utils.data
 import wandb
 from PIL import Image as pil_image
-from tensordict import MemmapTensor, TensorDict
+from tensordict import MemmapTensor, PersistentTensorDict, TensorDict
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
@@ -45,6 +45,7 @@ from ._scheduler import SchedulerFactory
 from ._trial import Trial
 from ._types import DataLoaderFactory, ModelFactory
 from ._params import InferencePrecision, EngineParams
+from ._writer import ResultsWriter
 from unicore import file_io
 
 if T.TYPE_CHECKING:
@@ -903,15 +904,22 @@ class Engine:
             self._past = None
 
         # Output memory
-        results_mem = None
         results_remove_on_exit = results_path is None
+        results_path =(
+            file_io.Path("//scratch/")
+            / self._params.project_name
+            / self._params.session_name
+            / "inference-step-{self._state.step}.h5"
+        )
+        results_mem = ResultsWriter(str(results_path), samples_total)
+
 
         # Prediction
         _logger.info(f"Running inference loop on {self._xlr.num_processes} processes.")
 
         samples_processed = 0
         batch_size = self._params.infer_batch_size
-        write_index = batch_offsets[self._xlr.process_index] * batch_size
+        # write_index = batch_offsets[self._xlr.process_index] * batch_size
 
         timings = ProfileAccumulator()
 
@@ -955,16 +963,17 @@ class Engine:
                 # Write only on main process
                 if self._xlr.is_main_process:
                     results_merged = TensorDict(results_dict, [samples_in_batch])
-                    if results_mem is None:
-                        assert results_path is None
-                        results_mem, results_path = self._inference_results_allocate(
-                            batch_total * batch_size, results_merged, results_path
-                        )
-                    else:
-                        assert results_path is not None
-                    results_mem[write_index : write_index + samples_in_batch] = results_merged.cpu()
+                    results_mem.add(results_merged)
+                    # if results_mem is None:
+                    #     assert results_path is None
+                    #     results_mem, results_path = self._inference_results_allocate(
+                    #         batch_total * batch_size, results_merged, results_path
+                    #     )
+                    # else:
+                    #     assert results_path is not None
+                    # results_mem[write_index : write_index + samples_in_batch] = results_merged.cpu()
 
-                write_index += samples_in_batch
+                # write_index += samples_in_batch
                 samples_processed += samples_in_batch
             self._event(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
 
@@ -982,14 +991,14 @@ class Engine:
         self._xlr.wait_for_everyone()
 
         # Run metric computations
-        metrics: dict[str, float | str | int | bool] = {}
+        metrics: dict[str, T.Any] = {}
         visuals: dict[str, pil_image.Image] = {}
         if self._xlr.is_main_process:
-            if write_index < batch_total:
-                warnings.warn(
-                    (f"Expected to process {batch_total} batches, but only processed {write_index}. "),
-                    stacklevel=2,
-                )
+            # if write_index < batch_total:
+            #     warnings.warn(
+            #         (f"Expected to process {batch_total} batches, but only processed {write_index}. "),
+            #         stacklevel=2,
+            #     )
             metrics.update(
                 _build_speed_metrics(
                     "inference",
@@ -1004,14 +1013,14 @@ class Engine:
             # Run the evaluation handlers on the main process
             for evaluator in handlers:
                 _logger.debug(f"Running evaluation handler: {evaluator}")
-                assert isinstance(results_mem, TensorDict)
+                # assert isinstance(results_mem, TensorDict)
 
                 # Metrics
-                handler_metrics = evaluator.compute(results_mem, device=self._xlr.device)
+                handler_metrics = evaluator.compute(results_mem.tensordict, device=self._xlr.device)
                 metrics.update(handler_metrics)
 
                 # Visualizations
-                visuals.update(evaluator.plot(results_mem))
+                visuals.update(evaluator.plot(results_mem.tensordict))
 
             # Store visualizations
             self._store_visualizations(visuals, prefix=prefix)

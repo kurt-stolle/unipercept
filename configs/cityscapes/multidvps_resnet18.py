@@ -18,6 +18,7 @@ engine.params.session_name = get_session_name(__file__)
 engine.params.eval_steps = 100
 engine.params.save_steps = 100
 engine.params.logging_steps = 50
+engine.params.gradient_accumulation_steps=1
 
 model.backbone.bottom_up = L(up.nn.backbones.timm.TimmBackbone)(name="resnet18d")
 model.backbone.out_channels = 24

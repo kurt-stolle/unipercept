@@ -68,6 +68,8 @@ class WandBCallback(CallbackDispatcher):
         run = wandb.run
         assert run is not None, "WandB run not initialized"
 
+        _logger.info(f"Logging additional metrics to WandB run {run.name}")
+
         run.watch(model, log="all", log_freq=params.logging_steps)
 
     @TX.override
@@ -79,5 +81,7 @@ class WandBCallback(CallbackDispatcher):
 
         run = wandb.run
         assert run is not None, "WandB run not initialized"
+
+        _logger.info(f"Logging model to WandB run {run.name}")
 
         run.log_model(model_path)

@@ -26,7 +26,7 @@ from . import helpers as H
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
-    from ..model import ModelOutput
+    from ..model import ModelOutput, InputData
 
 __all__ = ["PanopticEvaluator", "TRUE_PANOPTIC", "PRED_PANOPTIC", "PanopticWriter"]
 
@@ -58,8 +58,8 @@ class PanopticWriter(Evaluator):
         return cls(info=get_info(name), **kwargs)
 
     @override
-    def update(self, storage: TensorDictBase, outputs: ModelOutput):
-        super().update(storage, outputs)
+    def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput):
+        super().update(storage, inputs, outputs)
         storage.setdefault(TRUE_PANOPTIC, outputs.truths.get("segmentations"), inplace=True)
         storage.setdefault(PRED_PANOPTIC, outputs.predictions.get("segmentations"), inplace=True)
 

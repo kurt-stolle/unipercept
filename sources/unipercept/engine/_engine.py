@@ -937,7 +937,7 @@ class Engine:
                     names=["B"],
                 )
                 for evaluator in handlers:
-                    evaluator.update(results_merged, outputs)
+                    evaluator.update(results_merged, inputs=inputs, outputs=outputs)
 
             # Gather results
             with profile(timings, "gather"):

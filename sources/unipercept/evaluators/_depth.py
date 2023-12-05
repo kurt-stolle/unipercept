@@ -18,7 +18,7 @@ from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
-    from ..model import ModelOutput
+    from ..model import ModelOutput, InputData
 _logger = get_logger(__name__)
 
 PRED_DEPTH = "pred_depth"
@@ -51,9 +51,9 @@ class DepthWriter(Evaluator):
         return cls(info=info, **kwargs)
 
     @override
-    def update(self, storage: TensorDictBase, outputs: ModelOutput):
-        super().update(storage, outputs)
-        storage.setdefault(TRUE_DEPTH, outputs.truths.get("depths", None), inplace=True)
+    def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput):
+        super().update(storage, inputs, outputs)
+        storage.setdefault(TRUE_DEPTH, inputs.captures.get("depths", None), inplace=True)
         storage.setdefault(PRED_DEPTH, outputs.predictions.get("depths", None), inplace=True)
 
     @override

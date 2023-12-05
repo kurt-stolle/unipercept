@@ -4,7 +4,6 @@ Implements the baseclass for evaluators
 from __future__ import annotations
 import dataclasses as D
 import abc
-from multiprocessing import Process
 import typing as T
 
 import torch
@@ -15,7 +14,7 @@ from PIL import Image as pil_image
 from tensordict import TensorDict, TensorDictBase
 
 if T.TYPE_CHECKING:
-    from ..model import ModelOutput
+    from ..model import ModelOutput, InputData
 
 __all__ = ["Evaluator", "PlotMode"]
 
@@ -41,7 +40,7 @@ class Evaluator(T.Protocol, metaclass=abc.ABCMeta):
     Implements a stateless evaluator for a given task.
     """
 
-    def update(self, storage: TensorDictBase, outputs: ModelOutput) -> None:
+    def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput) -> None:
         return None
 
     @abc.abstractmethod

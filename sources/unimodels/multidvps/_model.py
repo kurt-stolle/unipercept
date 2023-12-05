@@ -520,7 +520,7 @@ class MultiDVPS(up.model.ModelBase):
             if key not in self.inference_pipeline.outputs:
                 outputs.predictions.del_(key)
 
-        return outputs.contiguous()
+        return outputs
 
     @torch.jit.script_if_tracing
     def _apply_tracking_(self, inputs: up.model.InputData, outputs: up.model.ModelOutput) -> None:

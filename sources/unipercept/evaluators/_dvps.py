@@ -9,7 +9,7 @@ import dataclasses as D
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
-from unipercept.model import ModelOutput
+from unipercept.model import ModelOutput, InputData
 from ._panoptic import PanopticWriter
 from ._depth import DepthWriter
 
@@ -26,8 +26,8 @@ class DVPSWriter(PanopticWriter, DepthWriter):
     """
 
     @override
-    def update(self, storage: TensorDictBase, outputs: ModelOutput):
-        super().update(storage, outputs)
+    def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput):
+        super().update(storage, inputs, outputs)
 
 
 @D.dataclass(kw_only=True)

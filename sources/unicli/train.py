@@ -23,7 +23,7 @@ _config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.engine.
 class ModelFactory:
     def __init__(self, model_config, checkpoint_path: file_io.Path | os.PathLike | str | None = None):
         self.model_config = model_config
-        self.checkpoint_path = file_io.Path(checkpoint_path) if checkpoint_path is not None else None
+        self.checkpoint_path = checkpoint_path 
 
     def __call__(self, trial: up.engine.Trial | None) -> nn.Module:
         model = T.cast(nn.Module, _lazy.instantiate(self.model_config))
@@ -66,7 +66,6 @@ def train(subparser: argparse.ArgumentParser):
     subparser.add_argument("--dataloader-train", type=str, default="train", help="name of the train dataloader")
     subparser.add_argument("--dataloader-test", type=str, default="test", help="name of the test dataloader")
     subparser.add_argument("--weights", "-w", type=file_io.Path, help="path to load model weights from")
-    subparser.add_argument("--tag", "-t", type=str, default=[], action="append", help="tag to add to the experiment")
 
     return main
 
@@ -80,10 +79,6 @@ def main(args):
         os.environ["PYTORCH_JIT"] = "0"
 
     lazy_config: _config_t = args.config
-
-    # Handle training tags
-    if len(args.tag) > 0:
-        lazy_config.engine.tags += args.tag
 
     # Before creating the engine across processes, check if the config file exists and recover the engine if it does.
     lazy_engine = lazy_config.engine

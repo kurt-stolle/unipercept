@@ -1,6 +1,6 @@
 import pytest
 
-from unipercept.engine.params import EngineParams
+from unipercept.engine import EngineParams
 
 
 @pytest.mark.parametrize(

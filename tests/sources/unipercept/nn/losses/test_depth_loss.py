@@ -7,7 +7,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import array_shapes, arrays
 
-from unipercept.nn.losses._depth import DepthLoss, compute_rel, compute_sile
+from unipercept.nn.losses import DepthLoss
+from unipercept.nn.losses.functional import scale_invariant_logarithmic_error, relative_absolute_squared_error
 
 devices = [torch.device("cpu")]
 # if torch.cuda.is_available():
@@ -15,7 +16,7 @@ devices = [torch.device("cpu")]
 
 torch.autograd.set_detect_anomaly(True)
 
-MAX_DEPTH = st.floats(50.0, 500.0, allow_nan=False, allow_infinity=False)
+MAX_DEPTH = st.floats(1.0, 100.0, allow_nan=False, allow_infinity=False)
 INPUTS = array_shapes(min_dims=3, max_dims=3, min_side=4, max_side=16).flatmap(
     lambda shape: st.tuples(
         arrays(
@@ -65,7 +66,7 @@ def test_depth_loss_sile(
 
     # Calculate loss
     num = pred.shape[0]
-    loss = compute_sile(pred, true, num)
+    loss = scale_invariant_logarithmic_error(pred, true, num, eps=1e-8)
     assert torch.isfinite(loss).all(), loss
 
     # Calculate gradients
@@ -104,7 +105,7 @@ def test_depth_loss_rel(
     # Calculate loss
     num = pred.shape[0]
     # Compute ARE
-    are, sre = compute_rel(pred, true, num)
+    are, sre = relative_absolute_squared_error(pred, true, num, eps=1e-8)
     loss = torch.stack([are, sre]).mean()
     assert torch.isfinite(loss)
     loss.backward()

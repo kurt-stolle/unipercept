@@ -9,8 +9,8 @@ from unipercept.config._lazy import call as L
 __all__ = ["data"]
 
 DATASET_NAME = "kitti-360"
-DATASET_CLASS: type[up.data.sets.cityscapes.CityscapesVPSDataset] = L(up.get_dataset)(name=DATASET_NAME)
-DATASET_INFO: up.data.sets.Metadata = up.get_info(DATASET_NAME)
+DATASET_CLASS = L(up.get_dataset)(name=DATASET_NAME)
+DATASET_INFO = up.get_info(DATASET_NAME)
 
 data = B(up.data.DataConfig)(
     loaders={

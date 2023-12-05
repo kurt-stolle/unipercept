@@ -15,7 +15,7 @@ __all__ = ["model", "data", "engine"]
 
 engine = B(up.engine.Engine)(
     params=L(up.engine.EngineParams)(
-        project_name="multidvps-v23.11.0",
+        project_name="multidvps",
         session_name=get_session_name(__file__),
         train_batch_size=8,
         train_steps=100_000,

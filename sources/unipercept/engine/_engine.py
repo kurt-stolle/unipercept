@@ -124,7 +124,7 @@ class Engine:
         self._event(Event.ON_CREATE)
         self._mem_tracker.stop_and_update_metrics("init")
 
-    status = StatusDescriptor[EngineStatus](default=EngineStatus(0))
+    status = StatusDescriptor(EngineStatus, default=EngineStatus(0))
 
     ##############
     # Public API #
@@ -138,7 +138,7 @@ class Engine:
                 for k, v in {
                     "config": str(self._params),
                     "state": str(self._state),
-                    "status": str(self.status),
+                    "status": tuple(map(str, self.status)),
                 }.items()
             ]
         )
@@ -270,7 +270,7 @@ class Engine:
         loader_factory: DataLoaderFactory[InputType],
         *,
         trial: Trial | None = None,
-        prefix: str = "Evaluation",
+        prefix: str = "evaluation",
     ) -> dict[str, float]:
         _logger.info("Starting evaluation")
 
@@ -622,8 +622,8 @@ class Engine:
         metrics["total_flops"] = self._state.total_flops
 
         for k in list(metrics.keys()):
-            if not k.startswith("Engine/"):
-                metrics["Engine/" + k] = metrics.pop(k)
+            if not k.startswith("engine/"):
+                metrics["engine/" + k] = metrics.pop(k)
 
         self.is_in_train = False
 
@@ -653,7 +653,7 @@ class Engine:
             ), "No new logs should be created when nothing changed"
 
             logs: dict[str, float] = {}
-            logs["Optimizer/lr"] = _get_learning_rate(optimizer)
+            logs["optimizer/lr"] = _get_learning_rate(optimizer)
 
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {k: self._nested_gather(l).mean().item() for k, l in tr_loss.items()}
@@ -663,7 +663,7 @@ class Engine:
             tr_loss.apply_(lambda _l: _l - _l)
 
             for k, v in tr_loss_scalar.items():
-                logs["Losses/" + k] = round(v / (self._state.step - self._globalstep_last_logged), 4)
+                logs["losses/" + k] = round(v / (self._state.step - self._globalstep_last_logged), 4)
 
             self._globalstep_last_logged = self._state.step
             # self.store_flops()
@@ -697,7 +697,7 @@ class Engine:
             # Report event
             self._event(Event.ON_SAVE, model_path=model_path, state_path=state_path)
 
-    def _training_log(self, logs: dict[str, float]) -> None:
+    def _training_log(self, logs: dict[str, float | str | int | bool]) -> None:
         """
         Log `logs` on the various objects watching training.
 
@@ -708,10 +708,10 @@ class Engine:
         logs : dict[str, float]
             The logs to be logged.
         """
-        logs["Engine/epoch"] = round(self._state.epoch, 2)
-        logs["Engine/step"] = self._state.step
-        logs["Engine/epoch_step"] = self._xlr.step
-        logs["Engine/status"] = self.status
+        logs["engine/epoch"] = round(self._state.epoch, 2)
+        logs["engine/step"] = self._state.step
+        logs["engine/epoch_step"] = self._xlr.step
+        logs["engine/status"] = self.status
 
         self._event(Event.ON_LOG, logs=logs)  # NOTE: logs may be updated in-place
 

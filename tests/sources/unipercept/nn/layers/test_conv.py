@@ -12,9 +12,9 @@ def conv_module(request) -> nn.Module:
     return request.param
 
 
-@pytest.fixture(scope="module", params=[None, nn.SiLU, nn.GELU])
-def activation_module() -> nn.Module:
-    return nn.ReLU
+@pytest.fixture(scope="module", params=[None, nn.ReLU, nn.GELU])
+def activation_module(request) -> nn.Module:
+    return request.param
 
 
 @pytest.fixture(scope="module", params=[None, nn.BatchNorm2d])
@@ -69,95 +69,3 @@ def test_forward(
     print(
         f"dx/dy : mean {input_tensor.grad.mean().item(): 4.3f}, std {input_tensor.grad.std().item(): 4.3f} | {tuple(input_tensor.grad.shape)}"
     )
-
-
-# import pytest
-# import torch
-# import torch.nn as nn
-
-# from unipercept.nn.layers import conv
-
-
-# @pytest.fixture(params=[conv.Conv2d, conv.Standard2d, conv.Separable2d, conv.ModDeform2d])
-# def conv_module(request):
-#     return request.param
-
-
-# @pytest.fixture(params=[1, 16])
-# def num_channels(request):
-#     return request.param
-
-
-# @pytest.fixture(params=[(64, 32)])
-# def input_shape(request):
-#     return request.param
-
-
-# @pytest.fixture(params=[3, 5])
-# def kernel_size(request):
-#     return request.param
-
-
-# @pytest.fixture(params=[1, 2])
-# def stride(request):
-#     return request.param
-
-
-# @pytest.fixture(params=[0, 1, "same"])
-# def padding(request):
-#     return request.param
-
-
-# @pytest.fixture(params=[None, nn.ReLU, nn.SiLU, nn.GELU])
-# def activation_module(request):
-#     return request.param
-
-
-# @pytest.fixture(params=[None, nn.Identity, nn.BatchNorm2d, nn.GroupNorm, nn.LayerNorm])
-# def norm_module(request):
-#     return request.param
-
-
-# @pytest.fixture
-# def input_tensor(num_channels, input_shape):
-#     return torch.randn((2, num_channels, *input_shape), requires_grad=True)
-
-
-# def test_forward(
-#     conv_module,
-#     num_channels,
-#     norm_module,
-#     activation_module,
-#     kernel_size,
-#     stride,
-#     padding,
-#     input_tensor,
-# ):
-#     print(f"\n-- {conv_module} --")
-#     m = conv_module.with_norm_activation(
-#         in_channels=num_channels,
-#         out_channels=3,
-#         kernel_size=kernel_size,
-#         stride=stride,
-#         padding=padding,
-#         norm=norm_module,
-#         activation=activation_module,
-#     )
-
-#     y = m.forward(input_tensor)
-
-#     out = y.sum()
-
-#     assert out.isfinite().all(), out
-
-#     out.backward()
-
-#     assert input_tensor.grad is not None
-
-#     print(
-#         f"x     : mean {input_tensor.mean().item(): 4.3f}, std {input_tensor.std().item(): 4.3f} | {tuple(input_tensor.shape)}"
-#     )
-#     print(f"y     : mean {y.mean().item(): 4.3f}, std {y.std().item(): 4.3f} | {tuple(y.shape)}")
-#     print(
-#         f"dx/dy : mean {input_tensor.grad.mean().item(): 4.3f}, std {input_tensor.grad.std().item(): 4.3f} | {tuple(input_tensor.grad.shape)}"
-#     )

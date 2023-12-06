@@ -6,7 +6,6 @@ import os
 import typing as T
 
 import accelerate
-import safetensors
 import torch
 import torch.nn as nn
 from unicore import file_io
@@ -23,13 +22,6 @@ _config_t: T.TypeAlias = up.config.templates.LazyConfigFile[up.data.DataConfig, 
 @command.with_config
 def train(subparser: argparse.ArgumentParser):
     subparser.add_argument("--headless", action="store_true", help="disable all interactive prompts")
-    subparser.add_argument(
-        "--detect-anomalies",
-        action="store_true",
-        dest="anomalies",
-        default=False,
-        help="flag to enable anomaly detection in autograd",
-    )
     subparser.add_argument(
         "--evaluation", "-E", action="store_true", help="run in evaluation mode (no training, only evaluation)"
     )
@@ -48,29 +40,50 @@ def train(subparser: argparse.ArgumentParser):
     subparser.add_argument("--dataloader-train", type=str, default="train", help="name of the train dataloader")
     subparser.add_argument("--dataloader-test", type=str, default="test", help="name of the test dataloader")
     subparser.add_argument("--weights", "-w", type=file_io.Path, help="path to load model weights from")
-    subparser.add_argument(
+
+    subparser_mode = subparser.add_mutually_exclusive_group(required=False)
+    subparser_mode.add_argument(
         "--development",
         action="store_true",
-        help="optimizes the configuration for library development and disables telemetry/tracking of the run",
+        help="optimizes the configuration for library development, implies --debug",
     )
-    subparser.add_argument(
+    subparser_mode.add_argument(
         "--debug",
         action="store_true",
-        help="optimizes the configuration for model debugging and disables telemetry/tracking of the run",
+        help="optimizes the configuration for model debugging",
     )
 
     return main
 
 
-def main(args):
-    if args.anomalies:
-        _logger.info("Enabling anomaly detection in autograd")
-        torch.autograd.set_detect_anomaly(True)
+def apply_debug_mode(lazy_config: _config_t) -> None:
+    torch.autograd.set_detect_anomaly(True)
+
+    lazy_config.engine.params.full_determinism = True
+
+
+def apply_development_mode(lazy_config: _config_t) -> None:
+    os.environ["WANDB_OFFLINE"] = "true"
+
+    apply_debug_mode(lazy_config)
+
+def setup(args) -> _config_t:
+    # Disable JIT
     if args.no_jit:
         _logger.info("Disabling JIT compilation")
         os.environ["PYTORCH_JIT"] = "0"
 
-    lazy_config: _config_t = args.config
+    # Dev/Debug mode
+    if args.development:
+        apply_development_mode(args.config)
+    elif args.debug:
+        apply_debug_mode(args.config)
+
+    return args.config
+
+
+def main(args):
+    lazy_config: _config_t = setup(args)
 
     # Before creating the engine across processes, check if the config file exists and recover the engine if it does.
     lazy_engine = lazy_config.engine

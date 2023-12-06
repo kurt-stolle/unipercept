@@ -179,6 +179,8 @@ def draw_image_segmentation(
 
     from ._visualizer import Visualizer
 
+    pan = pan.squeeze(0)
+
     assert len(pan.shape) == 2, f"Expected image with HW dimensions, got {pan.shape}!"
 
     pan = pan.detach().as_subclass(PanopticMap)

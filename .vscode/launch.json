@@ -38,8 +38,8 @@
             "args": [
                 "train",
                 "--config",
-                "configs/cityscapes/multidvps_resnet50.py",
-                "--detect-anomalies"
+                "configs/cityscapes/multidvps_resnet18.py",
+                "--debug"
                 
             ],
             "envFile": "debug.env",

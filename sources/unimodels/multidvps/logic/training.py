@@ -270,7 +270,6 @@ class TrainingPipeline(nn.Module):
     ) -> ThingDepthLosses:
         result = {}
 
-        h, w = true_things.shape[-2:]
         # Ground truth
         thing_depth_true = [_d.repeat((_s.shape[0], 1, 1)) for _d, _s in zip(true_depths, select)]
         thing_depth_true = torch.cat(thing_depth_true, dim=0).unsqueeze(1).type(thing_dmap.dtype)
@@ -283,6 +282,7 @@ class TrainingPipeline(nn.Module):
 
             thing_depth_mean_true_raw = reduce(thing_depth_true, "nt () h w -> nt () () ()", "sum")
             thing_depth_mean_true_raw /= reduce(select_mask, "nt () h w -> nt () () ()", "sum").clamp(min=1)
+            thing_depth_mean_true_raw = thing_depth_mean_true_raw.repeat((1, weighted_num, 1, 1))
             thing_depth_mean_true = torch.zeros_like(thing_depth_mean)
             thing_depth_mean_true[thing_mask] = thing_depth_mean_true_raw.type_as(thing_depth_mean)
             del thing_depth_mean_true_raw

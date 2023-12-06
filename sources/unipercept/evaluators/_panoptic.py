@@ -79,7 +79,7 @@ class PanopticWriter(Evaluator):
 
         for i in range(self.plot_samples):
             for key in plot_keys:
-                result[f"{key}_{i}"] = draw_image_segmentation(storage.get_at(key, i).clone(), self.info)
+                result[f"{key}_{i}"] = draw_image_segmentation(storage.get_at(key, i), self.info)
         return result
 
 

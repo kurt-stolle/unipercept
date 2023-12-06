@@ -19,6 +19,7 @@ from typing_extensions import override
 from unipercept.data.ops import Op, apply_dataset
 from unipercept.log import get_logger
 from unipercept.state import get_process_count
+from unipercept.config import get_env
 
 if T.TYPE_CHECKING:
     import unipercept as up
@@ -27,7 +28,7 @@ __all__ = ["DataLoaderConfig", "DataLoaderFactory", "DatasetInterface"]
 
 _logger = get_logger(__name__)
 
-DEFAULT_NUM_WORKERS = max(1, int(os.getenv("SLURM_CPUS_ON_NODE", M.cpu_count())) // 2)
+DEFAULT_NUM_WORKERS = max(1, get_env(int, "UNI_DATALOADER_WORKERS", "SLURM_CPUS_PER_GPU", default=M.cpu_count() // 4))
 
 
 @dataclasses.dataclass(slots=True, frozen=True)

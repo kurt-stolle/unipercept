@@ -41,21 +41,18 @@ class ResultsWriter(T.Protocol):
 class PersistentTensordictWriter:
     __slots__ = ["_cursor", "_td", "_path", "_size", "_buffer"]
 
-    def __init__(self, path: str, size: int, buffer_size: int = 1_000):
+    def __init__(self, path: str, size: int, buffer_size: int = 10):
         self._cursor = 0
         self._path: T.Final = path
         self._size: T.Final = size
         self._buffer: T.List[TensorDictBase] = []
         self._td = None
-        self._flushed = not check_main_process()
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     @on_main_process()
     def add(self, data: TensorDictBase):
         assert data.batch_dims == 1, "ResultsWriter only supports 1D batches."
-        assert self._td is not None, "ResultsWriter should have a valid TensorDict."
-
         self._buffer.append(data)
 
     @on_main_process()
@@ -77,7 +74,7 @@ class PersistentTensordictWriter:
 
     @property
     def path(self) -> file_io.Path:
-        return file_io.Path(self.path)
+        return file_io.Path(self._path)
 
     @property
     def tensordict(self) -> TensorDictBase:

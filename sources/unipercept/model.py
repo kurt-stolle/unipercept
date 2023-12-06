@@ -15,6 +15,7 @@ from tensordict import LazyStackedTensorDict, TensorDict
 from typing_extensions import override
 from unicore import file_io
 from unicore.utils.tensorclass import Tensorclass
+from unipercept.log import get_logger
 
 from unipercept.data.tensors import (
     BoundingBoxes,
@@ -23,6 +24,8 @@ from unipercept.data.tensors import (
     OpticalFlow,
     PanopticMap,
 )
+
+_logger = get_logger(__name__)
 
 __all__ = ["ModelBase", "ModelFactory", "InputData", "ModelOutput", "CaptureData", "MotionData"]
 

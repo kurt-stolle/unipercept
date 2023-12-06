@@ -1,7 +1,11 @@
+"""
+This module implements functions for dealing with the state of the program.
+The Accelerate library is adopted to handle distributed training and inference.
+"""
+
 from __future__ import annotations
 
 import dataclasses as D
-import typing as T
 from tensordict import TensorDictBase, TensorDict
 import accelerate.utils
 import torch

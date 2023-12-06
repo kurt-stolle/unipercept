@@ -12,7 +12,7 @@ from unicore import file_io
 
 import unipercept as up
 
-from ._cmd import command
+from ._command import command
 
 _logger = up.log.get_logger(__name__)
 _config_t: T.TypeAlias = up.config.templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]

@@ -21,7 +21,7 @@ if T.TYPE_CHECKING:
     from unipercept.data.ops import Op
     from unipercept.data.sets import Metadata
     from unipercept.engine import Engine
-    from unipercept.model import CameraModel, CaptureData, InputData, ModelBase
+    from unipercept.model import InputData, ModelBase
 
     StateParam: T.TypeAlias = str | os.PathLike | dict[str, torch.Tensor] | Engine
     StateDict: T.TypeAlias = dict[str, torch.Tensor]

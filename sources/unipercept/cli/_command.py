@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import argparse
 import functools
+import typing as T
 import inspect
 from typing import Callable, Concatenate, Generic, Optional, ParamSpec, TypeAlias
 
-from unipercept import __version__
-from unipercept.log import get_logger
+import unipercept
+import unipercept.log
 
 __all__ = ["command", "logger"]
 
-logger = get_logger()
+logger = unipercept.log.get_logger()
 
 MainParams = ParamSpec("MainParams")
 Main = Callable[Concatenate[argparse.Namespace, MainParams], None]
@@ -71,7 +72,7 @@ class command(Generic[CommandParams]):
             description="Unified Perception CLI for configuration-based training, evaluation and research.",
             epilog="See `unipercept <command> -h` for more information on a specific command.",
         )
-        parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+        parser.add_argument("--version", action="version", version=f"%(prog)s {unipercept.__version__}")
         parser_cmd = parser.add_subparsers(title="command", required=True)
 
         # Register commands
@@ -94,5 +95,44 @@ class command(Generic[CommandParams]):
         args.func(args)
 
 
-if __name__ == "__main__":
-    command.root()
+def prompt_confirm(message: str, condition: bool, default: bool = False) -> None | T.NoReturn:
+    """
+    Prompt the user for confirmation when a potentially destructive action is
+    about to be performed.
+
+    Parameters
+    ----------
+    message
+        The message to display to the user, concatenated with "Are you sure? [y/N]".
+    condition
+        The condition that triggers the prompt (e.g. `True` if the action is about to be performed).
+    default
+        The default choice if the user does not provide any input. Defaults to `False`, i.e. "No".
+
+    Returns
+    -------
+    Exits if the user aborts the action, otherwise None.
+    """
+    if not condition:
+        return
+
+    if default:
+        message = f"{message} [Y/n] "
+    else:
+        message = f"{message} [y/N] "
+
+    def input_choice() -> bool:
+        while True:
+            choice = input(message).lower()
+
+            if choice in {"y", "yes"}:
+                return True
+            elif choice in {"n", "no"}:
+                return False
+            elif choice == "":
+                return default
+
+    choice = input_choice()
+    if not choice:
+        print("Aborting.")
+        exit(0)

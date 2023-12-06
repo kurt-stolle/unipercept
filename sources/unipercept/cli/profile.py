@@ -21,7 +21,7 @@ from unipercept.config import templates
 from unipercept.log import get_logger
 from unipercept.utils.time import get_timestamp
 
-from ._cmd import command
+from ._command import command
 
 _logger = get_logger(__name__)
 _config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]

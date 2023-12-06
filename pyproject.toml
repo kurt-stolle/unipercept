@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unipercept"
-description = "Unified perception research project"
+description = "UniPecept: A unified framework for perception tasks focusing on research applications that require a high degree of flexibility and customization."
 readme = "README.md"
 requires-python = ">=3.11"
 keywords = [
@@ -35,20 +35,21 @@ dependencies = [
     "omegaconf",
     "hydra-core",
     "unitrack",
-    "unicore"
+    "unicore >= 2.0.0"
 ]
 dynamic = ["version"]
 
 [project.scripts]
-unicli = "unicli:__main__"
+unipercept = "unipercept.cli:__main__"
 
 [tool.setuptools.dynamic]
 version = { attr = "unipercept.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["sources"]
-include = ["*"]
-exclude = []
+include = ["uni*"]
+exclude = ["tests"]
+namespaces = false
 
 [project.optional-dependencies]
 notebooks = ["jupyterlab", "ipywidgets", "ipykernel", "ipython-autotime", "matplotlib", "seaborn"]
@@ -119,7 +120,7 @@ branch = true
 fail_under = 100
 
 [tool.flake8]
-# max-complexity = 50
+max-complexity = 50
 max-line-length = 120
 select = "F,E,W,B,B901,B902,B903"
 exclude = [

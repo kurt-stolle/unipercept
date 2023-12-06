@@ -10,14 +10,14 @@ import torch
 from tqdm import tqdm
 from unicore import file_io
 
-import unipercept as up
+import unipercept
 
-from ._cmd import command, logger
+from ._command import command, logger
 
 __all__ = []
 
 
-def extract_depth_stats(ds: up.data.sets.PerceptionDataset, output_dir: file_io.Path | None = None):
+def extract_depth_stats(ds: unipercept.data.sets.PerceptionDataset, output_dir: file_io.Path | None = None):
     dep_min = float("inf")
     dep_max = float("-inf")
 
@@ -27,7 +27,7 @@ def extract_depth_stats(ds: up.data.sets.PerceptionDataset, output_dir: file_io.
 
     for inputs in loader:
         if output_dir is not None:
-            img = up.render.plot_input_data(inputs, info=ds.info)
+            img = unipercept.render.plot_input_data(inputs, info=ds.info)
             img.save(output_dir / f"{inputs.captures.primary_key}.png")
 
         dep = inputs.captures.depths

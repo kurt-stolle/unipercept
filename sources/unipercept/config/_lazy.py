@@ -2,7 +2,6 @@
 Lazy configuration system, inspired by and based on Detectron2 and Hydra.
 """
 
-
 from __future__ import annotations
 
 import ast

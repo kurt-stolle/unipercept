@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ._cmd import command
+from ._command import command
 
 __all__ = []
 

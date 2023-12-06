@@ -2,6 +2,8 @@
 Implements configuration directives for working with hyperparameters.
 """
 
+from __future__ import annotations
+
 import typing as T
 
 _T = T.TypeVar("_T", covariant=True)

@@ -937,10 +937,6 @@ class Engine:
             # Prepare for evaluation
             with profile(timings, "update"):
                 KEY_VALID = "valid"
-                # results_merged = TensorDict(
-                #     {"valid": torch.ones(samples_in_batch, dtype=torch.bool, device=self._xlr.device)}, batch_size=inputs.batch_size
-                #     device=self._xlr.device
-                # )
                 results_merged = TensorDict(
                     {KEY_VALID: torch.ones(samples_in_batch, dtype=torch.bool, device=self._xlr.device)},
                     [samples_in_batch],
@@ -951,36 +947,14 @@ class Engine:
                     evaluator.update(results_merged, inputs=inputs, outputs=outputs)
 
             # Gather results
-            with profile(timings, "gather"):
-                results_dict = T.cast(dict[str, torch.Tensor], results_merged.to_dict())
-                results_dict = T.cast(
-                    dict[str, torch.Tensor], accelerate.utils.pad_across_processes(results_dict, dim=0)
-                )
-                results_dict = T.cast(dict[str, torch.Tensor], accelerate.utils.gather(results_dict))
-
-            # Write to MemmapTensor
             with profile(timings, "write"):
-                # Recover overall batch size from 'valid' mask
-                samples_in_batch = results_dict[KEY_VALID].shape[0]
-
-                # Write only on main process
-                if self._xlr.is_main_process:
-                    results_merged = TensorDict(results_dict, [samples_in_batch])
-                    results_mem.add(results_merged)
-                    # if results_mem is None:
-                    #     assert results_path is None
-                    #     results_mem, results_path = self._inference_results_allocate(
-                    #         batch_total * batch_size, results_merged, results_path
-                    #     )
-                    # else:
-                    #     assert results_path is not None
-                    # results_mem[write_index : write_index + samples_in_batch] = results_merged.cpu()
+                results_mem.add(results_merged)
 
                 # write_index += samples_in_batch
                 samples_processed += samples_in_batch
             self._event(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
 
-        results_mem.flush()
+        results_mem.write()
 
         _logger.info(
             f"Finished inference, profiling report on process %d/%d:\n%s",

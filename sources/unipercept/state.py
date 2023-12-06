@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import dataclasses as D
-import functools
-
-import accelerate
+import typing as T
+from tensordict import TensorDictBase, TensorDict
+import accelerate.utils
+import torch
 
 
 @D.dataclass(kw_only=True, slots=True)
@@ -54,3 +55,22 @@ def on_last_process():
 
 def on_main_process():
     return _state_xlr.on_main_process
+
+
+def gather_tensordict(td: TensorDictBase) -> TensorDict:
+    """
+    Pads a TensorDict across processes and gathers it on the main process.
+    """
+    # Get the amount of batch dimensions, as this is lost during gathering
+    batch_dims = td.batch_dims
+
+    # Convert to dict
+    td_dict: dict[str, torch.Tensor] = td.to_dict()
+    td_dict = accelerate.utils.pad_across_processes(td_dict)  # type: ignore
+    td_dict = accelerate.utils.gather(td_dict)  # type: ignore
+
+    # Recover TensorDict object
+    td = TensorDict.from_dict(td_dict)
+    td.batch_size = td.batch_size[:batch_dims]
+
+    return td

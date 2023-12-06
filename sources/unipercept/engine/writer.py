@@ -3,15 +3,18 @@ Implements a handler for writing results to a file from multiple processes.
 """
 
 from __future__ import annotations
+import functools
 
 import typing as T
 
 import torch
-from tensordict import PersistentTensorDict, TensorDictBase
+import torch.types
+import accelerate
+from tensordict import PersistentTensorDict, TensorDict, TensorDictBase
 from unicore import file_io
 
 from unipercept.log import get_logger
-from unipercept.state import check_main_process, main_process_first, on_main_process
+from unipercept.state import barrier, check_main_process, gather_tensordict, get_process_count, get_process_index, main_process_first, on_main_process
 
 __all__ = ["ResultsWriter", "PersistentTensordictWriter"]
 
@@ -22,7 +25,6 @@ class ResultsWriter(T.Protocol):
     def __init__(self, path: str, size: int):
         ...
 
-    @on_main_process()
     def add(self, data: TensorDictBase):
         ...
 
@@ -39,38 +41,73 @@ class ResultsWriter(T.Protocol):
 
 
 class PersistentTensordictWriter:
-    __slots__ = ["_cursor", "_td", "_path", "_size", "_buffer"]
+    """
+    Writes results to a H5 file using PersistentTensorDict from multiple processes, uses a buffer to reduce the number of writes.
+    """
 
-    def __init__(self, path: str, size: int, buffer_size: int = 10):
-        self._cursor = 0
+    __slots__ = ["_td_cursor", "_td", "_path", "_td_factory", "_buffer_list", "_buffer_size"]
+
+    def __init__(self, path: str, size: int, buffer_size: int = -1):
+        """
+        Parameters
+        ----------
+        path : str
+            The path to the H5 file.
+        size : int
+            The size of the first dimension of the results.
+        buffer_size : int, optional
+            The size of the buffer, by default -1, which means no buffering.
+        """
         self._path: T.Final = path
-        self._size: T.Final = size
-        self._buffer: T.List[TensorDictBase] = []
-        self._td = None
-
+        self._buffer_list: list[TensorDictBase] = []
+        self._buffer_size = buffer_size
+        self._td: PersistentTensorDict | None = None
+        self._td_cursor = 0
+        self._td_factory = functools.partial(PersistentTensorDict, batch_size=[size], mode="w" if check_main_process() else "r")
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-    @on_main_process()
     def add(self, data: TensorDictBase):
-        assert data.batch_dims == 1, "ResultsWriter only supports 1D batches."
-        self._buffer.append(data)
+        """
+        Add an item to the results list, and write to disk if the buffer is full.
+
+        Parameters
+        ----------
+        data : TensorDictBase
+            The data to add.
+        """
+        
+        assert data.batch_dims == 1, f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
+
+        data = gather_tensordict(data)
+        self._append(data)
 
     @on_main_process()
-    def flush(self):
-        if len(self._buffer) > 0:
-            _logger.debug("Writing results to storage")
-            data = torch.cat(self._buffer, dim=0)  # type: ignore
-            self._write_to_disk(data)
-            self._buffer.clear()
-        else:
-            _logger.debug("No results to write")
+    def _append(self, data: TensorDictBase) -> None:
+        self._buffer_list.append(data.cpu())
+        if len(self._buffer_list) == self._buffer_size:
+            self.write()
 
-    def _write_to_disk(self, data: TensorDictBase):
-        off_l = self._cursor
+    @on_main_process()
+    def write(self):
+        data = torch.cat(self._buffer_list, dim=0) # type: ignore
+
+        assert data.batch_dims == 1, f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
+        
+        # Determine offsets in target storage
+        off_l = self._td_cursor
         off_h = off_l + data.batch_size[0]
 
+        if off_l == off_h:
+            _logger.debug("Nothing to write, skipping")
+            return
+  
+        _logger.debug(f"Writing {data.batch_size} results to storage")
+        # Perform write operation
         self.tensordict[off_l:off_h] = data
-        self._cursor = off_h
+
+        # Update cursor to the next available offset
+        self._td_cursor = off_h
+        self._buffer_list.clear()
 
     @property
     def path(self) -> file_io.Path:
@@ -79,18 +116,15 @@ class PersistentTensordictWriter:
     @property
     def tensordict(self) -> TensorDictBase:
         if self._td is None:
-            self._td = PersistentTensorDict(
-                filename=self.path, batch_size=[self._size], mode="w" if check_main_process() else "r"
-            )
+            self._td = self._td_factory(filename=self.path)
         return self._td
 
-    def __len__(self) -> int:
-        return self._size
-
-    def __del__(self):
+    def __del__(self) -> None:
         self.close()
 
     def close(self):
         if self._td is not None:
+            _logger.debug("Closing results writer")
+
             self._td.close()
             self._td = None

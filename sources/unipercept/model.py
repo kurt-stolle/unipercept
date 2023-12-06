@@ -328,12 +328,13 @@ class ModelFactory:
         TODO interface not clearly defined yet
         """
         from unipercept.config import instantiate
+        from unipercept import load_checkpoint
 
         model = T.cast(ModelBase, instantiate(self.model_config))
 
         if self.checkpoint_path is not None:
             _logger.info("Loading model weights from %s", self.checkpoint_path)
-            up.load_checkpoint(self.checkpoint_path, model)
+            load_checkpoint(self.checkpoint_path, model)
         else:
             _logger.info("No model weights checkpoint path provided, skipping recovery")
 

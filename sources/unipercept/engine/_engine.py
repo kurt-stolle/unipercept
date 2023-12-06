@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import enum as E
 import functools
-import math
-import operator
 import gc
+import math
+import multiprocessing
+import operator
 import os
 import shutil
 import time
@@ -19,10 +20,10 @@ import accelerate
 import accelerate.utils
 import torch
 import torch.nn as nn
-from omegaconf import OmegaConf
 import torch.optim
 import torch.utils.data
 import wandb
+from omegaconf import OmegaConf
 from PIL import Image as pil_image
 from tensordict import MemmapTensor, PersistentTensorDict, TensorDict
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
@@ -31,25 +32,26 @@ from typing_extensions import override
 from unicore import file_io
 from unicore.utils.status import StatusDescriptor
 from unicore.utils.tensorclass import Tensorclass
-from unipercept.utils.state import check_main_process
 
-from unipercept.utils.time import ProfileAccumulator, profile
-from unipercept.log import get_logger
-from unipercept.utils.seed import set_seed
+import unipercept.integrations.slurm
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
+from unipercept.engine.writer import PersistentTensordictWriter
+from unipercept.log import get_logger
+from unipercept.state import check_main_process
+from unipercept.utils.seed import set_seed
+from unipercept.utils.time import ProfileAccumulator, profile
 
 from ._optimizer import OptimizerFactory
+from ._params import EngineParams, InferencePrecision
 from ._scheduler import SchedulerFactory
 from ._trial import Trial
 from ._types import DataLoaderFactory, ModelFactory
-from ._params import InferencePrecision, EngineParams
-from ._writer import ResultsWriter
-from unicore import file_io
 
 if T.TYPE_CHECKING:
     from unipercept.evaluators import Evaluator
+
     from ..model import InputData, ModelOutput
 
     try:
@@ -106,6 +108,7 @@ class Engine:
         self._state = State()
         self._evaluators = evaluators or []
 
+        self._default_setup()
         self._seed()
 
         self._signal = Signal()
@@ -367,7 +370,7 @@ class Engine:
             for c in R"/\#?%:":
                 s = s.replace(c, "-")
             return s
-        
+
         __wandb_kwargs = {
             "name": __wandb_sanitize(self._params.session_name),
             "job_type": "train" if (self.status & EngineStatus.TRAINING) else "eval",
@@ -905,14 +908,14 @@ class Engine:
 
         # Output memory
         results_remove_on_exit = results_path is None
-        results_path =(
+        results_path = (
             file_io.Path("//scratch/")
             / self._params.project_name
             / self._params.session_name
-            / "inference-step-{self._state.step}.h5"
+            / prefix
+            / f"step-{self._state.step}.h5"
         )
-        results_mem = ResultsWriter(str(results_path), samples_total)
-
+        results_mem = PersistentTensordictWriter(str(results_path), samples_total)
 
         # Prediction
         _logger.info(f"Running inference loop on {self._xlr.num_processes} processes.")
@@ -977,6 +980,8 @@ class Engine:
                 samples_processed += samples_in_batch
             self._event(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
 
+        results_mem.flush()
+
         _logger.info(
             f"Finished inference, profiling report on process %d/%d:\n%s",
             self._xlr.process_index + 1,
@@ -1029,7 +1034,7 @@ class Engine:
         self._xlr.wait_for_everyone()
 
         del results_mem
-        if self._xlr.is_main_process:
+        if self._xlr.is_main_process and results_remove_on_exit:
             assert results_path is not None
             shutil.rmtree(results_path, ignore_errors=True)
 
@@ -1090,6 +1095,22 @@ class Engine:
         if self._params.past_index >= 0:
             self._past = outputs[self._params.past_index - 1]
         return outputs
+
+    def _default_setup(self):
+        """
+        Sets default configuration values in third-party libraries.
+        """
+
+        # See: https://pytorch.org/docs/stable/notes/multiprocessing.html
+        slurm = unipercept.integrations.slurm.SLURMEnvironment()
+
+        if slurm.is_slurm_job:
+            N_M = slurm.cpus_per_gpu
+        else:
+            N = multiprocessing.cpu_count()
+            M = self._xlr.num_processes
+            N_M = math.floor(N / M)
+        torch.set_num_threads(N_M)
 
 
 def _flops(model: nn.Module, inputs: InputType) -> int:

@@ -1,6 +1,6 @@
-from . import conv, norm, projection, tracking, utils, merge
+from . import conv, merge, norm, projection, tracking, utils
 from ._coord import *
 from ._interpolate import *
 from ._mlp import *
-from ._squeeze_excite import *
 from ._sequential import *
+from ._squeeze_excite import *

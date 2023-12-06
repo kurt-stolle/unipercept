@@ -6,8 +6,8 @@ from numpy.ma.core import get_data
 from unicore import file_io
 from unicore.utils.dataset import Dataset
 
-from unipercept.data import collect
 from unipercept import get_dataset
+from unipercept.data import collect
 
 SAMPLE_IDS = [
     "aachen_000000_000019",

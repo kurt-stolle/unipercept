@@ -3,12 +3,12 @@ import socket
 import typing as T
 from os import PathLike
 from pathlib import Path
-from typing_extensions import deprecated
 
 import torch.distributed as dist
 from accelerate import PartialState
 from detectron2.config import instantiate
 from omegaconf import dictconfig
+from typing_extensions import deprecated
 from unicore import file_io
 
 from unipercept.utils.time import get_timestamp

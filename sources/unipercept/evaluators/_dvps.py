@@ -3,18 +3,18 @@ Implements the DVPQ and DSTQ metrics.
 
 Code adapted from: https://github.com/joe-siyuan-qiao/ViP-DeepLab
 """
+import dataclasses as D
+
 import torch
 import torch.types
-import dataclasses as D
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
-
-from unipercept.model import ModelOutput, InputData
-from ._panoptic import PanopticWriter
-from ._depth import DepthWriter
-
 from typing_extensions import override
 
+from unipercept.model import InputData, ModelOutput
+
+from ._depth import DepthWriter
+from ._panoptic import PanopticWriter
 
 FRAME_ID = "frame_id"
 SEQUENCE_ID = "sequence_id"

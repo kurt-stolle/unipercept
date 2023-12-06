@@ -5,23 +5,23 @@ from __future__ import annotations
 
 import os
 import typing as T
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data
-
-import numpy as np
 from omegaconf import DictConfig
-from unicore import file_io
 from PIL import Image as pil_image
+from unicore import file_io
 
 if T.TYPE_CHECKING:
     import torch.types
 
-    from unipercept.data.sets import Metadata
-    from unipercept.model import CameraModel, CaptureData, InputData, ModelBase
     from unipercept.config.templates import LazyConfigFile
     from unipercept.data.ops import Op
+    from unipercept.data.sets import Metadata
     from unipercept.engine import Engine
+    from unipercept.model import CameraModel, CaptureData, InputData, ModelBase
 
     StateParam: T.TypeAlias = str | os.PathLike | dict[str, torch.Tensor] | Engine
     StateDict: T.TypeAlias = dict[str, torch.Tensor]
@@ -179,8 +179,8 @@ def create_model(
         A model instance.
     """
 
-    from .engine import Engine
     from .config import instantiate
+    from .engine import Engine
 
     if (
         isinstance(config, (str, os.PathLike))
@@ -421,7 +421,7 @@ def create_inputs(
     from torchvision.transforms.v2.functional import pil_to_tensor
 
     from .data.tensors import Image
-    from .model import InputData, CaptureData, CameraModel
+    from .model import CameraModel, CaptureData, InputData
 
     batch: list[torch.Tensor] = []
 

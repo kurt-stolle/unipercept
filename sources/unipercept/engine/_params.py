@@ -1,22 +1,22 @@
 from __future__ import annotations
 
+import dataclasses as D
 import enum as E
 import logging
-import dataclasses as D
 import typing as T
 import warnings
 
 import unicore.file_io
 from typing_extensions import override
 
+from unipercept.engine.debug import DebugMode
 from unipercept.log import LOG_LEVELS, get_logger
-from unipercept.utils.state import (
+from unipercept.state import (
     check_main_process,
     get_process_index,
     local_main_process_first,
 )
 from unipercept.utils.time import get_timestamp
-from unipercept.engine.debug import DebugMode
 
 __all__ = ["EngineParams", "InferencePrecision"]
 

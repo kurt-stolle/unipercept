@@ -8,10 +8,10 @@ ds.
 
 #%%
 
-import torch
 import tempfile
 
-from tensordict import PersistentTensorDict, TensorDict 
+import torch
+from tensordict import PersistentTensorDict, TensorDict
 
 with tempfile.NamedTemporaryFile("w") as f:
     print(f.name)
@@ -29,10 +29,10 @@ with tempfile.NamedTemporaryFile("w") as f:
 #%%
 
 
-import torch
 import tempfile
 
-from tensordict import PersistentTensorDict, TensorDict 
+import torch
+from tensordict import PersistentTensorDict, TensorDict
 
 with tempfile.NamedTemporaryFile("w") as f:
     print(f.name)

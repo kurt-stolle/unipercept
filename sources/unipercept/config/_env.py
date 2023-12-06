@@ -7,8 +7,8 @@ from __future__ import annotations
 import enum
 import os
 import typing as T
-from pathlib import Path
 from distutils.util import strtobool
+from pathlib import Path
 
 __all__ = ["get_env", "CONFIG_ROOT"]
 

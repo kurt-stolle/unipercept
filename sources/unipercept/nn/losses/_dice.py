@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from typing_extensions import override
 
-from .mixins import StableLossMixin, ScaledLossMixin
+from .mixins import ScaledLossMixin, StableLossMixin
 
 
 class WeightedStuffDiceLoss(StableLossMixin, ScaledLossMixin, nn.Module):

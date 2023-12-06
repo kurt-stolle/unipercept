@@ -17,14 +17,15 @@ import torch
 import torch.nn
 import torch.types
 import torch.utils.data as torch_data
-import torchvision.transforms.v2 as tvt2
 import torchvision.ops
+import torchvision.transforms.v2 as tvt2
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
 from unicore.utils.pickle import as_picklable
 
-from .tensors import BoundingBoxes, PanopticMap, DepthMap, BoundingBoxFormat
 from unipercept.log import get_logger
+
+from .tensors import BoundingBoxes, BoundingBoxFormat, DepthMap, PanopticMap
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData

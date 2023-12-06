@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import typing as T
+
 import torch.nn as nn
 import unimodels.multidvps as multidvps
+
 import unipercept as up
+import unipercept.integrations.wandb as up_wandb
 from unipercept.config import bind as B
 from unipercept.config import call as L
 from unipercept.config import get_session_name, make_set
-import unipercept.integrations.wandb as up_wandb
 
 from ._dataset import DATASET_INFO, DATASET_NAME, data
 

@@ -1,4 +1,5 @@
 import pytest
+
 import unipercept as up
 
 
@@ -29,4 +30,3 @@ def test_instantiate_data(cfg):
 
         assert id is not None, type(id)
         assert isinstance(item, InputData), type(item)
-

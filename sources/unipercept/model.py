@@ -5,6 +5,7 @@ Defines the interface for a perception model.
 from __future__ import annotations
 
 import abc
+import os
 import typing as T
 from dataclasses import field
 
@@ -12,11 +13,18 @@ import torch
 import torch.nn as nn
 from tensordict import LazyStackedTensorDict, TensorDict
 from typing_extensions import override
+from unicore import file_io
 from unicore.utils.tensorclass import Tensorclass
 
-from unipercept.data.tensors import DepthMap, OpticalFlow, PanopticMap, Image, BoundingBoxes
+from unipercept.data.tensors import (
+    BoundingBoxes,
+    DepthMap,
+    Image,
+    OpticalFlow,
+    PanopticMap,
+)
 
-__all__ = ["ModelBase", "InputData", "ModelOutput", "CaptureData", "MotionData"]
+__all__ = ["ModelBase", "ModelFactory", "InputData", "ModelOutput", "CaptureData", "MotionData"]
 
 
 class CameraModel(Tensorclass):
@@ -305,3 +313,25 @@ class ModelBase(nn.Module):
     @override
     def forward(self, inputs: InputData) -> ModelOutput:
         ...
+
+
+class ModelFactory:
+    def __init__(self, model_config, checkpoint_path: file_io.Path | os.PathLike | str | None = None):
+        self.model_config = model_config
+        self.checkpoint_path = checkpoint_path
+
+    def __call__(self, *args, **kwargs) -> ModelBase:
+        """
+        TODO interface not clearly defined yet
+        """
+        from unipercept.config import instantiate
+
+        model = T.cast(ModelBase, instantiate(self.model_config))
+
+        if self.checkpoint_path is not None:
+            _logger.info("Loading model weights from %s", self.checkpoint_path)
+            up.load_checkpoint(self.checkpoint_path, model)
+        else:
+            _logger.info("No model weights checkpoint path provided, skipping recovery")
+
+        return model

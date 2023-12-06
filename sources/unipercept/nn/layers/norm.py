@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import typing as T
 import functools
+import typing as T
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

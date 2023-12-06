@@ -6,19 +6,21 @@ from __future__ import annotations
 import dataclasses as D
 import enum as E
 import typing as T
-import typing_extensions as TX
 from pprint import pformat
 
 import numpy as np
-from tqdm.auto import tqdm
 import torch
 import torch.nn as nn
+import typing_extensions as TX
+from tqdm.auto import tqdm
+
 import unipercept.log
-import unipercept.utils.state
+import unipercept.state
 
 if T.TYPE_CHECKING:
-    from unipercept.engine import EngineParams
     from torch.utils.data import DataLoader
+
+    from unipercept.engine import EngineParams
 
 __all__ = [
     "State",
@@ -412,20 +414,20 @@ class ProgressCallback(CallbackDispatcher):
 
     @TX.override
     def on_train_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        if unipercept.utils.state.check_main_process(True):
+        if unipercept.state.check_main_process(True):
             self.training_bar = tqdm(desc="Training", total=state.train_steps, dynamic_ncols=True)
         self.current_step = 0
 
     @TX.override
     def on_train_step_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        if unipercept.utils.state.check_main_process(True):
+        if unipercept.state.check_main_process(True):
             assert self.training_bar is not None, f"Training bar does not exist at step {state.step}."
             self.training_bar.update(state.step - self.current_step)
             self.current_step = state.step
 
     @TX.override
     def on_inference_step(self, params: EngineParams, state: State, control: Signal, *, loader: DataLoader, **kwargs):
-        if unipercept.utils.state.check_main_process(True) and len(loader):
+        if unipercept.state.check_main_process(True) and len(loader):
             if self.prediction_bar is None:
                 self.prediction_bar = tqdm(
                     desc="Inference", total=len(loader), leave=self.training_bar is None, dynamic_ncols=True
@@ -434,27 +436,27 @@ class ProgressCallback(CallbackDispatcher):
 
     @TX.override
     def on_evaluate(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        if unipercept.utils.state.check_main_process(True):
+        if unipercept.state.check_main_process(True):
             if self.prediction_bar is not None:
                 self.prediction_bar.close()
             self.prediction_bar = None
 
     @TX.override
     def on_predict(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        if unipercept.utils.state.check_main_process(True):
+        if unipercept.state.check_main_process(True):
             if self.prediction_bar is not None:
                 self.prediction_bar.close()
             self.prediction_bar = None
 
     @TX.override
     def on_log(self, params: EngineParams, state: State, control: Signal, logs=None, **kwargs):
-        if unipercept.utils.state.check_main_process(True) and self.training_bar is not None:
+        if unipercept.state.check_main_process(True) and self.training_bar is not None:
             # self.training_bar.write(str(logs))
             pass
 
     @TX.override
     def on_train_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        if unipercept.utils.state.check_main_process(True):
+        if unipercept.state.check_main_process(True):
             self.training_bar.close()
             self.training_bar = None
 
@@ -467,7 +469,7 @@ class Logger(CallbackDispatcher):
     @TX.override
     def on_log(self, params: EngineParams, state: State, control: Signal, *, logs: dict, **kwargs):
         _ = logs.pop("total_flops", None)
-        if unipercept.utils.state.check_main_process(True):
+        if unipercept.state.check_main_process(True):
             _logger.info("Logs: %s", pformat(logs, indent=0, compact=True))
             _logger.info("State: %s", pformat(state.state_dict(), indent=0, compact=True))
 

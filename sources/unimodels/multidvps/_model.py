@@ -2,8 +2,8 @@
 
 import math
 import typing as T
-from calendar import c
 import warnings
+from calendar import c
 
 import einops
 import torch
@@ -20,22 +20,20 @@ from unimodels.multidvps.keys import (
     OUT_OBJECT,
     OUT_PANOPTIC,
 )
-
-from unipercept.utils.function import multi_apply
-
 from unimodels.multidvps.modules import (
     DepthHead,
     Detector,
     FeatureEncoder,
+    KernelMapper,
     MaskHead,
     StuffFusion,
     ThingFusion,
-    KernelMapper,
 )
-from unipercept.nn.backbones import Backbone
-from unipercept.nn.layers.tracking import StatefulTracker
 
 import unipercept as up
+from unipercept.nn.backbones import Backbone
+from unipercept.nn.layers.tracking import StatefulTracker
+from unipercept.utils.function import multi_apply
 
 __all__ = ["MultiDVPS", "apply_optimizer_overrides"]
 

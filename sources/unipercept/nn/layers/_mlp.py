@@ -3,12 +3,14 @@ Implements the kernel mapper module, which takes maps the multipurpose kernel $k
 specific kernels using a simple dictionary of heads, represented as a `nn.ModuleDict`.
 """
 
+import typing as T
+
 import torch
 import torch.nn as nn
-import typing as T
 from typing_extensions import override
 
 from unipercept.nn.typings import Activation, Norm
+
 from .norm import GlobalResponseNorm
 
 __all__ = ["MapMLP", "EmbedMLP"]

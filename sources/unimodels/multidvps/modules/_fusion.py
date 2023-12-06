@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import typing as T
-from cycler import K
 
 import torch
+from cycler import K
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from torch import Tensor, nn

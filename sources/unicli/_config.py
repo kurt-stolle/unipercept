@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import typing as T
 import enum
+import typing as T
 
 from bullet import Bullet, Input
 from typing_extensions import override
 from unicore import file_io
+
 import unipercept as up
 
 __all__ = ["add_config_args"]

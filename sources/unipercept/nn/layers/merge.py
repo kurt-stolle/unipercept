@@ -1,16 +1,15 @@
 from __future__ import annotations
 
+import enum
 import typing as T
 
-from matplotlib.dates import WE
 import numpy as np
 import torch
+from matplotlib.dates import WE
 from torch import Tensor, nn
 from typing_extensions import override
-import enum
 
 import unipercept.nn.layers.conv as convolution
-
 from unipercept.nn.backbones import BackboneFeatureInfo
 from unipercept.nn.layers.norm import GroupNormCG
 

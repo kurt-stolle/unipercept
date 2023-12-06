@@ -1,9 +1,9 @@
+import collections.abc
+from itertools import repeat
 from typing import Type
 
 from torch import nn
 
-from itertools import repeat
-import collections.abc
 from unipercept.nn.typings import Activation, Norm
 
 

@@ -10,9 +10,9 @@ import dataclasses as D
 import enum as E
 import typing as T
 
-import wandb
 import torch
 import torch.nn as nn
+import wandb
 from torch.utils.data import DataLoader
 from typing_extensions import override
 

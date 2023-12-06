@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import functools
-import torch.utils.data
-from PIL import Image
-from unicore import file_io
-from tqdm import tqdm
 
 import safetensors.torch as safetensors
 import torch
 import torch.nn as nn
+import torch.utils.data
+from PIL import Image
+from tqdm import tqdm
+from unicore import file_io
 
 __all__ = ["PseudoGenerator"]
 

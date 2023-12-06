@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import typing as T
 import functools
+import typing as T
+
 import torch
-from torchvision.io import ImageReadMode
 from PIL import Image as pil_image
-from torchvision.transforms.v2.functional import to_image, to_dtype
+from torchvision.io import ImageReadMode
+from torchvision.transforms.v2.functional import to_dtype, to_image
 from typing_extensions import deprecated
 from unicore import file_io
 

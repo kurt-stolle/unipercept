@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pytest
-import unipercept as up
 from omegaconf import DictConfig, ListConfig
+
+import unipercept as up
 
 cfg_skip = set()
 cfg_root = Path(__file__).parent.parent.parent / "configs"

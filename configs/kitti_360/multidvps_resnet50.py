@@ -16,7 +16,7 @@ from unipercept.config import (
     use_norm,
 )
 
-from ..cityscapes.multidvps_resnet50 import model, engine
+from ..cityscapes.multidvps_resnet50 import engine, model
 from ._dataset import DATASET_NAME, data
 
 __all__ = ["model", "data", "engine"]

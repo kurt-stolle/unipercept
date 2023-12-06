@@ -67,8 +67,8 @@ class TruthGenerator(nn.Module):
 
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        from unipercept.data.sets import Metadata
         from unipercept import get_info
+        from unipercept.data.sets import Metadata
 
         info: Metadata = get_info(name)
 

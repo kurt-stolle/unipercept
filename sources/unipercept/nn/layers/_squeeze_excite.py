@@ -2,8 +2,8 @@
 Implements a Squeeze-and-Excitation layer.
 """
 
-import typing as T
 import functools
+import typing as T
 
 import torch
 import torch.nn as nn

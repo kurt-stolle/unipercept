@@ -15,7 +15,7 @@ import unipercept as up
 from unipercept.utils.function import multi_apply
 from unipercept.utils.tensor import cat_nonempty, topk_score
 
-from ..keys import OUT_BACKGROUND, OUT_OBJECT, OUT_DEPTH, OUT_PANOPTIC
+from ..keys import OUT_BACKGROUND, OUT_DEPTH, OUT_OBJECT, OUT_PANOPTIC
 from ..modules import DepthPrediction, Detection
 from ._structures import Context, StuffInstances, ThingInstances
 

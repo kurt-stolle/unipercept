@@ -5,30 +5,28 @@ Lazy configuration system, inspired by and based on Detectron2 and Hydra.
 
 from __future__ import annotations
 
-import dataclasses
-import pydoc
-import typing as T
-from typing import Any
-
-import omegaconf
-import torch.nn as nn
-from typing_extensions import override
-
 import ast
 import builtins
 import collections.abc as abc
+import dataclasses
 import importlib
 import inspect
 import logging
 import os
+import pydoc
+import typing as T
 import uuid
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import is_dataclass
-from typing import List, Tuple, Union
+from typing import Any, List, Tuple, Union
+
 import cloudpickle
+import omegaconf
+import torch.nn as nn
 import yaml
 from omegaconf import DictConfig, ListConfig, OmegaConf, SCMode
+from typing_extensions import override
 from unicore import file_io
 
 __all__ = [

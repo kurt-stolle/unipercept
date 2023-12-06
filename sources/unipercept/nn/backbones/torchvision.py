@@ -3,13 +3,12 @@
 
 import typing as T
 import warnings
+from collections import OrderedDict
 
 import torch
 import torch.nn
 from tensordict import TensorDict
 from typing_extensions import override
-
-from collections import OrderedDict
 
 from .wrapper import (
     ORDER_CHW,

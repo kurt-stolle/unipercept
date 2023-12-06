@@ -2,11 +2,11 @@
 Implements common functional operations for losses.
 """
 
-import torch
-import torch.nn as nn
 import math
 import typing as T
 
+import torch
+import torch.nn as nn
 
 #####################
 # General utilities #

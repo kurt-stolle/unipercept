@@ -1,5 +1,6 @@
-from unipercept.utils.time import profile, ProfileAccumulator
 import time
+
+from unipercept.utils.time import ProfileAccumulator, profile
 
 
 def test_time_profiler():

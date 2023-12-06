@@ -11,7 +11,6 @@ from typing_extensions import override
 from unipercept.nn.layers import conv
 from unipercept.nn.layers.weight import init_xavier_fill_
 
-
 __all__ = ["Localizer", "Locations"]
 
 

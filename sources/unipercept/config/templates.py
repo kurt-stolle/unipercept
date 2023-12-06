@@ -7,7 +7,6 @@ import typing as T
 from dataclasses import dataclass, is_dataclass
 
 from omegaconf import OmegaConf
-from pyexpat import model
 
 from ._lazy import LazyObject
 

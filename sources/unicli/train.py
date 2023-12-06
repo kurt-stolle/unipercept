@@ -1,40 +1,22 @@
 """Training and evaluation entry point."""
 from __future__ import annotations
-import os
+
 import argparse
+import os
 import typing as T
+
 import accelerate
+import safetensors
 import torch
 import torch.nn as nn
-
 from unicore import file_io
-import os
+
 import unipercept as up
-import safetensors
-from unipercept.config import LazyConfig, _lazy, templates
-from unipercept.log import create_table, get_logger
 
 from ._cmd import command
 
-_logger = get_logger(__name__)
-_config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]
-
-
-class ModelFactory:
-    def __init__(self, model_config, checkpoint_path: file_io.Path | os.PathLike | str | None = None):
-        self.model_config = model_config
-        self.checkpoint_path = checkpoint_path 
-
-    def __call__(self, trial: up.engine.Trial | None) -> nn.Module:
-        model = T.cast(nn.Module, _lazy.instantiate(self.model_config))
-
-        if self.checkpoint_path is not None:
-            _logger.info("Loading model weights from %s", self.checkpoint_path)
-            up.load_checkpoint(self.checkpoint_path, model)
-        else:
-            _logger.info("No model weights checkpoint path provided, skipping recovery")
-
-        return model
+_logger = up.log.get_logger(__name__)
+_config_t: T.TypeAlias = up.config.templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]
 
 
 @command(help="trian a model", description=__doc__)
@@ -66,6 +48,16 @@ def train(subparser: argparse.ArgumentParser):
     subparser.add_argument("--dataloader-train", type=str, default="train", help="name of the train dataloader")
     subparser.add_argument("--dataloader-test", type=str, default="test", help="name of the test dataloader")
     subparser.add_argument("--weights", "-w", type=file_io.Path, help="path to load model weights from")
+    subparser.add_argument(
+        "--development",
+        action="store_true",
+        help="optimizes the configuration for library development and disables telemetry/tracking of the run",
+    )
+    subparser.add_argument(
+        "--debug",
+        action="store_true",
+        help="optimizes the configuration for model debugging and disables telemetry/tracking of the run",
+    )
 
     return main
 
@@ -82,14 +74,14 @@ def main(args):
 
     # Before creating the engine across processes, check if the config file exists and recover the engine if it does.
     lazy_engine = lazy_config.engine
-    lazy_engine.params = _lazy.instantiate(lazy_engine.params)
+    lazy_engine.params = up.config.instantiate(lazy_engine.params)
     config_path = file_io.Path(lazy_engine.params.root) / "config.yaml"
     do_recover = config_path.exists()
 
     state = accelerate.PartialState()
     state.wait_for_everyone()  # Ensure the config file is not created before all processes validate its existence
 
-    engine: up.engine.Engine = _lazy.instantiate(lazy_config.engine)
+    engine: up.engine.Engine = up.config.instantiate(lazy_config.engine)
 
     if do_recover:
         _logger.info(
@@ -99,16 +91,16 @@ def main(args):
         engine.recover()
     elif state.is_main_process:
         _logger.info("Storing serialized config to YAML file %s", engine.path)
-        LazyConfig.save(lazy_config, str(config_path))
+        up.config.LazyConfig.save(lazy_config, str(config_path))
 
     # Setup dataloaders
-    loaders: dict[str, up.data.DataLoaderFactory] = _lazy.instantiate(args.config.data.loaders)
+    loaders: dict[str, up.data.DataLoaderFactory] = up.config.instantiate(args.config.data.loaders)
 
-    model_factory = ModelFactory(lazy_config.model, args.weights or None)
+    model_factory = up.model.ModelFactory(lazy_config.model, args.weights or None)
 
     if args.evaluation:
         results = engine.evaluate(model_factory, loaders[args.dataloader_test])
-        _logger.info("Evaluation results: \n%s", create_table(results, format="long"))
+        _logger.info("Evaluation results: \n%s", up.log.create_table(results, format="long"))
     else:
         engine.train(
             model_factory,

@@ -17,7 +17,7 @@ from __future__ import annotations
 import typing as T
 
 import torch
-from typing_extensions import override, deprecated
+from typing_extensions import deprecated, override
 
 __all__ = ["WeightedLoss"]
 

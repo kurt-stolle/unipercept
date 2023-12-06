@@ -3,12 +3,13 @@ Wrap and register torchvision's tensor types.
 """
 
 
-from torchvision.tv_tensors import Image, Mask, BoundingBoxes, BoundingBoxFormat
 import typing as T
-from .registry import pixel_maps
-import torch
 
+import torch
 from torch.utils._pytree import tree_flatten
+from torchvision.tv_tensors import BoundingBoxes, BoundingBoxFormat, Image, Mask
+
+from .registry import pixel_maps
 
 __all__ = ["Image", "Mask", "BoundingBoxes", "BoundingBoxFormat"]
 

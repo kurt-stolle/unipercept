@@ -1,14 +1,18 @@
 # from __future__ import annotations
 
 import typing as T
+
 import torch
 import torch.nn as nn
 from typing_extensions import override
 
 from unipercept.utils.mask import masks_to_boxes
 
-from .mixins import StableLossMixin, ScaledLossMixin
-from .functional import scale_invariant_logarithmic_error, relative_absolute_squared_error
+from .functional import (
+    relative_absolute_squared_error,
+    scale_invariant_logarithmic_error,
+)
+from .mixins import ScaledLossMixin, StableLossMixin
 
 __all__ = [
     "DepthLoss",

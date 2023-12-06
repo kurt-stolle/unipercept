@@ -1,9 +1,9 @@
+import einops
 import pytest
 import torch
-import einops
 from tensordict import TensorDict
 
-from unipercept.evaluators import PanopticEvaluator, TRUE_PANOPTIC, PRED_PANOPTIC
+from unipercept.evaluators import PRED_PANOPTIC, TRUE_PANOPTIC, PanopticEvaluator
 
 
 @pytest.fixture(scope="module")
@@ -23,8 +23,9 @@ def true_panoptic(true_info):
     The true panoptic segmentation.
     """
 
-    from unipercept.data.tensors import PanopticMap, LabelsFormat
     from torch.nn.functional import interpolate
+
+    from unipercept.data.tensors import LabelsFormat, PanopticMap
 
     panseg = PanopticMap.read("assets/sample-annotated/segmentation.png", true_info, format=LabelsFormat.KITTI)
 

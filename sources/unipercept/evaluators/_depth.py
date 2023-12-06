@@ -18,7 +18,7 @@ from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
-    from ..model import ModelOutput, InputData
+    from ..model import InputData, ModelOutput
 _logger = get_logger(__name__)
 
 PRED_DEPTH = "pred_depth"
@@ -58,7 +58,7 @@ class DepthWriter(Evaluator):
 
     @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
-        from unipercept.render.utils import draw_image_depth
+        from unipercept.render import draw_image_depth
 
         plot_keys = []
         for key, mode_attr in ((TRUE_DEPTH, "plot_true"), (PRED_DEPTH, "plot_pred")):

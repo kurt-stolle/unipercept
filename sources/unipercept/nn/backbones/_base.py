@@ -4,11 +4,11 @@
 
 import abc
 import typing as T
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 from tensordict import TensorDictBase
-from collections import OrderedDict
 
 __all__ = ["Backbone", "BackboneFeatureInfo", "BackboneFeatures"]
 

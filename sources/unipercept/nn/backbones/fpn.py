@@ -5,17 +5,17 @@ The original implementation can be found here:
     https://pytorch.org/vision/stable/_modules/torchvision/ops/feature_pyramid_network.html
 """
 
+import enum
 import typing as T
-from typing_extensions import override
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import enum
+from typing_extensions import override
 
-from collections import OrderedDict
-
-from ._base import Backbone
 from ..layers import conv
+from ._base import Backbone
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
 

@@ -8,25 +8,24 @@ from __future__ import annotations
 import dataclasses as D
 import multiprocessing
 import typing as T
-import einops
 
+import einops
+import pandas as pd
 import torch
 import torch.types
-import pandas as pd
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from tqdm import tqdm
 from typing_extensions import override
 
-
 from ..data.tensors import PanopticMap
 from ..log import get_logger
-from ._base import Evaluator, PlotMode
 from . import helpers as H
+from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
-    from ..model import ModelOutput, InputData
+    from ..model import InputData, ModelOutput
 
 __all__ = ["PanopticEvaluator", "TRUE_PANOPTIC", "PRED_PANOPTIC", "PanopticWriter"]
 
@@ -67,7 +66,7 @@ class PanopticWriter(Evaluator):
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         result = super().plot(storage)
 
-        from unipercept.render.utils import draw_image_segmentation
+        from unipercept.render import draw_image_segmentation
 
         plot_keys = []
         for key, mode_attr in ((TRUE_PANOPTIC, "plot_true"), (PRED_PANOPTIC, "plot_pred")):

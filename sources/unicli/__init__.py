@@ -6,7 +6,7 @@ from __future__ import annotations
 
 __version__ = "1.0.0"
 
-from . import describe, echo, profile, train, backbones
+from . import backbones, describe, echo, profile, train
 from ._cmd import *
 from ._config import *
 

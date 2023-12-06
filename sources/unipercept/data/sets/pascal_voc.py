@@ -18,8 +18,8 @@ from tqdm import tqdm
 from typing_extensions import override
 from unicore import catalog, file_io
 
-from unipercept.render import colormap
 from unipercept.log import get_logger
+from unipercept.render import colormap
 
 _logger = get_logger(__name__)
 

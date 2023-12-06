@@ -3,6 +3,6 @@
 
 __version__ = "5.0.1"
 
-from . import data, evaluators, model, nn, render, engine, utils, config
+from . import config, data, engine, evaluators, log, model, nn, render, utils
 from ._api_config import *
 from ._api_data import *

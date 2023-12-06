@@ -5,12 +5,14 @@ Commands that describe datasets.
 from __future__ import annotations
 
 import typing as T
-import unipercept as up
-from ._cmd import command, logger
 
 import torch
 from tqdm import tqdm
 from unicore import file_io
+
+import unipercept as up
+
+from ._cmd import command, logger
 
 __all__ = []
 
@@ -25,7 +27,7 @@ def extract_depth_stats(ds: up.data.sets.PerceptionDataset, output_dir: file_io.
 
     for inputs in loader:
         if output_dir is not None:
-            img = up.render.utils.plot_input_data(inputs, info=ds.info)
+            img = up.render.plot_input_data(inputs, info=ds.info)
             img.save(output_dir / f"{inputs.captures.primary_key}.png")
 
         dep = inputs.captures.depths

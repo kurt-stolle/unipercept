@@ -1,6 +1,7 @@
+import typing as T
+
 import torch
 import torch.nn as nn
-import typing as T
 
 __all__ = ["EPS_FLOAT", "EPS_HALF", "EPS_BF16", "ScaledLossMixin", "StableLossMixin", "split_into_patches"]
 

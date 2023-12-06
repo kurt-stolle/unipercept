@@ -4,7 +4,7 @@ import unipercept as up
 from unipercept.config import call as L
 from unipercept.config import get_project_name, get_session_name
 
-from .multidvps_resnet50 import data, model, engine
+from .multidvps_resnet50 import data, engine, model
 
 __all__ = ["model", "data", "engine"]
 

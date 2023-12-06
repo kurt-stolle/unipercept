@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import pandas as pd
-import typing as T
-import time
-from datetime import datetime
 import contextlib
-import statistics
 import enum as E
+import statistics
+import time
+import typing as T
+from datetime import datetime
+
+import pandas as pd
 from typing_extensions import override
 
 __all__ = ["get_timestamp", "ProfileAccumulator", "profile"]

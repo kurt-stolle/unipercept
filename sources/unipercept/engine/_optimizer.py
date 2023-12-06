@@ -1,19 +1,18 @@
 """Implements a lazy optimizer for use in configuration files."""
 
 from __future__ import annotations
-from collections import defaultdict
 
 import copy
 import enum
 import functools
 import itertools
 import typing as T
+from collections import defaultdict
 
 import timm.optim
 import timm.optim.optim_factory
 import torch.nn as nn
 import torch.optim
-
 from accelerate import PartialState
 
 from unipercept.log import get_logger

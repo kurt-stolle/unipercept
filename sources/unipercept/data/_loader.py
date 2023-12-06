@@ -1,9 +1,10 @@
 """Defines functions for creating dataloaders for training and validation, using the common dataset format."""
 
 from __future__ import annotations
-import os
+
 import dataclasses
 import multiprocessing as M
+import os
 import typing as T
 
 from torch.utils.data import (
@@ -17,7 +18,7 @@ from typing_extensions import override
 
 from unipercept.data.ops import Op, apply_dataset
 from unipercept.log import get_logger
-from unipercept.utils.state import get_process_count
+from unipercept.state import get_process_count
 
 if T.TYPE_CHECKING:
     import unipercept as up

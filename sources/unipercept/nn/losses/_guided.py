@@ -3,14 +3,15 @@ Implements segmentation-to-depth and vice-versa losses.
 """
 
 import typing as T
-from einops import reduce, rearrange
+
 import torch
 import torch.nn as nn
+from einops import rearrange, reduce
 from torch import nn
 from typing_extensions import override
 
-from .mixins import ScaledLossMixin, StableLossMixin
 from .functional import depth_guided_segmentation_loss, segmentation_guided_triplet_loss
+from .mixins import ScaledLossMixin, StableLossMixin
 
 __all__ = ["DGPLoss", "PGTLoss", "PGSLoss"]
 

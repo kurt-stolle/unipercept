@@ -20,8 +20,8 @@ from termcolor import colored
 from typing_extensions import override
 from unicore import file_io
 
+from unipercept.state import get_process_index
 from unipercept.utils.inspect import caller_identity, calling_module_name
-from unipercept.utils.state import get_process_index
 
 __all__ = [
     "get_logger",

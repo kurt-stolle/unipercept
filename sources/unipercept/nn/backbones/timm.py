@@ -6,13 +6,13 @@ See: https://huggingface.co/docs/timm/main/en/feature_extraction
 
 
 import typing as T
+from collections import OrderedDict
 
 import timm
 import timm.data
 import torch
 import torch.nn as nn
 from typing_extensions import override
-from collections import OrderedDict
 
 from .wrapper import (
     ORDER_CHW,

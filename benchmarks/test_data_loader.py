@@ -1,9 +1,10 @@
-import pytest
 import time
+
+import pytest
 import torch
+from torch.utils.data import DataLoader
 
 import unipercept as up
-from torch.utils.data import DataLoader
 
 
 @pytest.mark.benchmark

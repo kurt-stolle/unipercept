@@ -3,15 +3,24 @@ Mapillary Vistas dataset
 """
 
 from __future__ import annotations
-from datetime import datetime
-import typing as T
+
 import functools
+import typing as T
+from datetime import datetime
 
 from typing_extensions import override
 from unicore import file_io
+
+from ..types import (
+    CaptureRecord,
+    CaptureSources,
+    Manifest,
+    ManifestSequence,
+    MotionRecord,
+    MotionSources,
+)
+from ._base import PerceptionDataset, SClass, SType, info_factory
 from ._pseudo import PseudoGenerator
-from ._base import PerceptionDataset, info_factory, SClass, SType
-from ..types import Manifest, ManifestSequence, MotionRecord, MotionSources, CaptureRecord, CaptureSources
 from .cityscapes import CAMERA
 
 CLASSES_AS_CITYSCAPES = [

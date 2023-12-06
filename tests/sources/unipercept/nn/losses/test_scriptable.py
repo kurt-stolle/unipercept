@@ -1,6 +1,8 @@
-import torch
-import pytest
 from functools import partial
+
+import pytest
+import torch
+
 import unipercept.nn.losses as _L
 
 LOSS_NN_MODULES = [

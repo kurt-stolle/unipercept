@@ -8,7 +8,10 @@ from hypothesis import strategies as st
 from hypothesis.extra.numpy import array_shapes, arrays
 
 from unipercept.nn.losses import DepthLoss
-from unipercept.nn.losses.functional import scale_invariant_logarithmic_error, relative_absolute_squared_error
+from unipercept.nn.losses.functional import (
+    relative_absolute_squared_error,
+    scale_invariant_logarithmic_error,
+)
 
 devices = [torch.device("cpu")]
 # if torch.cuda.is_available():

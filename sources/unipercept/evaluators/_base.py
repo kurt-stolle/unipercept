@@ -2,19 +2,19 @@
 Implements the baseclass for evaluators
 """
 from __future__ import annotations
-import dataclasses as D
+
 import abc
+import dataclasses as D
+import enum
 import typing as T
 
 import torch
 import torch.types
-import enum
-
 from PIL import Image as pil_image
 from tensordict import TensorDict, TensorDictBase
 
 if T.TYPE_CHECKING:
-    from ..model import ModelOutput, InputData
+    from ..model import InputData, ModelOutput
 
 __all__ = ["Evaluator", "PlotMode"]
 

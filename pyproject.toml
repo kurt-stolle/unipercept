@@ -174,7 +174,6 @@ imports = [
     "torch",
     "torchvision",
     "tensordict",
-    "detectron2",
     "unitrack",
     "unicore",
     "evaluators",
@@ -210,7 +209,6 @@ extension-pkg-whitelist = [
     "ciso8601",
     "netcdf4",
     "scipy",
-    "detectron2",
 ]
 ignore = "CVS"
 ignore-patterns = "test.*?py,conftest.py"

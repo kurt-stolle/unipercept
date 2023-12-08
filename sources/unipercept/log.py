@@ -55,7 +55,6 @@ PACKAGE_ABBREVIATIONS: dict[str, str] = {
     "unicli": "📟",
     "unitrack": "🚘",
     "accelerate": "🤗",
-    "detectron2": "🤖",
     "torch": "🔦",
 }
 

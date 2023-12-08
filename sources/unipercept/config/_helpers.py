@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 import os
-import socket
 import typing as T
 from os import PathLike
 from pathlib import Path
 
 import torch.distributed as dist
 from accelerate import PartialState
-from detectron2.config import instantiate
 from omegaconf import dictconfig
 from typing_extensions import deprecated
 from unicore import file_io
 
 from unipercept.utils.time import get_timestamp
 
-__all__ = ["get_project_name", "parse_dict", "get_session_name", "set_session_name", "flatten_config"]
+__all__ = ["get_project_name", "get_session_name", "set_session_name", "flatten_config"]
 
 ENV_SESSION = "UNI_SESSION"
 ENV_PROJECT = "UNI_PROJECT"
@@ -118,18 +116,6 @@ def set_session_name(name: str) -> None:
     Set the name of the current session to ``name``.
     """
     os.environ[ENV_SESSION] = name
-
-
-def parse_dict(d: T.Mapping[str, T.Any]) -> dict[str, T.Any]:
-    """
-    Parse a DictConfig object to a regular Dict. This is useful for the instantiation of some models that have a Dict
-    argument that was lazily initiated.
-
-    Always returns a new dictionary.
-    """
-    if isinstance(d, dictconfig.DictConfig):
-        return {k: instantiate(v) for k, v in d.items()}
-    return {k: v for k, v in d.items()}
 
 
 FlatConfigDict: T.TypeAlias = dict[str, int | float | str | bool]

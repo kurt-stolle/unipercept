@@ -104,7 +104,7 @@ def main(args):
         )
         engine.recover()
     elif state.is_main_process:
-        _logger.info("Storing serialized config to YAML file %s", engine.path)
+        _logger.info("Storing serialized config to YAML file %s", engine.root_path)
         up.config.LazyConfig.save(lazy_config, str(config_path))
 
     # Setup dataloaders

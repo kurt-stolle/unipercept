@@ -152,9 +152,11 @@ class Event(E.StrEnum):
     ON_TRAIN_STEP_END = E.auto()
     ON_EVALUATE = E.auto()
     ON_PREDICT = E.auto()
+    ON_INFERENCE_END = E.auto()
+    ON_INFERENCE_BEGIN = E.auto()
+    ON_INFERENCE_STEP = E.auto()
     ON_SAVE = E.auto()
     ON_LOG = E.auto()
-    ON_INFERENCE_STEP = E.auto()
 
 
 class CallbackDispatcher:
@@ -252,6 +254,18 @@ class CallbackDispatcher:
     def on_log(self, params: EngineParams, state: State, control: Signal, **kwargs):
         """
         Event called after logging the last logs.
+        """
+        pass
+
+    def on_inference_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+        """
+        Event called after a prediction step.
+        """
+        pass
+
+    def on_inference_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+        """
+        Event called after a prediction step.
         """
         pass
 

@@ -33,7 +33,7 @@ from unicore import file_io
 from unicore.utils.status import StatusDescriptor
 from unicore.utils.tensorclass import Tensorclass
 
-import unipercept.integrations.slurm
+import unipercept.integrations.slurm_integration
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
@@ -77,7 +77,7 @@ class EngineStatus(E.IntFlag):
 
     TRAINING = E.auto()
     EVALUATION = E.auto()
-    INFERENCE = E.auto()
+    PREDICTION = E.auto()
     TUNING = E.auto()
 
 
@@ -85,6 +85,25 @@ class Engine:
     """
     The engine implements processes for training, evaluation, and inference.
     """
+
+    __slots__ = [
+        "_params",
+        "_xlr",
+        "_state",
+        "_evaluators",
+        "_signal",
+        "_delegate",
+        "_get_optimizer",
+        "_get_scheduler",
+        "_mem_tracker",
+        "_flops",
+        "_globalstep_last_logged",
+        "_past",
+        "_recover_path",
+        "_notes",
+        "_tags",
+        "__dict__"
+    ]
 
     def __init__(
         self,
@@ -154,11 +173,25 @@ class Engine:
         return str(self)
 
     @functools.cached_property
-    def path(self) -> file_io.Path:
+    def root_path(self) -> file_io.Path:
         """
         Returns the local path to the root directory of this engine as a ``pathlib.Path`` class.
         """
         return file_io.Path(self._params.root).resolve()
+
+    @functools.cached_property
+    def logs_path(self) -> file_io.Path:
+        """
+        Returns the local path to the logs directory of this engine as a ``pathlib.Path`` class.
+        """
+        return file_io.Path(self._xlr.logging_dir)
+
+    @functools.cached_property
+    def outputs_path(self) -> file_io.Path:
+        """
+        Returns the local path to the outputs directory of this engine as a ``pathlib.Path`` class.
+        """
+        return file_io.Path(self._xlr.project_dir)
 
     def recover(self, model: nn.Module | None = None, checkpoint: str | file_io.Path | None = None) -> None:
         """
@@ -303,7 +336,7 @@ class Engine:
         return metrics
 
     @status.assert_status(~(EngineStatus.TRAINING | EngineStatus.EVALUATION))
-    @status(EngineStatus.INFERENCE)
+    @status(EngineStatus.PREDICTION)
     @torch.no_grad()
     def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
         # Memory metrics - must set up as early as possible
@@ -333,7 +366,7 @@ class Engine:
         """
         self._signal = self._delegate(event, self._params, self._state, self._signal, **kwargs)
 
-    def _find_project_config(self) -> dict[str, T.Any]:
+    def _config_object(self) -> dict[str, T.Any]:
         """
         Attempt to locate the configuration YAML file for the current project.
         If that does not exist, return None. If it does exist, return the parsed and flattened YAML.
@@ -351,9 +384,9 @@ class Engine:
             return {}
 
         # return flatten_config(config)
-        return {
-            "lazy": OmegaConf.to_container(lazy, resolve=False),
-        }
+        lazy_obj = OmegaConf.to_container(lazy, resolve=False)
+        assert isinstance(lazy_obj, dict)
+        return T.cast(dict[str, T.Any], lazy_obj)
 
     def _setup_trackers(self, model: nn.Module) -> None:
         """
@@ -383,7 +416,7 @@ class Engine:
 
         self._xlr.init_trackers(
             self._params.project_name.replace("/", " "),
-            config=self._find_project_config(),
+            config=self._config_object(),
             init_kwargs={"wandb": __wandb_kwargs},
         )
 
@@ -629,8 +662,6 @@ class Engine:
             if not k.startswith("engine/"):
                 metrics["engine/" + k] = metrics.pop(k)
 
-        self.is_in_train = False
-
         self._mem_tracker.stop_and_update_metrics("train", metrics)
         self._training_log(metrics)
         self._event(Event.ON_TRAIN_END)
@@ -786,68 +817,6 @@ class Engine:
 
         return a_off, a_total
 
-    def _inference_results_allocate(
-        self, sample_amount: int, like: TensorDict, path: file_io.Path | os.PathLike | str | None = None
-    ) -> tuple[TensorDict, file_io.Path]:
-        """
-        Allocate a memmapped TensorDict to store results for evaluation.
-
-        Parameters
-        ----------
-        sample_amount : int
-            The total amount of samples that will be stored
-        like : TensorDict
-            A TensorDict with the same structure as the results TensorDict
-
-        Returns
-        -------
-        TensorDict
-            A TensorDict with the same structure as the results TensorDict, but with the first dimension set to the
-            total amount of samples. Memory mapped.
-        """
-        assert self._xlr.is_main_process, "Expected main process to allocate memory"
-
-        _logger.debug(f"Allocating memory for {sample_amount} samples using template of batch size {like.batch_size}")
-
-        # Make a scratch directory if no path is provided
-        if path is None:
-            path = (
-                file_io.Path("//scratch/")
-                / self._params.project_name
-                / self._params.session_name
-                / "evaluation"
-                / f"step-{self._state.step}"
-            )
-
-            if path.exists():
-                _logger.debug("Clearing existing results directory: %s", path)
-                shutil.rmtree(path)
-            else:
-                _logger.debug("Creating results directory: %s", path)
-        else:
-            path = file_io.Path(path)
-
-        # Create results directory
-        path.mkdir(parents=True, exist_ok=False)
-
-        # Allocate memory
-        mem = TensorDict(
-            {
-                k: MemmapTensor(
-                    sample_amount,
-                    *v.shape[1:],
-                    dtype=v.dtype,
-                    device="cpu",
-                    filename=str(path / f"{k}.memmap"),
-                )
-                for k, v in like.items()
-            },
-            batch_size=[sample_amount],
-        )
-        mem.memmap_(prefix=str(path))
-
-        return mem, path
-
     @torch.no_grad()
     def _inference_loop(
         self,
@@ -872,7 +841,7 @@ class Engine:
         gc.collect()
 
         # Find the size of the dataset *before* preparation to correctly map each output
-        batch_offsets, batch_total = self._inference_gather_total_batches(dataloader)
+        _, batch_total = self._inference_gather_total_batches(dataloader)
         samples_total = batch_total * self._params.infer_batch_size
 
         _logger.debug(f"Expecting {samples_total} samples in total across {batch_total} batches")
@@ -924,6 +893,7 @@ class Engine:
         batch_size = self._params.infer_batch_size
         # write_index = batch_offsets[self._xlr.process_index] * batch_size
 
+        self._event(Event.ON_INFERENCE_BEGIN, loader=dataloader)
         timings = ProfileAccumulator()
 
         for inputs in dataloader:
@@ -960,8 +930,10 @@ class Engine:
             f"Finished inference, profiling report on process %d/%d:\n%s",
             self._xlr.process_index + 1,
             self._xlr.num_processes,
-            timings.to_summary().to_markdown(index=False, floatfmt=".3f"),
+            timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
         )
+
+        self._event(Event.ON_INFERENCE_END, timings=timings, results=results_mem, results_path=results_path)
 
         # Clear the past memory
         self._past = None
@@ -973,14 +945,9 @@ class Engine:
         metrics: dict[str, T.Any] = {}
         visuals: dict[str, pil_image.Image] = {}
         if self._xlr.is_main_process:
-            # if write_index < batch_total:
-            #     warnings.warn(
-            #         (f"Expected to process {batch_total} batches, but only processed {write_index}. "),
-            #         stacklevel=2,
-            #     )
             metrics.update(
                 _build_speed_metrics(
-                    "inference",
+                    prefix,
                     t_start_all,
                     sample_amount=samples_processed,
                     step_amount=math.ceil(samples_processed * self._xlr.num_processes),
@@ -992,8 +959,6 @@ class Engine:
             # Run the evaluation handlers on the main process
             for evaluator in handlers:
                 _logger.debug(f"Running evaluation handler: {evaluator}")
-                # assert isinstance(results_mem, TensorDict)
-
                 # Metrics
                 handler_metrics = evaluator.compute(results_mem.tensordict, device=self._xlr.device)
                 metrics.update(handler_metrics)
@@ -1006,8 +971,8 @@ class Engine:
 
         # Remove the memmap file
         self._xlr.wait_for_everyone()
-
         del results_mem
+
         if self._xlr.is_main_process and results_remove_on_exit:
             assert results_path is not None
             shutil.rmtree(results_path, ignore_errors=True)
@@ -1044,10 +1009,9 @@ class Engine:
             if wandb_run is not None:
                 wandb_run.log({key: wandb.Image(img)}, step=self._state.step)
 
-    def _nested_gather(self, tensors: MaybeTensorType, name=None) -> MaybeTensorType:
+    def _nested_gather(self, tensors: MaybeTensorType) -> MaybeTensorType:
         """
-        Gather value of `tensors` (tensor or list/tuple of nested tensors) and convert them to numpy before
-        concatenating them to `gathered`
+        Gather value of `tensors` (tensor or list/tuple of nested tensors)
         """
         if tensors is None:
             return tensors
@@ -1076,7 +1040,7 @@ class Engine:
         """
 
         # See: https://pytorch.org/docs/stable/notes/multiprocessing.html
-        slurm = unipercept.integrations.slurm.SLURMEnvironment()
+        slurm = unipercept.integrations.slurm_integration.SLURMEnvironment()
 
         if slurm.is_slurm_job:
             N_M = slurm.cpus_per_gpu

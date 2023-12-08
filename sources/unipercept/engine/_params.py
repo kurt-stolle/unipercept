@@ -48,6 +48,9 @@ class EngineParams:
     session_name: str = D.field(default_factory=get_timestamp)
     root: str = "//output/{project_name}/{session_name}"
 
+    notes: str = D.field(default_factory=str, metadata={"help": "Notes to use for the experiment."}),
+    tags: T.Sequence[str] = D.field(default_factory=list, metadata={"help": "Tags to use for the experiment."})
+
     train_batch_size: int = 8
     infer_batch_size: int = 1
     full_determinism: bool = False

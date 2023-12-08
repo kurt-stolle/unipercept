@@ -2,7 +2,7 @@
 Semantic KITTI and variants.
 
 Expects the dataset to be installed and in the following format:
-```
+``
 $UNICORE_DATA
     |── semkitti-dvps
     │   ├── video_sequence
@@ -14,8 +14,7 @@ $UNICORE_DATA
     │   │   │   ├── ...
     │   │   ├── val
     │   │   │   ├── ...
-    .   .   .   .
-```
+``
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum as E
 import os
 import tempfile
-
+import dataclasses as D
 import torch.nn as nn
 import typing_extensions as TX
 import wandb
@@ -52,12 +52,29 @@ def pull_engine(name: str):
     pass
 
 
+class WandBWatchMode(E.StrEnum):
+    """
+    Watch mode for Weights & Biases.
+    """
+
+    GRADIENTS = E.auto()
+    PARAMETERS = E.auto()
+    ALL = E.auto()
+
+@D.dataclass(slots=True)
 class WandBCallback(CallbackDispatcher):
     """
     Extended integration with Weights & Biases.
 
     Since Accelerate already provides a WandB integration, this callback only adds new features.
     """
+
+    watch_model: WandBWatchMode = WandBWatchMode.GRADIENTS
+    upload_code: bool = True
+    store_model: bool = True
+    store_state: bool = True
+    store_inference_results: bool = True
+    tabulate_inference_timings: bool =True
 
     @TX.override
     @on_main_process()
@@ -67,8 +84,10 @@ class WandBCallback(CallbackDispatcher):
 
         _logger.info(f"Logging additional metrics to WandB run {run.name}")
 
-        run.watch(model, log="all", log_freq=params.logging_steps)
-        run.log_code("./sources", include_fn=lambda path, root: path.endswith(".py"))
+        if self.watch_model is not None:
+            run.watch(model, log=self.watch_model.value, log_freq=params.logging_steps)
+        if self.upload_code:
+            run.log_code("./sources", include_fn=lambda path, root: path.endswith(".py"))
 
     @TX.override
     @on_main_process()
@@ -80,28 +99,30 @@ class WandBCallback(CallbackDispatcher):
         run_name = run.name
         assert run_name is not None, "WandB run name not initialized"
 
-        try:
-            _logger.info(f"Logging model to WandB run {run.name}")
-            run.log_model(model_path, name=f"model-{run_name}")
-        except Exception as err:
-            _logger.warning(f"Failed to log model to WandB run {run.name}: {err}")
+        if self.store_model:
+            try:
+                _logger.info(f"Logging model to WandB run {run.name}")
+                run.log_model(model_path, name=f"model-{run_name}")
+            except Exception as err:
+                _logger.warning(f"Failed to log model to WandB run {run.name}: {err}")
 
-        try:
-            _logger.info(f"Logging engine state to WandB run {run.name}")
-            state_artifact = wandb.Artifact(
-                name=f"state-{run_name}",
-                type=ArtifactType.STATE.value,
-                description="Engine state",
-            )
-            state_artifact.add_dir(state_path)
+        if self.store_state:
+            try:
+                _logger.info(f"Logging engine state to WandB run {run.name}")
+                state_artifact = wandb.Artifact(
+                    name=f"state-{run_name}",
+                    type=ArtifactType.STATE.value,
+                    description="Engine state",
+                )
+                state_artifact.add_dir(state_path)
 
-            wandb.log_artifact(
-                state_artifact,
-                type=ArtifactType.STATE.value,
-                description="Engine state",
-            )
-        except Exception as err:
-            _logger.warning(f"Failed to log model to WandB run {run.name}: {err}")
+                wandb.log_artifact(
+                    state_artifact,
+                    type=ArtifactType.STATE.value,
+                    description="Engine state",
+                )
+            except Exception as err:
+                _logger.warning(f"Failed to log model to WandB run {run.name}: {err}")
 
     @TX.override
     @on_main_process()
@@ -120,10 +141,12 @@ class WandBCallback(CallbackDispatcher):
         run_name = run.name
         assert run_name is not None
 
-        _logger.info("Logging evaluation outcomes to WandB")
-        run.log_artifact(
-            results_path,
-            name=f"inference-{run_name}",
-            type=ArtifactType.RUN.value,
-        )
-        run.log({"inference/timings": wandb.Table(dataframe=timings.to_summary())}, commit=False)
+        if self.store_inference_results:
+            _logger.info("Logging evaluation outcomes to WandB")
+            run.log_artifact(
+                results_path,
+                name=f"inference-{run_name}",
+                type=ArtifactType.RUN.value,
+            )
+        if self.tabulate_inference_timings:
+            run.log({"inference/timings": wandb.Table(dataframe=timings.to_summary())}, commit=False)

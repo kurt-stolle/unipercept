@@ -14,7 +14,6 @@ import os
 import shutil
 import time
 import typing as T
-import warnings
 
 import accelerate
 import accelerate.utils
@@ -25,7 +24,7 @@ import torch.utils.data
 import wandb
 from omegaconf import OmegaConf
 from PIL import Image as pil_image
-from tensordict import MemmapTensor, PersistentTensorDict, TensorDict
+from tensordict import TensorDict
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
@@ -102,7 +101,7 @@ class Engine:
         "_recover_path",
         "_notes",
         "_tags",
-        "__dict__"
+        "__dict__",
     ]
 
     def __init__(
@@ -114,8 +113,6 @@ class Engine:
         callbacks: T.Sequence[CallbackType | type[CallbackType]],
         evaluators: T.Sequence[Evaluator] | None = None,
         log_events: bool = False,
-        notes: str | None = None,
-        tags: T.Sequence[str] | None = None,
     ):
         self._mem_tracker = MemoryTracker(enabled=not params.memory_tracker)
         self._mem_tracker.start("init")  # must set up as early as possible

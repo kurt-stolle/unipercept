@@ -42,6 +42,12 @@ dynamic = ["version"]
 [project.scripts]
 unipercept = "unipercept.cli:__main__"
 
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-data]
+unipercept = ["py.typed"]
+
 [tool.setuptools.dynamic]
 version = { attr = "unipercept.__version__" }
 

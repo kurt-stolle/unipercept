@@ -16,10 +16,10 @@ from torch.utils.data import (
 )
 from typing_extensions import override
 
+from unipercept.config import get_env
 from unipercept.data.ops import Op, apply_dataset
 from unipercept.log import get_logger
 from unipercept.state import get_process_count
-from unipercept.config import get_env
 
 if T.TYPE_CHECKING:
     import unipercept as up

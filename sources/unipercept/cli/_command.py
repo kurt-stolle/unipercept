@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import functools
-import typing as T
 import inspect
+import typing as T
 from typing import Callable, Concatenate, Generic, Optional, ParamSpec, TypeAlias
 
 import unipercept

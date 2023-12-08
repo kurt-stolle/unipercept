@@ -3,18 +3,26 @@ Implements a handler for writing results to a file from multiple processes.
 """
 
 from __future__ import annotations
-import functools
 
+import functools
 import typing as T
 
+import accelerate
 import torch
 import torch.types
-import accelerate
 from tensordict import PersistentTensorDict, TensorDict, TensorDictBase
 from unicore import file_io
 
 from unipercept.log import get_logger
-from unipercept.state import barrier, check_main_process, gather_tensordict, get_process_count, get_process_index, main_process_first, on_main_process
+from unipercept.state import (
+    barrier,
+    check_main_process,
+    gather_tensordict,
+    get_process_count,
+    get_process_index,
+    main_process_first,
+    on_main_process,
+)
 
 __all__ = ["ResultsWriter", "PersistentTensordictWriter"]
 
@@ -63,7 +71,9 @@ class PersistentTensordictWriter:
         self._buffer_size = buffer_size
         self._td: PersistentTensorDict | None = None
         self._td_cursor = 0
-        self._td_factory = functools.partial(PersistentTensorDict, batch_size=[size], mode="w" if check_main_process() else "r")
+        self._td_factory = functools.partial(
+            PersistentTensorDict, batch_size=[size], mode="w" if check_main_process() else "r"
+        )
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def add(self, data: TensorDictBase):
@@ -75,7 +85,7 @@ class PersistentTensordictWriter:
         data : TensorDictBase
             The data to add.
         """
-        
+
         assert data.batch_dims == 1, f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
 
         data = gather_tensordict(data)
@@ -89,10 +99,10 @@ class PersistentTensordictWriter:
 
     @on_main_process()
     def write(self):
-        data = torch.cat(self._buffer_list, dim=0) # type: ignore
+        data = torch.cat(self._buffer_list, dim=0)  # type: ignore
 
         assert data.batch_dims == 1, f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
-        
+
         # Determine offsets in target storage
         off_l = self._td_cursor
         off_h = off_l + data.batch_size[0]
@@ -100,7 +110,7 @@ class PersistentTensordictWriter:
         if off_l == off_h:
             _logger.debug("Nothing to write, skipping")
             return
-  
+
         _logger.debug(f"Writing {data.batch_size} results to storage")
         # Perform write operation
         self.tensordict[off_l:off_h] = data

@@ -6,9 +6,10 @@ The Accelerate library is adopted to handle distributed training and inference.
 from __future__ import annotations
 
 import dataclasses as D
-from tensordict import TensorDictBase, TensorDict
+
 import accelerate.utils
 import torch
+from tensordict import TensorDict, TensorDictBase
 
 
 @D.dataclass(kw_only=True, slots=True)

@@ -67,6 +67,7 @@ def apply_development_mode(lazy_config: _config_t) -> None:
 
     apply_debug_mode(lazy_config)
 
+
 def setup(args) -> _config_t:
     # Disable JIT
     if args.no_jit:

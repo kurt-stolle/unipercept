@@ -15,7 +15,6 @@ from tensordict import LazyStackedTensorDict, TensorDict
 from typing_extensions import override
 from unicore import file_io
 from unicore.utils.tensorclass import Tensorclass
-from unipercept.log import get_logger
 
 from unipercept.data.tensors import (
     BoundingBoxes,
@@ -24,6 +23,7 @@ from unipercept.data.tensors import (
     OpticalFlow,
     PanopticMap,
 )
+from unipercept.log import get_logger
 
 _logger = get_logger(__name__)
 
@@ -327,8 +327,8 @@ class ModelFactory:
         """
         TODO interface not clearly defined yet
         """
-        from unipercept.config import instantiate
         from unipercept import load_checkpoint
+        from unipercept.config import instantiate
 
         model = T.cast(ModelBase, instantiate(self.model_config))
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-type=ALL
 #SBATCH --partition=gpu 
 #SBATCH --nodes=1
 #SBATCH --gpus=2

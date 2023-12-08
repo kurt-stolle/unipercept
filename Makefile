@@ -1,5 +1,5 @@
 
-.PHONY: help install test
+.PHONY: help install test video
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -9,6 +9,8 @@ help:
 clean: 
 	rm -rf build dist *.egg-info .pytest_cache .coverage .benchmarks .mypy_cache .tox .hypothesis
 
+# video: 
+# 	ffmpeg -framerate 30 -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p out.mp4
 
 install:
 	./scripts/install.sh

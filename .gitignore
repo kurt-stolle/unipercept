@@ -1,5 +1,8 @@
 # WandB
-./wandb
+wandb
+
+# Benchmarking
+.benchmarks
 
 # SLURM
 slurm-*
@@ -8,15 +11,18 @@ slurm-*
 log.txt
 
 # Symlinked defaults
-./scratch
-./output
-./outputs
-./datasets
-./data
-./log
-./logs
-./cache
-./caches
+scratch/
+output/
+outputs/
+datasets/
+data/
+log/
+logs/
+cache/
+
+# Documentation
+docs/build/
+docs/source/_generated/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -88,9 +94,6 @@ instance/
 
 # Scrapy stuff:
 .scrapy
-
-# Sphinx documentation
-docs/sources/_generated/
 
 # PyBuilder
 target/

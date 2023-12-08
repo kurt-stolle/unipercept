@@ -6,10 +6,13 @@
 import shutil
 import sys
 from pathlib import Path
+import importlib.resources
+import importlib.metadata
 
-import sphinx_rtd_theme  # noqa: F401
+import sphinx_rtd_theme
 
-sources_path = Path("../../sources/unipercept").resolve()
+
+sources_path = importlib.resources.files("unipercept")
 assert sources_path.is_dir()
 
 sys.path.insert(0, str(sources_path))
@@ -17,10 +20,10 @@ sys.path.insert(0, str(sources_path))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "Unified Perception"
-copyright = "Mobile Perception Systems Lab 2022"
+project = "unipercept"
+copyright = "2023, Mobile Perception Systems lab at Eindhoven University of Technology"
 author = "Kurt Stolle"
-release = "3.x"
+release = importlib.metadata.version("unipercept")
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -71,7 +74,8 @@ html_theme_options = {
 # -- Intersphinx -------------------------------------------------------------
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
-    "PyTorch": ("https://pytorch.org/docs/stable/", None),
+    "torch": ("https://pytorch.org/docs/stable/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
 }
 
 # -- Napoleon ----------------------------------------------------------------

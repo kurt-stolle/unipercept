@@ -101,9 +101,9 @@ class WandBCallback(CallbackDispatcher):
     def on_save(
         self, params: EngineParams, state: State, control: Signal, *, model_path: str, state_path: str, **kwargs
     ):
-        if self.model_history <= 0:
+        if self.model_history > 0:
             self._log_model(model_path)
-        if self.state_history <= 0:
+        if self.state_history > 0:
             self._log_state(state_path)
 
     @TX.override
@@ -118,7 +118,7 @@ class WandBCallback(CallbackDispatcher):
         results_path: str,
         **kwargs,
     ):
-        if self.inference_history <= 0:
+        if self.inference_history > 0:
             self._log_inference(results_path)
         if self.tabulate_inference_timings:
             self._log_profiling("inference/timings", timings)

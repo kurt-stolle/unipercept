@@ -60,6 +60,7 @@ class TimmBackbone(WrapperBase):
         pretrained: bool = True,
         nodes: T.Sequence[int] | None | int = None,
         keys: T.Sequence[str] | None = None,
+        jit_script: bool = False,
         **kwargs,
     ):
         dims = _get_dimension_order(name)
@@ -78,7 +79,10 @@ class TimmBackbone(WrapperBase):
 
         super().__init__(dimension_order=dims, feature_info={k: v for k, v in zip(keys, info)}, **kwargs)
 
-        self.ext = torch.jit.script(extractor)
+        self.ext = extractor
+
+        if jit_script:
+            self.ext = torch.jit.script(self.ext)  # type: ignore
 
     @override
     def forward_extract(self, images: torch.Tensor) -> OrderedDict[str, torch.Tensor]:

@@ -1,37 +1,48 @@
-# Unified Perception: Efficient Video Panoptic Segmentation with Minimal Annotation Costs
+# UniPercept
 
-Welcome to the PyTorch 2 implementation of Unified Perception, an innovative approach to depth-aware video panoptic segmentation. Our method achieves state-of-the-art performance without the need for video-based training. Instead, it utilizes a two-stage cascaded tracking algorithm that reuses object embeddings computed in an image-based network. This repository mirrors the research paper [Unified Perception](https://arxiv.org/abs/2303.01991).
+## Installation
 
-## Introduction
+This package requires at least Python 3.11 and PyTorch 2.1. Once you have created an environment with these 
+dependencies, we can proceed to install `unipercept` using one of three installation methods.
 
-Unified Perception is designed to tackle the challenge of depth-aware video panoptic segmentation with high precision. The method proposed in this repository effectively combines the benefits of image-based networks with a two-stage cascaded tracking algorithm, ultimately enhancing the performance of video panoptic segmentation tasks without the need for video-based training.
-
-## Technical Documentation
-
-For a comprehensive understanding of the Unified Perception implementation, please visit our technical documentation hosted on:
-
-[https://tue-mps.github.io/unipercept](https://tue-mps.github.io/unipercept)
-
-## Usage & Installation (Coming Soon)
-
-_This section is under development and will be added in the near future. It will provide step-by-step instructions for using and installing the Unified Perception package. Consider starring or subscribing to this repository for updates._
-
-The following _optional_ packages may be installed:
+### Stable release (recommended)
+You can install the latest stable release from PyPI via
 ```bash
-pip uninstall pillow
-CC="cc -mavx2" pip install -U --force-reinstall pillow-simd
+pip install unipercept
 ```
+
+### Master branch
+To install the latest version, which is not guaranteed to be stable, install from GitHub using 
+```bash
+pip install git+https://github.com/kurt-stolle/unipercept.git
+```
+
+### Developers
+If your use-case requires changes to our codebase, we recommend that you first fork this repository and download your
+own fork locally. Assuming you have the GitHub CLI installed, you can clone your fork with
+```bash
+gh repo clone unipercept
+```
+Then, you can proceed to install the package in editable mode by running
+```bash
+pip install --editable unipercept
+```
+You are invited to share your improvements to the codebase through a pull request on this repository. 
+Before making a pull request, please ensure your changes follow our code guidelines by running `pre-commit` before 
+adding your files into a Git commit.
 
 ## Training and evaluation
 
-Use the CLI:
+Models can be trained and evalurated from the CLI or through the Python API. 
+
+### CLI
+To train a model with the CLI:
 ```bash
-unicli train --config <config name>
+unicli train --config <config path>
 ```
+Without a `<config name>`, an interactive prompt will be started to assist in finding a configuration file.
 
-Without a `<config name>`, an interactive prompt will be started.
-
-## Validation and testing
+## Developer guidelines
 All tests can ran via `python -m pytest`. 
 However, we also provide a `make` directive that uses `pytorch-xdist` to speed up the process:
 ```

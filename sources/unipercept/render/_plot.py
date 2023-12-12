@@ -24,7 +24,8 @@ if T.TYPE_CHECKING:
     from unipercept.data.tensors import PanopticMap
     from unipercept.model import InputData, ModelOutput
 
-__all__ = ["draw_image", "draw_image_segmentation", "draw_image_depth"]
+__all__ = ["plot_input_data", "plot_predictions", 
+           "draw_image", "draw_image_segmentation", "draw_image_depth"]
 
 from unicore.utils.missing import MissingValue
 

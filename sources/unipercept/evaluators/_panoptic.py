@@ -6,7 +6,7 @@ Based on the Torchmetrics implementation of the Panoptic Quality metric.
 from __future__ import annotations
 
 import dataclasses as D
-import multiprocessing
+import enum as E
 import typing as T
 
 import einops
@@ -83,6 +83,11 @@ class PanopticWriter(Evaluator):
         return result
 
 
+class PQDefinition(E.IntEnum):
+    ORIGINAL = E.auto()
+    BALANCED = E.auto()
+
+
 @D.dataclass(kw_only=True)
 class PanopticEvaluator(PanopticWriter):
     """
@@ -92,6 +97,8 @@ class PanopticEvaluator(PanopticWriter):
     show_progress: bool = False
     show_summary: bool = True
     show_details: bool = False
+
+    pq_definition: PQDefinition = PQDefinition.ORIGINAL
 
     @classmethod
     @override
@@ -109,8 +116,14 @@ class PanopticEvaluator(PanopticWriter):
     @override
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
         metrics = super().compute(storage, **kwargs)
-        metrics["original"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=True)
-        metrics["balanced"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=False)
+
+        if self.pq_definition & PQDefinition.ORIGINAL:
+            metrics["original"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=True)
+        if self.pq_definition & PQDefinition.BALANCED:
+            metrics["balanced"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=False)
+
+        if len(metrics) == 0:
+            raise ValueError("No PQ definition selected.")
 
         return metrics
 
@@ -200,13 +213,13 @@ class PanopticEvaluator(PanopticWriter):
         for name, mask in [("all", tn_mask), ("thing", tn_mask & th_mask), ("stuff", tn_mask & st_mask)]:
             n_masked = n_valid[mask].sum().item()
             summary[name] = {
-                "μPQ": pq[mask].mean().item(),
-                "μSQ": rq[mask].mean().item(),
-                "μRQ": fp[mask].mean().item(),
-                "μIoU": iou[mask].mean().item(),
-                "ΣTP": tp[mask].sum().item() / n_masked,
-                "ΣFP": fp[mask].sum().item() / n_masked,
-                "ΣFN": fn[mask].sum().item() / n_masked,
+                "PQ": pq[mask].mean().item(),
+                "SQ": rq[mask].mean().item(),
+                "RQ": fp[mask].mean().item(),
+                "IoU": iou[mask].mean().item(),
+                "TP": tp[mask].sum().item() / n_masked,
+                "FP": fp[mask].sum().item() / n_masked,
+                "FN": fn[mask].sum().item() / n_masked,
             }
         summary_df = self._tabulate(summary)
         if self.show_summary:
@@ -227,13 +240,13 @@ class PanopticEvaluator(PanopticWriter):
 
             n_masked = n_valid[i].sum().item()
             details[name] = {
-                "μPQ": pq[i].mean().item(),
-                "μSQ": rq[i].mean().item(),
-                "μRQ": fp[i].mean().item(),
-                "μIoU": iou[i].mean().item(),
-                "ΣTP": tp[i].sum().item() / n_masked,
-                "ΣFP": fp[i].sum().item() / n_masked,
-                "ΣFN": fn[i].sum().item() / n_masked,
+                "PQ": pq[i].mean().item(),
+                "SQ": rq[i].mean().item(),
+                "RQ": fp[i].mean().item(),
+                "IoU": iou[i].mean().item(),
+                "TP": tp[i].sum().item() / n_masked,
+                "FP": fp[i].sum().item() / n_masked,
+                "FN": fn[i].sum().item() / n_masked,
             }
         details_df = self._tabulate(details)
         if self.show_details:

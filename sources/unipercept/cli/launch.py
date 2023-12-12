@@ -1,5 +1,7 @@
 """
 Run a command using the distributed engine.
+
+We use HuggingFace Accelerate to do the heavy lifting.
 """
 
 

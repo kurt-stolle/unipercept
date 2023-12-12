@@ -136,8 +136,6 @@ class Engine:
         self._globalstep_last_logged = -1
         self._past = None
         self._recover_path = None  # See: `recover` method
-        self._notes = notes or ""
-        self._tags = list(tags) if tags is not None else []
 
         self._xlr.register_for_checkpointing(self._state)
 
@@ -405,8 +403,8 @@ class Engine:
             "name": __wandb_sanitize(self._params.session_name),
             "job_type": "train" if (self.status & EngineStatus.TRAINING) else "eval",
             "group": session_group,
-            "notes": self._notes,
-            "tags": self._tags,
+            "notes": self._params.notes,
+            "tags": self._params.tags,
             "id": __wandb_sanitize(f"{self._params.project_name}-{self._params.session_name}"),
             "save_code": False,
         }

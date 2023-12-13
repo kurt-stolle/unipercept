@@ -39,6 +39,7 @@ class SemanticMerge(nn.Module):
         common_stride: int,
         out_channels: int,
         weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION,
+        use_squeeze_excite: bool = False,
     ):
         super().__init__()
 
@@ -63,8 +64,9 @@ class SemanticMerge(nn.Module):
                 in_channels = feature_channels[in_feature] if n == 0 else out_channels
                 assert in_channels is not None
 
-                se = SqueezeExcite2d(in_channels)
-                head_ops.add_module(f"se_{n}", se)
+                if use_squeeze_excite:
+                    se = SqueezeExcite2d(in_channels)
+                    head_ops.add_module(f"se_{n}", se)
 
                 conv = convolution.Separable2d.with_norm_activation(
                     in_channels,

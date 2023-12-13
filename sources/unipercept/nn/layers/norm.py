@@ -22,17 +22,20 @@ def GroupNormCG(num_channels: int, **kwargs) -> nn.GroupNorm:
     """
     return nn.GroupNorm(num_channels, num_channels=num_channels, **kwargs)
 
+
 def LayerNormCHW(num_channels: int, **kwargs) -> nn.GroupNorm:
     """
     LayerNorm with the number of groups equal to the number of channels.
     """
     return nn.GroupNorm(num_groups=1, num_channels=num_channels, **kwargs)
 
+
 def GroupNormFactory(*, num_groups: int, **kwargs) -> T.Callable[[int], nn.GroupNorm]:
     """
     GroupNorm with the number of groups equal to the number of channels.
     """
     return functools.partial(nn.GroupNorm, num_groups, **kwargs)
+
 
 # @torch.jit.script
 # def layer_norm_chw(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, eps: float) -> torch.Tensor:

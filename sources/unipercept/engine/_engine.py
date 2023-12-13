@@ -871,14 +871,11 @@ class Engine:
             self._past = None
 
         # Output memory
-        results_remove_on_exit = results_path is None
-        results_path = (
-            file_io.Path("//scratch/")
-            / self._params.project_name
-            / self._params.session_name
-            / prefix
-            / f"step-{self._state.step}.h5"
-        )
+        if results_path is None:
+            results_remove_on_exit = True
+            results_path = file_io.Path(f"//scratch/{self._params.project_name}/{self._params.session_name}/{prefix}-results.h5")
+        else:
+            results_remove_on_exit = False
         results_mem = PersistentTensordictWriter(str(results_path), samples_total)
 
         # Prediction
@@ -949,27 +946,20 @@ class Engine:
                 )
             )
             assert results_mem is not None, "Expected results memory to be initialized"
-            # assert results_mem.is_memmap(), "Expected results memory to be memmapped"
-
-            # Run the evaluation handlers on the main process
             for evaluator in handlers:
                 _logger.debug(f"Running evaluation handler: {evaluator}")
-                # Metrics
-                handler_metrics = evaluator.compute(results_mem.tensordict, device=self._xlr.device)
-                metrics.update(handler_metrics)
-
-                # Visualizations
+                metrics.update(evaluator.compute(results_mem.tensordict, device=self._xlr.device))
                 visuals.update(evaluator.plot(results_mem.tensordict))
 
             # Store visualizations
             self._store_visualizations(visuals, prefix=prefix)
 
         # Remove the memmap file
+        results_mem.close()
         self._xlr.wait_for_everyone()
-        del results_mem
-
         if self._xlr.is_main_process and results_remove_on_exit:
             assert results_path is not None
+            _logger.debug(f"Cleaning up results file: {results_path}")
             shutil.rmtree(results_path, ignore_errors=True)
 
         # Store metrics
@@ -981,7 +971,6 @@ class Engine:
             if not key.startswith(f"{prefix}/"):
                 metrics[f"{prefix}/{key}"] = metrics.pop(key)
 
-        del dataloader
 
         return metrics, samples_processed
 

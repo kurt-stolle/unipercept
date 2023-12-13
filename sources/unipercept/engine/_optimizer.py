@@ -481,7 +481,6 @@ def get_optimizer_params(
         torch.nn.InstanceNorm3d,
         torch.nn.LayerNorm,
         torch.nn.LocalResponseNorm,
-        norm.LayerNormCHW,
     )
     params: list[ParameterDefinition] = []
     memo: set[torch.nn.parameter.Parameter] = set()

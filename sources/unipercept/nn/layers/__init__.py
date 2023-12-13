@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from unicore.utils.module import lazy_module_factory
 
+from ._attention import *
 from ._coord import *
 from ._interpolate import *
 from ._mlp import *

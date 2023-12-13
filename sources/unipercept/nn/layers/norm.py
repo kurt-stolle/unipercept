@@ -13,15 +13,20 @@ def GroupNorm32(num_channels: int, **kwargs) -> nn.GroupNorm:
     """
     GroupNorm with the number of groups equal to 32, like in Detectron2.
     """
-    return nn.GroupNorm(32, num_channels=32)
+    return nn.GroupNorm(32, num_channels=num_channels, **kwargs)
 
 
 def GroupNormCG(num_channels: int, **kwargs) -> nn.GroupNorm:
     """
     GroupNorm with the number of groups equal to the number of channels.
     """
-    return nn.GroupNorm(num_channels, num_channels=num_channels)
+    return nn.GroupNorm(num_channels, num_channels=num_channels, **kwargs)
 
+def LayerNormCHW(num_channels: int, **kwargs) -> nn.GroupNorm:
+    """
+    LayerNorm with the number of groups equal to the number of channels.
+    """
+    return nn.GroupNorm(num_groups=1, num_channels=num_channels, **kwargs)
 
 def GroupNormFactory(*, num_groups: int, **kwargs) -> T.Callable[[int], nn.GroupNorm]:
     """
@@ -29,27 +34,26 @@ def GroupNormFactory(*, num_groups: int, **kwargs) -> T.Callable[[int], nn.Group
     """
     return functools.partial(nn.GroupNorm, num_groups, **kwargs)
 
+# @torch.jit.script
+# def layer_norm_chw(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, eps: float) -> torch.Tensor:
+#     u = x.mean(1, keepdim=True)
+#     s = (x - u).pow(2).mean(1, keepdim=True)
+#     x = (x - u) / torch.sqrt(s + eps)
+#     x = weight[:, None, None] * x + bias[:, None, None]
+#     return x
 
-@torch.jit.script
-def layer_norm_chw(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, eps: float) -> torch.Tensor:
-    u = x.mean(1, keepdim=True)
-    s = (x - u).pow(2).mean(1, keepdim=True)
-    x = (x - u) / torch.sqrt(s + eps)
-    x = weight[:, None, None] * x + bias[:, None, None]
-    return x
 
+# class LayerNormCHW(nn.Module):
+#     def __init__(self, normalized_shape, eps=1e-6):
+#         super().__init__()
+#         self.weight = nn.Parameter(torch.ones(normalized_shape))
+#         self.bias = nn.Parameter(torch.zeros(normalized_shape))
+#         self.eps = eps
+#         self.normalized_shape = (normalized_shape,)
 
-class LayerNormCHW(nn.Module):
-    def __init__(self, normalized_shape, eps=1e-6):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(normalized_shape))
-        self.bias = nn.Parameter(torch.zeros(normalized_shape))
-        self.eps = eps
-        self.normalized_shape = (normalized_shape,)
-
-    @override
-    def forward(self, x):
-        return layer_norm_chw(x.float(), self.weight, self.bias, self.eps).type_as(x)
+#     @override
+#     def forward(self, x):
+#         return layer_norm_chw(x.float(), self.weight, self.bias, self.eps).type_as(x)
 
 
 @torch.jit.script

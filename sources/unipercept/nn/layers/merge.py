@@ -11,7 +11,8 @@ from typing_extensions import override
 
 import unipercept.nn.layers.conv as convolution
 from unipercept.nn.backbones import BackboneFeatureInfo
-from unipercept.nn.layers.norm import GroupNormCG
+from unipercept.nn.layers.norm import GroupNormCG, LayerNormCHW
+from unipercept.nn.layers import SelfAttention2d, SqueezeExcite2d
 
 __all__ = ["SemanticMerge"]
 
@@ -61,17 +62,21 @@ class SemanticMerge(nn.Module):
             for n in range(head_length):
                 in_channels = feature_channels[in_feature] if n == 0 else out_channels
                 assert in_channels is not None
+
+                se = SqueezeExcite2d(in_channels)
+                head_ops.add_module(f"se_{n}", se)
+
                 conv = convolution.Separable2d.with_norm_activation(
                     in_channels,
                     out_channels,
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    norm=GroupNormCG,
+                    norm=LayerNormCHW,
                     activation=nn.GELU,
                 )
-
                 head_ops.add_module(f"conv_{n}", conv)
+
                 if feature_strides[in_feature] != self.common_stride:
                     ups = nn.Upsample(
                         scale_factor=2,

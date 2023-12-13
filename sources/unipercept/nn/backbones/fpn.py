@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from typing_extensions import override
 
 from ..layers import conv
+from ..layers import SqueezeExcite2d
 from ._base import Backbone
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
@@ -39,8 +40,8 @@ class ExtraFPNBlock(nn.Module):
 
     def forward(
         self,
-        results: T.List[torch.Tensor],
         x: T.List[torch.Tensor],
+        y: T.List[torch.Tensor],
     ) -> T.List[torch.Tensor]:
         raise NotImplementedError()
 
@@ -90,8 +91,11 @@ class FeaturePyramidNetwork(nn.Module):
         for feature_name in self.in_features:
             feature_info = bottom_up.feature_info[feature_name]
 
-            inner_block_module = conv.Conv2d.with_norm(
-                feature_info.channels, out_channels, kernel_size=1, padding=0, norm=norm
+            inner_block_module = nn.Sequential(
+                SqueezeExcite2d(feature_info.channels), 
+                conv.Separable2d.with_norm(
+                    feature_info.channels, out_channels, kernel_size=1, padding=0, norm=norm
+                )
             )
             layer_block_module = conv.Separable2d.with_norm(
                 out_channels, out_channels, kernel_size=3, norm=norm, padding=1
@@ -186,16 +190,16 @@ class LastLevelMaxPool(ExtraFPNBlock):
     Applies a max_pool2d (not actual max_pool2d, we just subsample) on top of the last feature map
     """
 
+    def __init__(self):
+        super().__init__()
+
     def forward(
         self,
         x: T.List[torch.Tensor],
         y: T.List[torch.Tensor],
-        names: T.List[str],
-    ) -> T.Tuple[T.List[torch.Tensor], T.List[str]]:
-        names.append("pool")
-        # Use max pooling to simulate stride 2 subsampling
+    ) -> T.List[torch.Tensor]:
         x.append(F.max_pool2d(x[-1], kernel_size=1, stride=2, padding=0))
-        return x, names
+        return x
 
 
 class LastLevelP6P7(ExtraFPNBlock):

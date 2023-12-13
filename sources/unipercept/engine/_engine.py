@@ -873,7 +873,9 @@ class Engine:
         # Output memory
         if results_path is None:
             results_remove_on_exit = True
-            results_path = file_io.Path(f"//scratch/{self._params.project_name}/{self._params.session_name}/{prefix}-results.h5")
+            results_path = file_io.Path(
+                f"//scratch/{self._params.project_name}/{self._params.session_name}/{prefix}-results.h5"
+            )
         else:
             results_remove_on_exit = False
         results_mem = PersistentTensordictWriter(str(results_path), samples_total)
@@ -970,7 +972,6 @@ class Engine:
         for key in list(metrics.keys()):
             if not key.startswith(f"{prefix}/"):
                 metrics[f"{prefix}/{key}"] = metrics.pop(key)
-
 
         return metrics, samples_processed
 

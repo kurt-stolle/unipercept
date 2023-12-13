@@ -34,23 +34,22 @@ class SemanticMerge(nn.Module):
 
     def __init__(
         self,
-        in_features: T.Iterable[str],
-        input_shape: T.Mapping[str, BackboneFeatureInfo],
+        in_features: T.Mapping[str, BackboneFeatureInfo],
         common_stride: int,
         out_channels: int,
         weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION,
     ):
         super().__init__()
 
-        self.in_features = list(in_features)
+        self.in_features = list(in_features.keys())
         self.common_stride = int(common_stride)
 
         if isinstance(weight_method, str):
             weight_method = WeightMethod(weight_method)
         self.weight_method = weight_method
 
-        feature_strides = {k: T.cast(int, v.stride) for k, v in input_shape.items()}
-        feature_channels = {k: T.cast(int, v.channels) for k, v in input_shape.items()}
+        feature_strides = {k: T.cast(int, v.stride) for k, v in in_features.items()}
+        feature_channels = {k: T.cast(int, v.channels) for k, v in in_features.items()}
 
         self.scale_heads = nn.ModuleList()
         for in_feature in self.in_features:

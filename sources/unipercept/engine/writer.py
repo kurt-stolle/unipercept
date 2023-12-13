@@ -55,7 +55,6 @@ class ResultsWriter(metaclass=abc.ABCMeta):
         raise NotImplementedError("Abstract property `tensordict` not implemented.")
 
 
-
 class PersistentTensordictWriter(ResultsWriter):
     """
     Writes results to a H5 file using PersistentTensorDict from multiple processes, uses a buffer to reduce the number of writes.
@@ -90,17 +89,22 @@ class PersistentTensordictWriter(ResultsWriter):
             self.close()
 
     @staticmethod
-    def error_when_closed(fn: T.Callable[T.Concatenate[PersistentTensordictWriter, _P], _R]) -> T.Callable[T.Concatenate[PersistentTensordictWriter, _P], _R]:
+    def error_when_closed(
+        fn: T.Callable[T.Concatenate[PersistentTensordictWriter, _P], _R]
+    ) -> T.Callable[T.Concatenate[PersistentTensordictWriter, _P], _R]:
         @functools.wraps(fn)
         def wrapper(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
             if self._is_closed:
                 raise RuntimeError(f"{self.__class__.__name__} is closed")
             return fn(self, *args, **kwargs)
+
         return wrapper
 
-    @functools.cached_property 
+    @functools.cached_property
     def path(self) -> file_io.Path:
-        return file_io.Path(self._path)
+        p = file_io.Path(self._path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
 
     def __len__(self) -> int:
         return self._size
@@ -175,4 +179,3 @@ class PersistentTensordictWriter(ResultsWriter):
         if self._td is None:
             self._td = self._td_factory(filename=self.path)
         return self._td
-

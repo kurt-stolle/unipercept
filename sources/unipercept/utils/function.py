@@ -167,7 +167,7 @@ def traceable(f: Callable[_Pt, _Rt]) -> Callable[_Pt, _Rt]:
     return wrapper
 
 
-_T = TypeVar("_T")
+_T = TypeVar("_T", int,float,str,torch.Tensor,bool)
 
 
 @overload

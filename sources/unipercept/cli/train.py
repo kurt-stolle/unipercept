@@ -113,11 +113,7 @@ def main(args):
         results = engine.evaluate(model_factory)
         _logger.info("Evaluation results: \n%s", up.log.create_table(results, format="long"))
     else:
-        engine.train(
-            model_factory,
-            trial=None,
-            stage=args.stage if args.stage >= 0 else None
-        )
+        engine.train(model_factory, trial=None, stage=args.stage if args.stage >= 0 else None)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ import torch.types
 import torch.utils.data as torch_data
 import torchvision.ops
 import torchvision.transforms.v2 as tvt2
+import torchvision.transforms.v2.functional
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
 from unicore.utils.pickle import as_picklable
@@ -30,7 +31,7 @@ from .tensors import BoundingBoxes, BoundingBoxFormat, DepthMap, PanopticMap
 if T.TYPE_CHECKING:
     from unipercept.model import InputData
 
-_logger = get_logger(name=__file__)
+_logger = get_logger(__name__)
 
 
 __disable_warning()
@@ -133,7 +134,7 @@ class TorchvisionOp(Op):
         elif isinstance(transforms, T.Sequence):
             self._transforms = tvt2.Compose(transforms)
         elif isinstance(transforms, tvt2.Transform):
-            self._transforms = tvt2.Compose([transforms])
+            self._transforms = transforms
         else:
             raise ValueError(f"Expected transforms to be a sequence or transform`, got {transforms}!")
 
@@ -145,31 +146,140 @@ class TorchvisionOp(Op):
             raise NotImplementedError("Transforms for motion data not supported!")
 
         inputs.captures = self._transforms(inputs.captures.fix_subtypes_())
+        return inputs
+    
+############
+# CROPPING #
+############
 
-        # caps_tf = []
-        # for item in inputs.captures:
-        #     for key, value in item.items():
-        #         # Skip non-pixel maps
-        #         if not isinstance(value, tuple(pixel_maps)):
-        #             continue
-        #         # Apply transforms
-        #         value_tf = self._transforms(value)
-        #         # value_tf.squeeze_(0)
+class GuidedRandomCrop(Op):
+    """
+    Performs random cropping based on the (panoptic) segmentation map.
+    """
 
-        #         if self._verbose:
-        #             _logger.debug(f"Transformed {key=} from a tensor {tuple(value.shape)} to {tuple(value_tf.shape)}")
+    def __init__(self, 
+        size: T.Iterable[int] | tuple[int,int] | int, *, 
+        min_unique_classes: int = 2,
+        min_unique_instances: int = 1,
+        min_instance_area: float = 1e-3,
+        min_valid_area: float = 0.75,
+        max_iterations: int = 40,
+        step_factor: int = 1,
+        verbose=False,
+        ) -> None:
+        """
+        Parameters
+        ----------
+        size
+            Output size of the crop. If a single integer is given, the output will be a square crop.
+        verbose
+            Whether to print debug information.
+        
+        """
+        from unipercept.utils.function import to_2tuple
 
-        #         setattr(item, key, value_tf)
-        #     caps_tf.append(item)
+        assert min_unique_classes >= 0
+        assert min_unique_instances >= 0
+        assert min_instance_area >= 0
+        assert min_valid_area >= 0
+        assert max_iterations >= 0
 
-        # inputs.captures = torch.stack(caps_tf)
+        super().__init__()
 
+        self._verbose = verbose
+        self._size = to_2tuple(size)
+        self._step_factor = step_factor
+        self._min_unique_classes = min_unique_classes
+        self._min_unique_instances = min_unique_instances
+        self._min_instance_area = min_instance_area
+        self._min_valid_area = min_valid_area
+        self._max_iterations = max_iterations
+
+
+    def _find_crop(self, panoptic: PanopticMap) -> tuple[int,int]:
+        # TODO: what if only some conditions are met?
+
+        assert panoptic.ndim == 3, f"Expected a panoptic map with shape PHW, got {panoptic.shape}!"
+
+        # Only consider the first element in the sequence
+        panoptic = panoptic[0, :, :].as_subclass(PanopticMap)
+
+        # Compute step size
+        step = min(panoptic.shape[-1], panoptic.shape[-2]) // min(self._size[-1], self._size[-2])
+        step *= self._step_factor
+
+        # Height/width
+        height, width = self._size
+        top_choices = list(range(0, panoptic.shape[-2] - height + 1, step))
+        left_choices = list(range(0, panoptic.shape[-1] - width + 1, step))
+
+        # Compute total area and ignore area
+        total_area = height * width
+
+        # Create random crops until the conditions are met or the maximum number of iterations is reached
+        for top, left in zip(random.choices(top_choices, k=self._max_iterations), random.choices(left_choices, k=self._max_iterations)):
+            # Randomly select a crop
+            crop = torchvision.transforms.v2.functional.crop_mask(panoptic, top, left, height, width).as_subclass(PanopticMap)
+
+            crop_sem = crop.get_semantic_map()
+            crop_ins = crop.get_instance_map()
+            crop_valid = crop_sem != panoptic.IGNORE
+
+            # Compute the area of the ignore regions in the crop
+            valid_area = (crop_valid).float().sum() / total_area
+            if valid_area < self._min_valid_area:
+                continue          
+
+            # Compute the number of unique classes and instances in the crop
+            unique_classes = torch.unique(crop_sem[crop_valid]).numel()
+            if unique_classes < self._min_unique_classes:
+                continue
+
+            has_instances = crop_ins > 0
+
+            unique_instances = torch.unique(crop_ins[has_instances]).numel()
+            if unique_instances < self._min_unique_instances:
+                continue
+
+            # Compute the area of the instances in the crop
+            instance_area = (has_instances).float().sum() / total_area
+
+            if instance_area < self._min_instance_area:
+                continue
+
+            return top, left
+        else:
+            if self._verbose:
+                _logger.warning(f"Failed to find a valid crop after {self._max_iterations} iterations!")
+            return random.choice(top_choices), random.choice(left_choices)
+        
+        raise RuntimeError("Failed to find a valid crop!")
+
+
+
+    @override
+    def _run(self, inputs: InputData) -> InputData:
+        from .tensors.registry import pixel_maps
+
+        if inputs.motions is not None:
+            raise NotImplementedError("Transforms for motion data not supported!")
+        if inputs.captures.segmentations is None:
+            raise ValueError("Expected a panoptic segmentation map!")
+
+        top, left = self._find_crop(inputs.captures.segmentations)
+
+        def apply_crop(x: torch.Tensor) -> torch.Tensor:
+            if not type(x) in pixel_maps:
+                return x
+            else:
+                return torchvision.transforms.v2.functional.crop(x, top, left, *self._size)
+
+        inputs.captures = inputs.captures.fix_subtypes_().apply(apply_crop, batch_size=inputs.captures.batch_size)
         return inputs
 
-
-########################################################################################################################
-# PSEUDO MOTION
-########################################################################################################################
+#################
+# PSEUDO MOTION #
+#################
 
 
 class PseudoMotion(Op):
@@ -197,7 +307,6 @@ class PseudoMotion(Op):
                 tvt2.Resize(tuple(int(s * scale) for s in size_crop), antialias=True),
                 tvt2.RandomAdjustSharpness(1.2),
                 tvt2.RandomAffine(shear=(-shear, shear), degrees=(-rotation, rotation)),
-                tvt2.RandomPhotometricDistort(),
             ]
         )
 

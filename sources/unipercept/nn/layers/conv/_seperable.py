@@ -83,7 +83,6 @@ class Separable2d(utils.NormActivationMixin, nn.Module):
             groups=1,
         )
 
-
         weight_init.c2_msra_fill(self.pointwise)
 
         # Store in_channels and out_channels for exporting

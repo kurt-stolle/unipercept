@@ -129,7 +129,7 @@ class Engine:
 
         self._loaders: T.Final = loaders or {}
         self._stages: T.Final = list(stages) if stages is not None else []
-        self._evaluators: T.Final = {k: list(v) for k,v in evaluators.items()} if evaluators is not None else {}
+        self._evaluators: T.Final = {k: list(v) for k, v in evaluators.items()} if evaluators is not None else {}
 
         self._default_setup()
         self._seed()
@@ -211,7 +211,7 @@ class Engine:
         _logger.info("Recovered engine state at step %d", self._state.step)
 
         return None
-    
+
     @status(EngineStatus.TRAINING)
     def train(
         self,
@@ -318,19 +318,17 @@ class Engine:
 
         metrics_overall = {}
 
-
         for loader_key, handlers in self._evaluators.items():
             _logger.info(f"Running inference on loader '%s' for %d handlers", loader_key, len(handlers))
 
             prefix_suite = "/".join([prefix, loader_key])
-            
+
             torch.cuda.empty_cache()
             gc.collect()
             # Memory metrics - must set up as early as possible
             self._mem_tracker.start("eval")
 
             model = model_factory(trial)
-
 
             loader_factory = self._loaders[loader_key]
             loader = loader_factory(self._params.infer_batch_size)
@@ -1127,7 +1125,6 @@ def _build_speed_metrics(
         steps_per_second = step_amount / delta_time
         result[f"{prefix}/steps_per_second"] = round(steps_per_second, 3)
     return result
-
 
 
 def _enforce_prefix(metrics: dict[str, T.Any], prefix: str, sep: str = "/") -> None:

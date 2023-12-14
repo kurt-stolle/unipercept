@@ -92,7 +92,6 @@ class SemanticMerge(nn.Module):
                     head_ops.add_module(f"ups_{n}", ups)
             self.scale_heads.append(head_ops)
 
-
         if self.weight_method in (WeightMethod.ATTENTION, WeightMethod.FAST_ATTENTION):
             self.edge_weights = nn.Parameter(torch.ones(len(self.in_features)), requires_grad=True)  # WSM
         else:
@@ -100,7 +99,6 @@ class SemanticMerge(nn.Module):
 
     def __len__(self) -> int:
         return len(self.in_offsets)
-
 
     @override
     def forward(self, features: dict[str, Tensor]) -> Tensor:
@@ -140,9 +138,9 @@ class SemanticShuffle(nn.Module):
         self,
         in_features: T.Iterable[str],
         input_shape: T.Mapping[str, BackboneFeatureInfo],
-        norm: Norm | None = GroupNorm32,
         common_stride: int,
         out_channels: int,
+        norm: Norm | None = GroupNorm32,
         weight_method: WeightMethod | str = WeightMethod.SUM,
     ):
         from .norm import GroupNormFactory

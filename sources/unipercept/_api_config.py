@@ -233,12 +233,12 @@ def create_dataset(
 
     config = read_config(config)
 
-    if variant not in config.data.loaders:
+    if variant not in config.engine.loaders:
         raise KeyError(
-            f"Variant {variant} not found in data configuration, available variants are {dict(config.data.loaders).keys()}"
+            f"Variant {variant} not found in data configuration, available variants are {dict(config.engine.loaders).keys()}"
         )
 
-    datafactory = instantiate(config.data.loaders[variant])
+    datafactory = instantiate(config.engine.loaders[variant])
     dataloader = datafactory(batch_size)
     if return_loader:
         return dataloader, datafactory.dataset.info
@@ -267,7 +267,7 @@ def create_loaders(config: ConfigParam, *, keys: T.Optional[T.Collection[str]] =
     config = read_config(config)
 
     loaders = {}
-    for key, loader in config.data.loaders.items():
+    for key, loader in config.engine.loaders.items():
         if keys is not None and key not in keys:
             continue
         loaders[key] = instantiate(loader)

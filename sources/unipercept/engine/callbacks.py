@@ -33,6 +33,8 @@ __all__ = [
     "FlowCallback",
     "ProgressCallback",
     "Logger",
+    "ConditionalStoppingCallback",
+    "EarlyStoppingCallback",
 ]
 
 _logger = unipercept.log.get_logger(__name__)
@@ -43,6 +45,9 @@ class State:
     # Epochs and steps
     epoch: float = 0.0
     step: int = 0
+
+    # Training stage index
+    stage: int = 0
 
     # Materialized step values
     train_steps: int = 0
@@ -390,6 +395,7 @@ class InternalCallback(CallbackDispatcher):
         control.should_epoch_stop = False
 
 
+
 class FlowCallback(CallbackDispatcher):
     """
     A ``Callback`` that handles the default flow of the training loop for logs, evaluation and checkpoints.
@@ -487,6 +493,41 @@ class Logger(CallbackDispatcher):
             _logger.info("Logs: %s", pformat(logs, indent=0, compact=True))
             _logger.info("State: %s", pformat(state.state_dict(), indent=0, compact=True))
 
+
+class ConditionalStoppingCallback(CallbackDispatcher):
+    """
+    A ``Callback`` that performs stopping based on a parameter condition.
+    """
+    def __init__(self, metric_name: str, maximize: bool, threshold: float, patience: int = 1):
+        if self.patience <= 0:
+            raise ValueError(f"patience must be positive, got {patience}")
+        
+        self.metric_name = metric_name
+        self.maximize = maximize
+        self.threshold = threshold
+        self.patience = patience
+        self.patience_counter = 0
+
+    @TX.override
+    def on_evaluate(self, params: EngineParams, state: State, control: Signal, metrics, **kwargs):
+        metric_value = metrics.get(self.metric_name)
+        if metric_value is None:
+            _logger.warning(
+                f"conditional stopping did not find {self.metric_name} so early stopping"
+                " is disabled"
+            )
+            return
+
+        operator = np.less if self.maximize else np.greater
+        if operator(metric_value, self.threshold):
+            self.patience_counter += 1
+        else:
+            self.patience_counter = 0
+
+        if self.patience_counter >= self.patience:
+            _logger.info("Conditional stopping triggered for parameter %s", self.metric_name)
+            control.should_training_stop = True
+    
 
 class EarlyStoppingCallback(CallbackDispatcher):
     """

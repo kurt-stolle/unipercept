@@ -89,11 +89,13 @@ class Engine:
         "_params",
         "_xlr",
         "_state",
+        "_stages",
         "_evaluators",
         "_signal",
         "_delegate",
         "_get_optimizer",
         "_get_scheduler",
+        "_loaders",
         "_mem_tracker",
         "_flops",
         "_globalstep_last_logged",
@@ -111,7 +113,9 @@ class Engine:
         optimizer: OptimizerFactory,
         scheduler: SchedulerFactory,
         callbacks: T.Sequence[CallbackType | type[CallbackType]],
-        evaluators: T.Sequence[Evaluator] | None = None,
+        loaders: T.Mapping[str, DataLoaderFactory],
+        stages: T.Iterable[str] | None = None,
+        evaluators: T.Mapping[str, T.Iterable[Evaluator]] | None = None,
         log_events: bool = False,
     ):
         self._mem_tracker = MemoryTracker(enabled=not params.memory_tracker)
@@ -122,7 +126,10 @@ class Engine:
         self._params: T.Final[EngineParams] = params
         self._xlr = _build_accelerator(params)
         self._state = State()
-        self._evaluators = evaluators or []
+
+        self._loaders: T.Final = loaders or {}
+        self._stages: T.Final = list(stages) if stages is not None else []
+        self._evaluators: T.Final = {k: list(v) for k,v in evaluators.items()} if evaluators is not None else {}
 
         self._default_setup()
         self._seed()
@@ -204,15 +211,14 @@ class Engine:
         _logger.info("Recovered engine state at step %d", self._state.step)
 
         return None
-
+    
     @status(EngineStatus.TRAINING)
     def train(
         self,
         model_factory: ModelFactory[Trial, nn.Module],
-        loader_factory: DataLoaderFactory[TensorDict],
         *,
         trial: Trial | None = None,
-        evaluation_loader_factory=None,
+        stage: int | str | None = None,
     ) -> nn.Module:
         """
         Train a model.
@@ -229,8 +235,6 @@ class Engine:
             The trial to train.
         evaluation_handlers
             A list of evaluators to use for evaluation.
-        evaluation_loader_factory : DataLoaderFactory[TensorDict], optional
-            A factory function that returns a data loader for evaluation.
         """
 
         self.status |= EngineStatus.TRAINING
@@ -238,11 +242,18 @@ class Engine:
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("train")
 
+        # Stage resolver
+        if stage is None:
+            stage = self._state.stage
+        elif isinstance(stage, str):
+            stage = self._stages.index(stage)
+
         # Divide batch size over the amount of processes
         assert self._params.train_batch_size % self._xlr.num_processes == 0, (
             f"Training batch size {self._params.train_batch_size} must be divisible over the amount of "
             f"processes {self._xlr.num_processes}."
         )
+        loader_factory = self._loaders[self._stages[stage]]
         loader = loader_factory(self._params.train_batch_size // self._xlr.num_processes)
 
         # Infer the number of steps/updates per epoch
@@ -267,10 +278,11 @@ class Engine:
         optimizer = self._get_optimizer(model)
         scheduler, train_epochs = self._get_scheduler(optimizer, scheduled_epochs, updates_per_epoch)
 
-        _logger.info(f"Training for {train_epochs} total.")
+        _logger.info(f"Training for {train_epochs} total epochs.")
 
         # Reset the state
         self._state.reset()
+        self._state.stage = stage
         self._state.logging_steps = self._params.logging_steps
         self._state.eval_steps = self._params.get_eval_interval_steps(steps_per_epoch)
         self._state.save_steps = self._params.get_save_interval_steps(steps_per_epoch)
@@ -291,7 +303,6 @@ class Engine:
             scheduler,
             trial=trial,
             checkpoint=self._recover_path,
-            evaluation_loader_factory=evaluation_loader_factory,
         )
 
     @status(EngineStatus.EVALUATION)
@@ -299,51 +310,58 @@ class Engine:
     def evaluate(
         self,
         model_factory: ModelFactory[Trial, nn.Module],
-        loader_factory: DataLoaderFactory[InputType],
         *,
         trial: Trial | None = None,
         prefix: str = "evaluation",
     ) -> dict[str, float]:
-        _logger.info("Starting evaluation")
+        _logger.info("*** Starting evaluation ***")
 
-        torch.cuda.empty_cache()
-        gc.collect()
+        metrics_overall = {}
 
-        # Memory metrics - must set up as early as possible
-        self._mem_tracker.start("eval")
 
-        model = model_factory(trial)
-        loader = loader_factory(self._params.infer_batch_size)
-        metrics, samples_processed = self._inference_loop(
-            model,
-            loader,
-            prefix=prefix,
-            handlers=self._evaluators,
-        )
+        for loader_key, handlers in self._evaluators.items():
+            _logger.info(f"Running inference on loader '%s' for %d handlers", loader_key, len(handlers))
 
-        self._training_log(metrics)
-        self._event(Event.ON_EVALUATE, metrics=metrics)
-        self._mem_tracker.stop_and_update_metrics("eval", metrics)
+            prefix_suite = "/".join([prefix, loader_key])
+            
+            torch.cuda.empty_cache()
+            gc.collect()
+            # Memory metrics - must set up as early as possible
+            self._mem_tracker.start("eval")
 
-        del loader
-        del model
+            model = model_factory(trial)
 
-        return metrics
+
+            loader_factory = self._loaders[loader_key]
+            loader = loader_factory(self._params.infer_batch_size)
+
+            metrics, samples_processed = self._inference_loop(
+                model,
+                loader,
+                prefix=prefix_suite,
+                handlers=handlers,
+            )
+
+            self._training_log(metrics)
+            self._event(Event.ON_EVALUATE, metrics=metrics)
+            self._mem_tracker.stop_and_update_metrics("eval", metrics)
+
+            del loader
+            del model
+
+            for metric_key in list(metrics.keys()):
+                if not metric_key.startswith(prefix_suite):
+                    metrics[prefix_suite] = metrics.pop(metric_key)
+
+            metrics_overall.update(metrics)
+
+        return metrics_overall
 
     @status.assert_status(~(EngineStatus.TRAINING | EngineStatus.EVALUATION))
     @status(EngineStatus.PREDICTION)
     @torch.no_grad()
     def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
-        # Memory metrics - must set up as early as possible
-        self._mem_tracker.start("pred")
-
-        loader = torch.utils.data.DataLoader(datapipe)
-        output = self._inference_loop(model, loader, prefix="Prediction")
-
-        self._event(Event.ON_PREDICT, metrics=output.metrics)
-        self._mem_tracker.stop_and_update_metrics("pred", output.metrics)
-
-        return output
+        raise NotImplementedError("TODO: Implement prediction")
 
     ############
     # Privates #
@@ -404,7 +422,7 @@ class Engine:
             "job_type": "train" if (self.status & EngineStatus.TRAINING) else "eval",
             "group": session_group,
             "notes": self._params.notes,
-            "tags": self._params.tags,
+            "tags": [f"stage_{self._state.stage}"] + list(self._params.tags),
             "id": __wandb_sanitize(f"{self._params.project_name}-{self._params.session_name}"),
             "save_code": False,
         }
@@ -439,6 +457,7 @@ class Engine:
 
         # Register and prepare using Accelerate
         self._xlr.free_memory()
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = self._xlr.prepare_model(model)
         loader, scheduler, optimizer = self._xlr.prepare(loader, scheduler, optimizer)
 
@@ -670,7 +689,6 @@ class Engine:
         optimizer: torch.optim.Optimizer,
         *,
         trial: Trial | None,
-        evaluation_loader_factory: DataLoaderFactory | None,
     ) -> None:
         """
         Called at the end of every step and epoch to log, save, and evaluate the model.
@@ -700,12 +718,9 @@ class Engine:
             self._training_log(logs)
 
         if self._signal.should_evaluate:
-            if evaluation_loader_factory is not None:
-                _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
+            _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
 
-                self.evaluate(lambda _: model, evaluation_loader_factory, trial=trial)
-            else:
-                _logger.warning("Evaluation is requested but no evaluation data loader was provided.")
+            self.evaluate(lambda _: model, trial=trial)
 
         if self._signal.should_save:
             _logger.info("Saving state and model at step %d (epoch %d)", self._state.step, self._state.epoch)
@@ -880,102 +895,101 @@ class Engine:
             results_remove_on_exit = False
         results_mem = PersistentTensordictWriter(str(results_path), samples_total)
 
-        # Prediction
-        _logger.info(f"Running inference loop on {self._xlr.num_processes} processes.")
+        try:
+            # Prediction
+            _logger.info(f"Running inference loop on {self._xlr.num_processes} processes.")
 
-        samples_processed = 0
-        batch_size = self._params.infer_batch_size
-        # write_index = batch_offsets[self._xlr.process_index] * batch_size
+            samples_processed = 0
+            batch_size = self._params.infer_batch_size
+            # write_index = batch_offsets[self._xlr.process_index] * batch_size
 
-        self._event(Event.ON_INFERENCE_BEGIN, loader=dataloader)
-        timings = ProfileAccumulator()
+            self._event(Event.ON_INFERENCE_BEGIN, loader=dataloader)
+            timings = ProfileAccumulator()
 
-        for inputs in dataloader:
-            samples_in_batch = inputs.batch_size[0]
-            assert samples_in_batch <= batch_size, f"Expected batch size {batch_size}, got {samples_in_batch}"
+            for inputs in dataloader:
+                samples_in_batch = inputs.batch_size[0]
+                assert samples_in_batch <= batch_size, f"Expected batch size {batch_size}, got {samples_in_batch}"
 
-            # Prediction step - i.e. run the model in inference mode
-            with profile(timings, "model"):
-                outputs = self._inference_step(model, inputs)
+                # Prediction step - i.e. run the model in inference mode
+                with profile(timings, "model"):
+                    outputs = self._inference_step(model, inputs)
 
-            # Prepare for evaluation
-            with profile(timings, "update"):
-                KEY_VALID = "valid"
-                results_merged = TensorDict(
-                    {KEY_VALID: torch.ones(samples_in_batch, dtype=torch.bool, device=self._xlr.device)},
-                    [samples_in_batch],
-                    self._xlr.device,
-                    names=["B"],
-                )
-                for evaluator in handlers:
-                    evaluator.update(results_merged, inputs=inputs, outputs=outputs)
+                # Prepare for evaluation
+                with profile(timings, "update"):
+                    KEY_VALID = "valid"
+                    results_merged = TensorDict(
+                        {KEY_VALID: torch.ones(samples_in_batch, dtype=torch.bool, device=self._xlr.device)},
+                        [samples_in_batch],
+                        self._xlr.device,
+                        names=["B"],
+                    )
+                    for evaluator in handlers:
+                        evaluator.update(results_merged, inputs=inputs, outputs=outputs)
 
-            # Gather results
-            with profile(timings, "write"):
-                results_mem.add(results_merged)
+                # Gather results
+                with profile(timings, "write"):
+                    results_mem.add(results_merged)
 
-                # write_index += samples_in_batch
-                samples_processed += samples_in_batch
-            self._event(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
+                    # write_index += samples_in_batch
+                    samples_processed += samples_in_batch
+                self._event(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
 
-        results_mem.write()
+            results_mem.write()
 
-        _logger.info(
-            f"Finished inference, profiling report on process %d/%d:\n%s",
-            self._xlr.process_index + 1,
-            self._xlr.num_processes,
-            timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
-        )
-
-        self._event(Event.ON_INFERENCE_END, timings=timings, results=results_mem, results_path=results_path)
-
-        # Clear the past memory
-        self._past = None
-
-        # Wait for everyone to finish writing
-        self._xlr.wait_for_everyone()
-
-        # Run metric computations
-        metrics: dict[str, T.Any] = {}
-        visuals: dict[str, pil_image.Image] = {}
-        if self._xlr.is_main_process:
-            metrics.update(
-                _build_speed_metrics(
-                    prefix,
-                    t_start_all,
-                    sample_amount=samples_processed,
-                    step_amount=math.ceil(samples_processed * self._xlr.num_processes),
-                )
+            _logger.info(
+                f"Finished inference, profiling report on process %d/%d:\n%s",
+                self._xlr.process_index + 1,
+                self._xlr.num_processes,
+                timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
             )
-            assert results_mem is not None, "Expected results memory to be initialized"
-            for evaluator in handlers:
-                _logger.debug(f"Running evaluation handler: {evaluator}")
-                metrics.update(evaluator.compute(results_mem.tensordict, device=self._xlr.device))
-                visuals.update(evaluator.plot(results_mem.tensordict))
 
-            # Store visualizations
-            self._store_visualizations(visuals, prefix=prefix)
+            self._event(Event.ON_INFERENCE_END, timings=timings, results=results_mem, results_path=results_path)
 
-        # Remove the memmap file
-        results_mem.close()
-        self._xlr.wait_for_everyone()
-        if self._xlr.is_main_process and results_remove_on_exit:
-            assert results_path is not None
-            _logger.debug(f"Cleaning up results file: {results_path}")
-            shutil.rmtree(results_path, ignore_errors=True)
+            # Clear the past memory
+            self._past = None
+
+            # Wait for everyone to finish writing
+            self._xlr.wait_for_everyone()
+
+            # Run metric computations
+            metrics: dict[str, T.Any] = {}
+            visuals: dict[str, pil_image.Image] = {}
+            if self._xlr.is_main_process:
+                metrics.update(
+                    _build_speed_metrics(
+                        prefix,
+                        t_start_all,
+                        sample_amount=samples_processed,
+                        step_amount=math.ceil(samples_processed * self._xlr.num_processes),
+                    )
+                )
+                assert results_mem is not None, "Expected results memory to be initialized"
+                for evaluator in handlers:
+                    _logger.debug(f"Running evaluation handler: {evaluator}")
+                    metrics.update(evaluator.compute(results_mem.tensordict, device=self._xlr.device))
+                    visuals.update(evaluator.plot(results_mem.tensordict))
+
+                # Store visualizations
+                self._store_visualizations(visuals, prefix=prefix)
+        finally:
+            # Remove the memmap file
+            results_mem.close()
+            self._xlr.wait_for_everyone()
+            if self._xlr.is_main_process and results_remove_on_exit:
+                assert results_path is not None
+                _logger.debug(f"Cleaning up results file: {results_path}")
+                shutil.rmtree(results_path, ignore_errors=True)
 
         # Store metrics
         if hasattr(self, "jit_compilation_time"):
             metrics[f"{prefix}/jit_compilation_time"] = self.jit_compilation_time  # type: ignore
 
         # Prefix all keys
-        for key in list(metrics.keys()):
-            if not key.startswith(f"{prefix}/"):
-                metrics[f"{prefix}/{key}"] = metrics.pop(key)
+        _enforce_prefix(metrics, prefix)
 
         return metrics, samples_processed
 
-    def _store_visualizations(self, visuals: dict[str, pil_image.Image], prefix: str = "") -> None:
+    def _store_visualizations(self, visuals: dict[str, pil_image.Image], prefix: str) -> None:
         """
         Store visualizations that are provided as a mapping of (key) -> (PIL image).
         """
@@ -992,7 +1006,7 @@ class Engine:
 
             wandb_run = self._xlr.get_tracker("wandb")
             if wandb_run is not None:
-                wandb_run.log({key: wandb.Image(img)}, step=self._state.step)
+                wandb_run.log({f"{prefix}/{key}": wandb.Image(img)}, step=self._state.step)
 
     def _nested_gather(self, tensors: MaybeTensorType) -> MaybeTensorType:
         """
@@ -1103,16 +1117,29 @@ def _build_speed_metrics(
         A dictionary containing the measured metrics.
     """
     delta_time = time.time() - start_time
-    result = {f"{prefix}_time": round(delta_time, 4)}
+    result = {f"{prefix}/time": round(delta_time, 4)}
     if delta_time == 0:
         return result
     if sample_amount is not None:
         samples_per_second = sample_amount / delta_time
-        result[f"{prefix}_samples_per_second"] = round(samples_per_second, 3)
+        result[f"{prefix}/samples_per_second"] = round(samples_per_second, 3)
     if step_amount is not None:
         steps_per_second = step_amount / delta_time
-        result[f"{prefix}_steps_per_second"] = round(steps_per_second, 3)
+        result[f"{prefix}/steps_per_second"] = round(steps_per_second, 3)
     return result
+
+
+
+def _enforce_prefix(metrics: dict[str, T.Any], prefix: str, sep: str = "/") -> None:
+    """
+    Enforce a prefix on all keys in `metrics`.
+    """
+    if not prefix.endswith(sep):
+        prefix = prefix + sep
+    for key in list(metrics.keys()):
+        if key.startswith(prefix):
+            continue
+        metrics[prefix + key] = metrics.pop(key)
 
 
 def _build_accelerator(params: EngineParams) -> accelerate.Accelerator:

@@ -28,7 +28,7 @@ __all__ = ["DataLoaderConfig", "DataLoaderFactory", "DatasetInterface"]
 
 _logger = get_logger(__name__)
 
-DEFAULT_NUM_WORKERS = max(1, get_env(int, "UNI_DATALOADER_WORKERS", "SLURM_CPUS_PER_GPU", default=M.cpu_count() // 4))
+DEFAULT_NUM_WORKERS = max(1, get_env(int, "UNI_DATALOADER_WORKERS", "SLURM_CPUS_PER_GPU", default=M.cpu_count() // 2 // get_process_count()))
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
@@ -36,7 +36,7 @@ class DataLoaderConfig:
     drop_last: bool = False
     pin_memory: bool = True
     num_workers: int = DEFAULT_NUM_WORKERS
-    prefetch_factor: int | None = 4
+    prefetch_factor: int | None = 6
     persistent_workers: bool | None = False
 
 

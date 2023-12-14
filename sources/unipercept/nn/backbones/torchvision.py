@@ -6,7 +6,7 @@ import warnings
 from collections import OrderedDict
 
 import torch
-import torch.nn
+import torch.nn as nn
 from tensordict import TensorDict
 from typing_extensions import override
 
@@ -77,6 +77,7 @@ class TorchvisionBackbone(WrapperBase):
         nodes: T.Sequence[str] | None = None,
         keys: T.Sequence[str] | None = None,
         dimension_order: str | DimensionOrder | None = None,
+        jit_script: bool = False,
         **kwargs,
     ):
         if nodes is None:
@@ -97,6 +98,9 @@ class TorchvisionBackbone(WrapperBase):
         super().__init__(dimension_order=dims, feature_info={k: v for k, v in zip(keys, info)}, **kwargs)
 
         self.ext = extractor
+
+        if jit_script:
+            self.ext = torch.jit.script(self.ext)
 
     @override
     def forward_extract(self, images: torch.Tensor) -> OrderedDict[str, torch.Tensor]:

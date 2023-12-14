@@ -97,6 +97,7 @@ class PanopticEvaluator(PanopticWriter):
     show_progress: bool = False
     show_summary: bool = True
     show_details: bool = False
+    report_details: bool = False
 
     pq_definition: PQDefinition = PQDefinition.ORIGINAL
 
@@ -254,7 +255,12 @@ class PanopticEvaluator(PanopticWriter):
                 f"Panoptic evaluation details({allow_stuff_instances=}, {allow_unknown_category=})", details_df
             )
 
-        return summary | details
+        if self.report_details:
+            out = summary | details
+        else:
+            out = summary
+
+        return out
 
     def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
         tab_fmt = tab.to_markdown(index=False)

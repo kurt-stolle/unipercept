@@ -80,8 +80,8 @@ class FeaturePyramidNetwork(nn.Module):
         out_channels: int,
         norm: T.Optional[T.Callable[..., nn.Module]],
         extra_blocks: T.Optional[ExtraFPNBlock],
-        freeze: bool,
-        use_squeeze_excite: bool = False,
+        freeze: bool = False,
+        squeeze_excite: bool = False,
     ):
         super().__init__()
 
@@ -92,7 +92,7 @@ class FeaturePyramidNetwork(nn.Module):
         for feature_name in self.in_features:
             feature_info = bottom_up.feature_info[feature_name]
 
-            if use_squeeze_excite:
+            if squeeze_excite:
                 inner_block_module = nn.Sequential(
                     SqueezeExcite2d(feature_info.channels),
                     conv.Conv2d.with_norm(feature_info.channels, out_channels, kernel_size=1, padding=0, norm=norm),

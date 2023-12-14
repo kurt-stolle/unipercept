@@ -86,8 +86,10 @@ class WandBCallback(CallbackDispatcher):
     @TX.override
     @on_main_process()
     def on_trackers_setup(self, params: EngineParams, state: State, control: Signal, *, model: nn.Module):
+        if wandb.run is None:
+            return
+
         run = wandb.run
-        assert run is not None, "WandB run not initialized"
 
         _logger.info(f"Logging additional metrics to WandB run {run.name}")
 
@@ -101,6 +103,8 @@ class WandBCallback(CallbackDispatcher):
     def on_save(
         self, params: EngineParams, state: State, control: Signal, *, model_path: str, state_path: str, **kwargs
     ):
+        if wandb.run is None:
+            return
         if self.model_history > 0:
             self._log_model(model_path)
         if self.state_history > 0:
@@ -118,6 +122,8 @@ class WandBCallback(CallbackDispatcher):
         results_path: str,
         **kwargs,
     ):
+        if wandb.run is None:
+            return
         if self.inference_history > 0:
             self._log_inference(results_path)
         if self.tabulate_inference_timings:
@@ -129,11 +135,10 @@ class WandBCallback(CallbackDispatcher):
 
         try:
             _logger.info(f"Logging model to WandB run {run.name}")
-            artifact = run.log_model(model_path, name=f"model-{run.name}")
-            artifact.wait()
+            run.log_model(model_path, name=f"model-{run.name}")
 
+            artifact = wandb.Api().artifact(f"{run.entity}/{run.project_name()}/model-{run.name}", type=ArtifactType.MODEL.value)
             artifact_historic_delete(artifact, self.model_history)
-
         except Exception as err:
             _logger.warning(f"Failed to log model to WandB run {run.name}: {err}")
 
@@ -231,4 +236,5 @@ def artifact_historic_delete(artifact: wandb.Artifact, keep: int) -> None:
     vs = sorted(vs, key=artifact_version_as_int, reverse=True)
     for artifact in vs[keep:]:
         _logger.info(f"Deleting artifact {name} version {artifact.version}")
-        artifact.delete()
+        artifact.delete(delete_aliases=True)
+        

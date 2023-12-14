@@ -15,6 +15,7 @@ from tensordict import TensorDict, TensorDictBase
 
 if T.TYPE_CHECKING:
     from ..model import InputData, ModelOutput
+    from ..data import DataLoaderFactory
 
 __all__ = ["Evaluator", "PlotMode"]
 
@@ -35,7 +36,7 @@ class EvaluatorComputeKWArgs(T.Protocol):
 
 
 @D.dataclass(kw_only=True)
-class Evaluator(T.Protocol, metaclass=abc.ABCMeta):
+class Evaluator(metaclass=abc.ABCMeta):
     """
     Implements a stateless evaluator for a given task.
     """

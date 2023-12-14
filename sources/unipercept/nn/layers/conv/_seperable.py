@@ -5,7 +5,7 @@ from typing import Callable
 import torch
 import torch.nn as nn
 from typing_extensions import Self, override
-
+from fvcore.nn import weight_init
 from . import utils
 from ._extended import Conv2d
 from ._standard import Standard2d
@@ -70,6 +70,8 @@ class Separable2d(utils.NormActivationMixin, nn.Module):
             **kwargs,
         )
 
+        weight_init.c2_msra_fill(module=self.depthwise)
+
         # Pointwise (1x1xD) convolution
         self.pointwise = pointwise(
             mid_channels,
@@ -80,6 +82,9 @@ class Separable2d(utils.NormActivationMixin, nn.Module):
             bias=bias,
             groups=1,
         )
+
+
+        weight_init.c2_msra_fill(self.pointwise)
 
         # Store in_channels and out_channels for exporting
         self.in_channels = in_channels

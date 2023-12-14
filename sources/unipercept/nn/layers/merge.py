@@ -8,11 +8,12 @@ import torch
 from matplotlib.dates import WE
 from torch import Tensor, nn
 from typing_extensions import override
-
+from fvcore.nn import weight_init
 import unipercept.nn.layers.conv as convolution
 from unipercept.nn.backbones import BackboneFeatureInfo
-from unipercept.nn.layers.norm import GroupNormCG, LayerNormCHW
+from unipercept.nn.layers.norm import GroupNormCG, LayerNormCHW, GroupNorm32
 from unipercept.nn.layers import SelfAttention2d, SqueezeExcite2d
+from unipercept.nn.typings import Norm
 
 __all__ = ["SemanticMerge"]
 
@@ -38,8 +39,9 @@ class SemanticMerge(nn.Module):
         in_features: T.Mapping[str, BackboneFeatureInfo],
         common_stride: int,
         out_channels: int,
-        weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION,
-        use_squeeze_excite: bool = False,
+        norm: Norm | None = GroupNorm32,
+        weight_method: WeightMethod | str = WeightMethod.SUM,
+        squeeze_excite: bool = False,
     ):
         super().__init__()
 
@@ -64,7 +66,7 @@ class SemanticMerge(nn.Module):
                 in_channels = feature_channels[in_feature] if n == 0 else out_channels
                 assert in_channels is not None
 
-                if use_squeeze_excite:
+                if squeeze_excite:
                     se = SqueezeExcite2d(in_channels)
                     head_ops.add_module(f"se_{n}", se)
 
@@ -74,9 +76,11 @@ class SemanticMerge(nn.Module):
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    norm=LayerNormCHW,
+                    norm=norm,
+                    bias=norm is None,
                     activation=nn.GELU,
                 )
+
                 head_ops.add_module(f"conv_{n}", conv)
 
                 if feature_strides[in_feature] != self.common_stride:
@@ -88,7 +92,6 @@ class SemanticMerge(nn.Module):
                     head_ops.add_module(f"ups_{n}", ups)
             self.scale_heads.append(head_ops)
 
-        self.apply(self._init_weights)
 
         if self.weight_method in (WeightMethod.ATTENTION, WeightMethod.FAST_ATTENTION):
             self.edge_weights = nn.Parameter(torch.ones(len(self.in_features)), requires_grad=True)  # WSM
@@ -98,14 +101,6 @@ class SemanticMerge(nn.Module):
     def __len__(self) -> int:
         return len(self.in_offsets)
 
-    def _init_weights(self, m):
-        from timm.layers import trunc_normal_
-
-        with torch.no_grad():
-            if isinstance(m, (nn.Conv2d, nn.Linear)):
-                trunc_normal_(m.weight, std=0.02)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
     @override
     def forward(self, features: dict[str, Tensor]) -> Tensor:
@@ -145,9 +140,10 @@ class SemanticShuffle(nn.Module):
         self,
         in_features: T.Iterable[str],
         input_shape: T.Mapping[str, BackboneFeatureInfo],
+        norm: Norm | None = GroupNorm32,
         common_stride: int,
         out_channels: int,
-        weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION,
+        weight_method: WeightMethod | str = WeightMethod.SUM,
     ):
         from .norm import GroupNormFactory
 
@@ -188,7 +184,8 @@ class SemanticShuffle(nn.Module):
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                    norm=GroupNormFactory(num_groups=1),
+                    bias=norm is None,
+                    norm=norm,
                     activation=nn.GELU,
                 )
 
@@ -197,8 +194,6 @@ class SemanticShuffle(nn.Module):
                     head_ops.add_module(f"shuf_{n}", nn.PixelShuffle(scale_factor))
             self.scale_heads.append(head_ops)
 
-        self.apply(self._init_weights)
-
         if self.weight_method in (WeightMethod.ATTENTION, WeightMethod.FAST_ATTENTION):
             self.edge_weights = nn.Parameter(torch.ones(len(self.in_features)), requires_grad=True)  # WSM
         else:
@@ -206,15 +201,6 @@ class SemanticShuffle(nn.Module):
 
     def __len__(self) -> int:
         return len(self.in_offsets)
-
-    def _init_weights(self, m):
-        from timm.layers import trunc_normal_
-
-        with torch.no_grad():
-            if isinstance(m, (nn.Conv2d, nn.Linear)):
-                trunc_normal_(m.weight, std=0.02)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
     @override
     def forward(self, features: dict[str, Tensor]) -> Tensor:

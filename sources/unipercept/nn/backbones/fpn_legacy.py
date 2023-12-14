@@ -30,8 +30,8 @@ __all__ = [
 ]
 
 # _DEFAULT_ACTIVATION = functools.partial(nn.ReLU, inplace=True)
-_DEFAULT_ACTIVATION = nn.SiLU
-_DEFAULT_NORM = _ML.norm.GroupNormCG
+_DEFAULT_ACTIVATION = nn.GELU
+_DEFAULT_NORM = nn.BatchNorm2d
 
 _logger = get_logger(__name__)
 
@@ -161,8 +161,6 @@ class _Combine(nn.Module):
 
     weight_method: T.Final[WeightMethod]
     in_offsets: T.Final[T.Tuple[int, ...]]
-    in_channels: T.Final[T.Tuple[int, ...]]
-    in_stride: T.Final[T.Tuple[int, ...]]
     out_channels: T.Final[int]
     out_stride: T.Final[int]
 
@@ -394,7 +392,7 @@ class FeaturePyramidNetwork(nn.Module):
         level_to_stride: dict[int, int] = {i: info_list[i].stride for i in range(len(info_list))}
 
         for rep in range(num_hidden):
-            _logger.debug(f"building cell {rep}")
+            _logger.debug(f"Building cell {rep}")
             fpn_layer = FeaturePyramidNetworkLayer(
                 info_list=info_list,
                 nodes=nodes,

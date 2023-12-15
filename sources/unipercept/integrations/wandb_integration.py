@@ -135,10 +135,11 @@ class WandBCallback(CallbackDispatcher):
 
         try:
             _logger.info(f"Logging model to WandB run {run.name}")
+            name = f"model-{run.name}"
             run.log_model(model_path, name=f"model-{run.name}")
 
             artifact = wandb.Api().artifact(
-                f"{run.entity}/{run.project_name()}/model-{run.name}", type=ArtifactType.MODEL.value
+                f"{run.entity}/{run.project_name()}/{name}:latest", type=ArtifactType.MODEL.value
             )
             artifact_historic_delete(artifact, self.model_history)
         except Exception as err:

@@ -3,25 +3,38 @@ Implements the DVPQ and DSTQ metrics.
 
 Code adapted from: https://github.com/joe-siyuan-qiao/ViP-DeepLab
 """
-
+import dataclasses as D
 import itertools
 import typing as T
-import typing_extensions as TX
-import dataclasses as D
-from einops import rearrange
 
+import pandas as pd
 import torch
 import torch.types
+import typing_extensions as TX
+from einops import rearrange
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
+from tqdm import tqdm
 
+import unipercept.evaluators.helpers as H
+from unipercept.log import get_logger
 from unipercept.model import InputData, ModelOutput
 
-from ._depth import DepthWriter, TRUE_DEPTH, PRED_DEPTH
-from ._panoptic import PanopticWriter, PQDefinition, TRUE_PANOPTIC, PRED_PANOPTIC
+from ._depth import PRED_DEPTH, TRUE_DEPTH, DepthWriter
+from ._panoptic import (
+    PRED_PANOPTIC,
+    TRUE_PANOPTIC,
+    PanopticWriter,
+    PQDefinition,
+    _get_void_color,
+    _panoptic_quality_update_sample,
+    _preprocess_mask,
+)
 
 FRAME_ID = "frame_id"
 SEQUENCE_ID = "sequence_id"
+
+_logger = get_logger(__name__)
 
 
 class DVPSWriter(PanopticWriter, DepthWriter):
@@ -55,13 +68,24 @@ class DVPSEvaluator(DVPSWriter):
     dvpq_thresholds: list[float] = D.field(default_factory=lambda: [0.5, 0.25, 0.1])
     dstq_thresholds: list[float] = D.field(default_factory=lambda: [1.25, 1.1])
 
+    @classmethod
+    @TX.override
+    def from_metadata(cls, name: str, **kwargs) -> T.Self:
+        return super().from_metadata(name, **kwargs)
+
+    @property
+    def object_ids(self) -> frozenset[int]:
+        return self.info.object_ids
+
+    @property
+    def background_ids(self) -> frozenset[int]:
+        return self.info.background_ids
+
     @TX.override
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
         return {}
 
-    def compute_dvpq(
-        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
-    ) -> dict[str, T.Any]:
+    def compute_dvpq(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs) -> dict[str, T.Any]:
         indices_per_sequence: dict[int, list[int]] = {}
 
         # Group by sequence
@@ -73,25 +97,88 @@ class DVPSEvaluator(DVPSWriter):
             indices.sort(key=lambda i: storage.get_at(FRAME_ID, i).item())
 
         # Run for each window
-        pq_per_win_thrs: dict[tuple[int,float], dict] = {}
-        for window, threshold in itertools.product(
-            self.dvpq_windows, self.dvpq_thresholds
-        ):
+        summaries = []
+        for window, threshold in itertools.product(self.dvpq_windows, self.dvpq_thresholds):
             for indices in indices_per_sequence.values():
-                pq_per_win_thrs[window, threshold] = _compute_dvpq(
-                    storage, indices, window, threshold
-                )
+                if self.pq_definition & PQDefinition.ORIGINAL:
+                    sum = self._compute_dvpq_at(
+                        storage, indices, window, threshold, **kwargs, allow_stuff_instances=True
+                    )
+                    sum.Definition = "original"
+                    summaries.append(sum)
+                if self.pq_definition & PQDefinition.BALANCED:
+                    sum = self._compute_dvpq_at(
+                        storage, indices, window, threshold, **kwargs, allow_stuff_instances=False
+                    )
+                    sum.Definition = "balanced"
+                    summaries.append(sum)
 
-        return {} 
-    
-    def _compute_dvpq_at(storage: TensorDictBase, indices: list[int], window: int, threshold: float):
+        # Combine summaries
+        df = pd.concat(summaries, ignore_index=True)
+
+        # Create results dict, which should have:
+        #   PQ, SQ, RQ, IoU, TP, FP, FN for All, Thing and Stuff
+        # grouped by window and threshold, i.e:
+        #   results[definition][window][threshold][group][metric]
+        # overall as
+        #   results[definition]["overall"][group][metric]
+
+        result = {}
+
+        for definition, df in df.groupby("Definition"):
+            result[definition] = {}
+            for window, df in df.groupby("Window"):
+                window_key = "w_" + str(window).replace(".", "_")
+                result[definition][window_key] = {}
+                for threshold, df in df.groupby("Threshold"):
+                    threshold_key = "t_" + str(threshold).replace(".", "_")
+                    result[definition][window_key][threshold_key] = {}
+                    for metric, df in df.groupby("Metric"):
+                        result[definition][window_key][threshold_key]["all"][metric] = df["All"].mean()
+                        result[definition][window_key][threshold_key]["thing"][metric] = df["Thing"].mean()
+                        result[definition][window_key][threshold_key]["stuff"][metric] = df["Stuff"].mean()
+
+        for definition, df in df.groupby("Definition"):
+            result[definition]["mean"] = {}
+            for metric, df in df.groupby("Metric"):
+                result[definition]["mean"]["all"][metric] = df["All"].mean()
+                result[definition]["mean"]["thing"][metric] = df["Thing"].mean()
+                result[definition]["mean"]["stuff"][metric] = df["Stuff"].mean()
+
+        return result
+
+    def _compute_dvpq_at(
+        self,
+        storage: TensorDictBase,
+        indices: list[int],
+        window: int,
+        threshold: float,
+        *,
+        device: torch.types.Device,
+        allow_stuff_instances: bool,
+        allow_unknown_category=False,
+    ) -> pd.DataFrame:
         """
         Computes DVPQ for a sequence of frames.
         """
 
         # Make groups of length `window` and compute PQ for each group
         indices = indices[: len(indices) - window + 1]
-        pq_per_group = []
+
+        void_color = _get_void_color(self.object_ids, self.background_ids)
+        # device = torch.device("cpu")  # using multiprocessing
+
+        num_categories = len(self.object_ids) + len(self.background_ids)
+        iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
+        tp = torch.zeros(num_categories, dtype=torch.int, device=device)  # type: ignore
+        fp = torch.zeros_like(iou)
+        fn = torch.zeros_like(fp)
+
+        # Loop over each sample independently: segments must not be matched across frames.
+        sample_amt = len(indices)
+        n_iter = range(sample_amt)
+        if self.show_progress:
+            n_iter = tqdm(n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt)
 
         for i in range(len(indices)):
             group = indices[i : i + window]
@@ -109,7 +196,7 @@ class DVPSEvaluator(DVPSWriter):
             # Compute absolute relative error
             abs_rel = torch.full_like(true_seg, threshold + 1)
             abs_rel[valid_dep] = torch.abs(true_dep - pred_dep) / true_dep
-            
+
             # Determine which pixels meet the threshold
             thres_mask = abs_rel < threshold
 
@@ -120,34 +207,91 @@ class DVPSEvaluator(DVPSWriter):
             pred_seg = rearrange(pred_seg, "b h w -> (b h) w")
 
             # Compute PQ
-            pq_per_group.append(
-                _compute_pq(true_seg, pred_seg, self.pq_definition)
-            )        
+            pred_seg = _preprocess_mask(
+                self.object_ids,
+                self.background_ids,
+                pred_seg,
+                void_color=void_color,
+                allow_unknown_category=allow_unknown_category,
+            )
+            true_seg = _preprocess_mask(
+                self.object_ids, self.background_ids, true_seg, void_color=void_color, allow_unknown_category=True
+            )
 
-        # void_color = _get_void_color(self.object_ids, self.background_ids)
-        # # device = torch.device("cpu")  # using multiprocessing
+            result = _panoptic_quality_update_sample(
+                pred_seg,
+                true_seg,
+                void_color=void_color,
+                background_ids=self.background_ids if not allow_stuff_instances else None,
+                num_categories=num_categories,
+            )
 
-        # num_categories = len(self.object_ids) + len(self.background_ids)
-        # iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
-        # tp = torch.zeros(num_categories, dtype=torch.int, device=device)  # type: ignore
-        # fp = torch.zeros_like(iou)
-        # fn = torch.zeros_like(fp)
+            iou += result[0]
+            tp += result[1]
+            fp += result[2]
+            fn += result[3]
 
-        # # Loop over each sample independently: segments must not be matched across frames.
-        # sample_amt = storage.batch_size[0]
-        # # worker_amt = min(multiprocessing.cpu_count(), 16)
-        # assert sample_amt > 0, f"Batch size must be greater than zero, got {sample_amt=}"
+        # Compute PQ = SQ * RQ
+        sq = H.stable_divide(iou, tp)
+        rq = H.stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
+        pq = sq * rq
 
-        # n_iter = range(sample_amt)
-        # if self.show_progress:
-        #     n_iter = tqdm(n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt)
+        # Convert to percentages
+        sq *= 100
+        rq *= 100
+        pq *= 100
 
-        # for n in n_iter:
-    def compute_dstq(
-        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
-    ) -> dict[str, T.Any]:
+        # Total valid values
+        n_valid = tp + fp + fn
+
+        # Summarizing values
+        summary = {}
+
+        # Mask out categories that have only true negatives
+        tn_mask: torch.Tensor = n_valid > 0
+        th_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.object_ids))
+        st_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.background_ids))
+
+        for name, mask in [("All", tn_mask), ("Thing", tn_mask & th_mask), ("Stuff", tn_mask & st_mask)]:
+            n_masked = n_valid[mask].sum().item()
+            summary[name] = {
+                "PQ": pq[mask].mean().item(),
+                "SQ": rq[mask].mean().item(),
+                "RQ": fp[mask].mean().item(),
+                "IoU": iou[mask].mean().item(),
+                "TP": tp[mask].sum().item() / n_masked,
+                "FP": fp[mask].sum().item() / n_masked,
+                "FN": fn[mask].sum().item() / n_masked,
+            }
+        summary_df = self._tabulate(summary)
+        summary_df.Window = window
+        summary_df.Threshold = threshold
+
+        return summary_df
+
+    def compute_dstq(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs) -> dict[str, T.Any]:
         return {}
 
     @TX.override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         return {}
+
+    def _tabulate(self, result: dict[str, dict[str, float]]) -> pd.DataFrame:
+        data: dict[str, list[float]] = {}
+        groups = []
+
+        for group_name, metrics in result.items():
+            groups.append(group_name.capitalize())
+            for metric_name, metric_value in metrics.items():
+                data[metric_name] = data.get(metric_name, []) + [metric_value]
+
+        data_list = []
+        for key, values in data.items():
+            data_list.append([key] + values)
+
+        df = pd.DataFrame(
+            data_list,
+            columns=["Metric"] + groups,
+        )
+
+        return df

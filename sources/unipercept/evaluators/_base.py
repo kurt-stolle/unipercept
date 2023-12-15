@@ -8,16 +8,22 @@ import dataclasses as D
 import enum
 import typing as T
 
+import pandas as pd
 import torch
 import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDict, TensorDictBase
 
+from unipercept.log import get_logger
+
 if T.TYPE_CHECKING:
-    from ..model import InputData, ModelOutput
     from ..data import DataLoaderFactory
+    from ..model import InputData, ModelOutput
 
 __all__ = ["Evaluator", "PlotMode"]
+
+
+_logger = get_logger(__name__)
 
 
 class PlotMode(enum.Enum):
@@ -53,3 +59,7 @@ class Evaluator(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         return {}
+
+    def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
+        tab_fmt = tab.to_markdown(index=False)
+        _logger.info(f"%s:\n%s", msg, tab_fmt)

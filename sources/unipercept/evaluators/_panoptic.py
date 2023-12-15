@@ -208,8 +208,8 @@ class PanopticEvaluator(PanopticWriter):
 
         # Mask out categories that have only true negatives
         tn_mask: torch.Tensor = n_valid > 0
-        th_mask: torch.Tensor = _isin(torch.arange(num_categories, device=device), list(self.object_ids))
-        st_mask: torch.Tensor = _isin(torch.arange(num_categories, device=device), list(self.background_ids))
+        th_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.object_ids))
+        st_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.background_ids))
 
         for name, mask in [("all", tn_mask), ("thing", tn_mask & th_mask), ("stuff", tn_mask & st_mask)]:
             n_masked = n_valid[mask].sum().item()
@@ -261,10 +261,6 @@ class PanopticEvaluator(PanopticWriter):
             out = summary
 
         return out
-
-    def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
-        tab_fmt = tab.to_markdown(index=False)
-        _logger.info(f"%s:\n%s", msg, tab_fmt)
 
     def _tabulate(self, result: dict[str, dict[str, float]]) -> pd.DataFrame:
         data: dict[str, list[float]] = {}
@@ -364,21 +360,6 @@ def _get_category_id_to_continuous_id(things: T.FrozenSet[int], stuffs: T.Frozen
     return cat_id_to_continuous_id
 
 
-def _isin(arr: torch.Tensor, values: list) -> torch.Tensor:
-    """Check if all values of an arr are in another array. Implementation of torch.isin to support pre 0.10 version.
-
-    Args:
-        arr: the torch tensor to check for availabilities
-        values: the values to search the tensor for.
-
-    Returns:
-        a bool tensor of the same shape as :param:`arr` indicating for each
-        position whether the element of the tensor is in :param:`values`
-
-    """
-    return (arr[..., None] == arr.new(values)).any(-1)
-
-
 def _preprocess_mask(
     things: T.FrozenSet[int],
     stuffs: T.FrozenSet[int],
@@ -419,8 +400,8 @@ def _preprocess_mask(
     out = torch.flatten(out, 0, -2)
     assert out.ndim == 2, out.shape
 
-    mask_stuffs = _isin(out[:, 0], list(stuffs))
-    mask_things = _isin(out[:, 0], list(things))
+    mask_stuffs = H.isin(out[:, 0], list(stuffs))
+    mask_things = H.isin(out[:, 0], list(things))
 
     if not allow_unknown_category and not torch.all(mask_things | mask_stuffs):
         raise ValueError(f"Unknown categories found: {out[~(mask_things|mask_stuffs)]}")

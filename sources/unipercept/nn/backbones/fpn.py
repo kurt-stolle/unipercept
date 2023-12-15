@@ -14,8 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing_extensions import override
 
-from ..layers import conv
-from ..layers import SqueezeExcite2d
+from ..layers import SqueezeExcite2d, conv
 from ._base import Backbone
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]

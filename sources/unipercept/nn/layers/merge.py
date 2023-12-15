@@ -5,14 +5,15 @@ import typing as T
 
 import numpy as np
 import torch
+from fvcore.nn import weight_init
 from matplotlib.dates import WE
 from torch import Tensor, nn
 from typing_extensions import override
-from fvcore.nn import weight_init
+
 import unipercept.nn.layers.conv as convolution
 from unipercept.nn.backbones import BackboneFeatureInfo
-from unipercept.nn.layers.norm import GroupNormCG, LayerNormCHW, GroupNorm32
 from unipercept.nn.layers import SelfAttention2d, SqueezeExcite2d
+from unipercept.nn.layers.norm import GroupNorm32, GroupNormCG, LayerNormCHW
 from unipercept.nn.typings import Norm
 
 __all__ = ["SemanticMerge"]

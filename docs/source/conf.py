@@ -3,14 +3,13 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+import importlib.metadata
+import importlib.resources
 import shutil
 import sys
 from pathlib import Path
-import importlib.resources
-import importlib.metadata
 
 import sphinx_rtd_theme
-
 
 sources_path = importlib.resources.files("unipercept")
 assert sources_path.is_dir()

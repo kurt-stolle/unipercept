@@ -6,10 +6,11 @@ See: https://wandb.ai
 
 from __future__ import annotations
 
+import dataclasses as D
 import enum as E
 import os
 import tempfile
-import dataclasses as D
+
 import torch.nn as nn
 import typing_extensions as TX
 import wandb

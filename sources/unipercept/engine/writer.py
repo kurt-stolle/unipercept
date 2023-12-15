@@ -4,16 +4,15 @@ Implements a handler for writing results to a file from multiple processes.
 
 from __future__ import annotations
 
+import abc
 import functools
+import tempfile
 import typing as T
-import typing_extensions as TX
 
 import accelerate
 import torch
 import torch.types
-import abc
-import tempfile
-import functools
+import typing_extensions as TX
 from tensordict import PersistentTensorDict, TensorDict, TensorDictBase
 from unicore import file_io
 

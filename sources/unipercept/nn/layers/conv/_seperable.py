@@ -4,8 +4,9 @@ from typing import Callable
 
 import torch
 import torch.nn as nn
-from typing_extensions import Self, override
 from fvcore.nn import weight_init
+from typing_extensions import Self, override
+
 from . import utils
 from ._extended import Conv2d
 from ._standard import Standard2d

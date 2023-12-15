@@ -26,13 +26,17 @@ def stable_divide(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def isin(arr: torch.Tensor, values: list) -> torch.Tensor:
     """Check if all values of an arr are in another array. Implementation of torch.isin to support pre 0.10 version.
 
-    Args:
-        arr: the torch tensor to check for availabilities
-        values: the values to search the tensor for.
+    Parameters
+    ----------
+    arr
+        The torch tensor to check for availabilities
+    values
+        The values to search the tensor for.
 
-    Returns:
-        a bool tensor of the same shape as :param:`arr` indicating for each
-        position whether the element of the tensor is in :param:`values`
+    Returns
+    -------
+    a bool tensor of the same shape as :param:`arr` indicating for each
+    position whether the element of the tensor is in :param:`values`
 
     """
     return (arr[..., None] == arr.new(values)).any(-1)

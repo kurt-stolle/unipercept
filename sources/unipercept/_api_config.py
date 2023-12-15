@@ -45,6 +45,40 @@ __all__ = [
 ##########################
 
 
+WANDB_RUN_PREFIX = "wandb-run://"
+
+def _read_config_wandb(path: str) -> DictConfig:
+    """
+    Read a configuration file from wiehgts and biases. Prefix wandb-run://entity/project/name
+    """
+
+    import wandb
+    assert path.startswith(WANDB_RUN_PREFIX)
+
+    run_name = path[len(WANDB_RUN_PREFIX) :]
+    wandb_api = wandb.Api()
+    run = wandb_api.run(run_name)
+
+    return DictConfig(run.config)
+    
+
+def _read_model_wandb(path: str) -> str:
+    """
+    Read a model from wiehgts and biases. Prefix wandb-run://entity/project/name
+    """
+
+    import wandb
+    assert path.startswith(WANDB_RUN_PREFIX) 
+
+    run_name = path[len(WANDB_RUN_PREFIX) :]
+    wandb_api = wandb.Api()
+    run = wandb_api.run(run_name)
+
+    model_artifact_name = f"{run.entity}/{run.project}/model-{run.name}:latest/model.safetensors"
+
+    return file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
+
+
 def read_config(config: ConfigParam) -> DictConfig:
     """
     Load a configuration file into a DictConfig object. If a path is passed, the configuration file will be loaded
@@ -61,6 +95,9 @@ def read_config(config: ConfigParam) -> DictConfig:
         A DictConfig object.
     """
     from .config import LazyConfig
+
+    if isinstance(config, str) and config.startswith(WANDB_RUN_PREFIX):
+        return _read_config_wandb(config)
 
     if isinstance(config, str) or isinstance(config, os.PathLike):
         config_path = file_io.Path(config).resolve().expanduser()
@@ -181,6 +218,10 @@ def create_model(
 
     from .config import instantiate
     from .engine import Engine
+
+    if isinstance(config, str) and config.startswith(WANDB_RUN_PREFIX):
+        config = _read_config_wandb(config)
+        state = _read_model_wandb(config)
 
     if (
         isinstance(config, (str, os.PathLike))

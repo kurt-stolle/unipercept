@@ -18,7 +18,7 @@ from unipercept.log import get_logger
 
 if T.TYPE_CHECKING:
     from ..data import DataLoaderFactory
-    from ..model import InputData, ModelOutput
+    from ..model import TensorDictBase
 
 __all__ = ["Evaluator", "PlotMode"]
 
@@ -47,7 +47,7 @@ class Evaluator(metaclass=abc.ABCMeta):
     Implements a stateless evaluator for a given task.
     """
 
-    def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput) -> None:
+    def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase) -> None:
         return None
 
     @abc.abstractmethod

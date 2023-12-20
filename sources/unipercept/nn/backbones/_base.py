@@ -38,7 +38,7 @@ class Backbone(nn.Module):
     def __init__(self, *, feature_info: BackboneFeatures, **kwargs):
         super().__init__(**kwargs)
 
-        self.feature_info = {k: v for k, v in feature_info.items()}
+        self.feature_info = {k.replace(".", "_"): v for k, v in feature_info.items()}
 
     def forward(self, images: torch.Tensor) -> OrderedDict[str, torch.Tensor]:
         """

@@ -18,6 +18,8 @@ import typing as T
 import accelerate
 import accelerate.utils
 import torch
+import torch._dynamo
+import torch._dynamo.config
 import torch.nn as nn
 import torch.optim
 import torch.utils.data
@@ -48,10 +50,12 @@ from ._scheduler import SchedulerFactory
 from ._trial import Trial
 from ._types import DataLoaderFactory, ModelFactory
 
+torch._dynamo.config.suppress_errors = True
+
 if T.TYPE_CHECKING:
     from unipercept.evaluators import Evaluator
 
-    from ..model import InputData, ModelOutput
+    from ..model import ModelOutput
 
     try:
         from wandb.sdk.wandb_run import Run as WandBRun
@@ -455,8 +459,11 @@ class Engine:
 
         # Register and prepare using Accelerate
         self._xlr.free_memory()
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+        if self._params.convert_sync_batchnorm:
+            model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = self._xlr.prepare_model(model)
+        model = torch.compile(model, mode="reduce-overhead")
         loader, scheduler, optimizer = self._xlr.prepare(loader, scheduler, optimizer)
 
         checkpoint_dir = os.path.join(self._xlr.project_dir, "checkpoints")
@@ -662,7 +669,7 @@ class Engine:
         metrics: dict[str, T.Any] = {}
         metrics.update(
             _build_speed_metrics(
-                "Training",
+                "training",
                 time_start,
                 sample_amount=total_sesssion_samples,
                 step_amount=total_session_steps,
@@ -768,17 +775,22 @@ class Engine:
         A single training step (forward + backward + update).
         """
         model.train()
-        outputs: ModelOutput = model(inputs)
+        output: TensorDict = model(inputs)
 
-        loss_tensor = torch.stack([loss for loss in outputs.losses.values()])  # type: ignore
+        if "losses" in output.keys():
+            losses: TensorDict = output["losses"]
+        else:
+            losses = output
+
+        loss_tensor = torch.stack([loss for loss in losses.values()])  # type: ignore
 
         if self._params.train_sum_losses:
             self._xlr.backward(loss_tensor.sum())
         else:
             self._xlr.backward(loss_tensor, gradient=torch.ones_like(loss_tensor))
 
-        outputs.detach_()
-        return outputs.losses.apply(lambda _l: _l / self._params.gradient_accumulation_steps)
+        losses.detach_()
+        return losses.apply(lambda _l: _l / self._params.gradient_accumulation_steps)
 
     def _save_model(self, path: T.Optional[str], model: nn.Module) -> str:
         """
@@ -1020,16 +1032,20 @@ class Engine:
         self,
         model: nn.Module,
         inputs: TensorDict,
-        ignore_keys: T.Optional[list[str]] = None,
-    ) -> ModelOutput:
+    ) -> TensorDictBase:
         """
         Perform an evaluation step on `model` using `inputs`.
         """
 
-        outputs: ModelOutput = model(inputs)
+        outputs: TensorDictBase = model(inputs)
+        if "predictions" in outputs.keys():
+            predictions = outputs["predictions"]
+        else:
+            predictions = outputs
+
         if self._params.past_index >= 0:
-            self._past = outputs[self._params.past_index - 1]
-        return outputs
+            self._past = predictions[self._params.past_index - 1]
+        return predictions
 
     def _default_setup(self):
         """

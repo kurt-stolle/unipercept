@@ -18,7 +18,6 @@ from tqdm import tqdm
 
 import unipercept.evaluators.helpers as H
 from unipercept.log import get_logger
-from unipercept.model import InputData, ModelOutput
 
 from ._depth import PRED_DEPTH, TRUE_DEPTH, DepthWriter
 from ._panoptic import (
@@ -43,11 +42,11 @@ class DVPSWriter(PanopticWriter, DepthWriter):
     """
 
     @TX.override
-    def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput):
+    def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
         super().update(storage, inputs, outputs)
 
-        storage.setdefault(SEQUENCE_ID, inputs.ids[:, 0], inplace=True)
-        storage.setdefault(FRAME_ID, inputs.ids[:, 1], inplace=True)
+        storage.setdefault(SEQUENCE_ID, inputs.get_at("ids", 0), inplace=True)
+        storage.setdefault(FRAME_ID, inputs.get_at("ids", 1), inplace=True)
 
 
 @D.dataclass(kw_only=True)

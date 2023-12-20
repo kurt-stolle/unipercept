@@ -25,7 +25,6 @@ from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
-    from ..model import InputData, ModelOutput
 
 __all__ = ["PanopticEvaluator", "TRUE_PANOPTIC", "PRED_PANOPTIC", "PanopticWriter"]
 
@@ -57,10 +56,10 @@ class PanopticWriter(Evaluator):
         return cls(info=get_info(name), **kwargs)
 
     @override
-    def update(self, storage: TensorDictBase, inputs: InputData, outputs: ModelOutput):
+    def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
         super().update(storage, inputs, outputs)
-        storage.setdefault(TRUE_PANOPTIC, inputs.captures.segmentations, inplace=True)
-        storage.setdefault(PRED_PANOPTIC, outputs.predictions.get("segmentations"), inplace=True)
+        storage.setdefault(TRUE_PANOPTIC, inputs.get("captures", "segmentations"), inplace=True)
+        storage.setdefault(PRED_PANOPTIC, outputs.get("segmentations"), inplace=True)
 
     @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:

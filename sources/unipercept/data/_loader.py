@@ -36,7 +36,7 @@ class DataLoaderConfig:
     drop_last: bool = False
     pin_memory: bool = True
     num_workers: int = DEFAULT_NUM_WORKERS
-    prefetch_factor: int | None = 2
+    prefetch_factor: int | None = 4
     persistent_workers: bool | None = False
 
 

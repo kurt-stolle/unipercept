@@ -47,12 +47,14 @@ __all__ = [
 
 WANDB_RUN_PREFIX = "wandb-run://"
 
+
 def _read_config_wandb(path: str) -> DictConfig:
     """
     Read a configuration file from wiehgts and biases. Prefix wandb-run://entity/project/name
     """
 
     import wandb
+
     assert path.startswith(WANDB_RUN_PREFIX)
 
     run_name = path[len(WANDB_RUN_PREFIX) :]
@@ -60,7 +62,7 @@ def _read_config_wandb(path: str) -> DictConfig:
     run = wandb_api.run(run_name)
 
     return DictConfig(run.config)
-    
+
 
 def _read_model_wandb(path: str) -> str:
     """
@@ -68,7 +70,8 @@ def _read_model_wandb(path: str) -> str:
     """
 
     import wandb
-    assert path.startswith(WANDB_RUN_PREFIX) 
+
+    assert path.startswith(WANDB_RUN_PREFIX)
 
     run_name = path[len(WANDB_RUN_PREFIX) :]
     wandb_api = wandb.Api()

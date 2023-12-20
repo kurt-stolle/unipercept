@@ -8,7 +8,7 @@ import enum as E
 import typing as T
 
 import torch
-from typing_extensions import deprecated, override
+import typing_extensions as TX
 from unicore.catalog import DataManager
 from unicore.utils.dataset import Dataset as _BaseDataset
 from unicore.utils.frozendict import frozendict
@@ -19,9 +19,17 @@ from unipercept.utils.camera import build_calibration_matrix
 
 if T.TYPE_CHECKING:
     from unipercept.data.collect import ExtractIndividualFrames
-    from unipercept.model import InputData
+    from unipercept.model import InputData, CaptureData, MotionData, CameraModel
 
-from ..types import COCOCategory, Manifest, QueueItem
+from ..types import (
+    CaptureRecord,
+    CaptureSources,
+    COCOCategory,
+    Manifest,
+    MotionRecord,
+    MotionSources,
+    QueueItem,
+)
 
 __all__ = [
     "PerceptionDataset",
@@ -234,85 +242,85 @@ class Metadata:
 
     # Implementation of deprecated properties from new metadata
     @property
-    @deprecated("Use `stuff_mode` instead.")
+    @TX.deprecated("Use `stuff_mode` instead.")
     def stuff_all_classes(self) -> bool:
         """Deprecated."""
         return StuffMode.ALL_CLASSES in self.stuff_mode
 
     @property
-    @deprecated("Use `stuff_mode` instead.")
+    @TX.deprecated("Use `stuff_mode` instead.")
     def stuff_with_things(self) -> bool:
         """Deprecated."""
         return StuffMode.WITH_THING in self.stuff_mode
 
     @property
-    @deprecated("Use `thing_amount` instead.")
+    @TX.deprecated("Use `thing_amount` instead.")
     def num_thing(self) -> int:
         """Deprecated."""
         return len(self.thing_ids)
 
     @property
-    @deprecated("Use `stuff_amount` instead.")
+    @TX.deprecated("Use `stuff_amount` instead.")
     def num_stuff(self) -> int:
         """Deprecated."""
         return self.stuff_amount
 
     @property
-    @deprecated("Use `semantic_classes[...].name` instead.")
+    @TX.deprecated("Use `semantic_classes[...].name` instead.")
     def thing_classes(self) -> T.Tuple[str, ...]:
         """Deprecated."""
         return tuple(self.semantic_classes[sem_id].name for sem_id in self.thing_ids)
 
     @property
-    @deprecated("Use `semantic_classes[...].name` instead.")
+    @TX.deprecated("Use `semantic_classes[...].name` instead.")
     def stuff_classes(self) -> T.Tuple[str, ...]:
         """Deprecated."""
         return tuple(self.semantic_classes[sem_id].name for sem_id in self.stuff_ids)
 
     @property
-    @deprecated("Use `semantic_classes[...].color` instead.")
+    @TX.deprecated("Use `semantic_classes[...].color` instead.")
     def thing_colors(self) -> T.Tuple[RGB, ...]:
         """Deprecated."""
         return tuple(self.semantic_classes[sem_id].color for sem_id in self.thing_ids)
 
     @property
-    @deprecated("Use `semantic_classes[...].color` instead.")
+    @TX.deprecated("Use `semantic_classes[...].color` instead.")
     def stuff_colors(self) -> T.Tuple[RGB, ...]:
         """Deprecated."""
         return tuple(self.semantic_classes[sem_id].color for sem_id in self.stuff_ids)
 
     @property
-    @deprecated("Use `translations_dataset` instead.")
+    @TX.deprecated("Use `translations_dataset` instead.")
     def thing_translations(self) -> dict[int, int]:
         """Deprecated."""
         return {k: v for k, v in self.translations_dataset.items() if k in self.thing_ids}
 
     @property
-    @deprecated("Use `thing_offsets` instead.")
+    @TX.deprecated("Use `thing_offsets` instead.")
     def thing_embeddings(self) -> dict[int, int]:
         """Deprecated."""
         return self.thing_offsets
 
     @property
-    @deprecated("Use `translations_dataset` instead.")
+    @TX.deprecated("Use `translations_dataset` instead.")
     def stuff_translations(self) -> dict[int, int]:
         """Deprecated."""
         return {k: v for k, v in self.translations_dataset.items() if k in self.stuff_ids}
 
     @property
-    @deprecated("Use `stuff_offsets` instead.")
+    @TX.deprecated("Use `stuff_offsets` instead.")
     def stuff_embeddings(self) -> dict[int, int]:
         """Deprecated."""
         return self.stuff_offsets
 
     @property
-    @deprecated("Use `thing_offsets` instead.")
+    @TX.deprecated("Use `thing_offsets` instead.")
     def thing_train_id2contiguous_id(self) -> dict[int, int]:
         """Deprecated."""
         return {v: k for k, v in self.thing_offsets.items()}
 
     @property
-    @deprecated("Use `stuff_offsets` instead.")
+    @TX.deprecated("Use `stuff_offsets` instead.")
     def stuff_train_id2contiguous_id(self) -> dict[int, int]:
         """Deprecated."""
         return {v: k for k, v in self.stuff_offsets.items()}
@@ -405,7 +413,7 @@ def info_factory(
     ignore_depth: float = 0.0,
     ignore_label: int = 255,
     fps: float = 17.0,
-    stuff_mode: StuffMode = StuffMode.ALL_CLASSES,
+    stuff_mode: StuffMode = StuffMode.WITH_THING,
 ) -> Metadata:
     """Generate dataset metadata object."""
 
@@ -471,7 +479,7 @@ class PerceptionDataset(
         default_factory=_individual_frames_queue
     )
 
-    @override
+    @TX.override
     def __init_subclass__(cls, id: str | None = None, **kwargs):
         super().__init_subclass__(**kwargs)
 
@@ -505,7 +513,6 @@ class PerceptionDataset(
             images=multi_read(read_image, "image", no_entries="error")(sources),
             segmentations=multi_read(read_segmentation, "panoptic", no_entries="none")(sources, info),
             depths=multi_read(read_depth_map, "depth", no_entries="none")(sources),
-            boxes=None,
             batch_size=[num_caps],
         )
 
@@ -524,7 +531,7 @@ class PerceptionDataset(
     _data_cache: T.ClassVar[dict[str, up.model.InputData]] = {}
 
     @classmethod
-    @override
+    @TX.override
     def _load_data(cls, key: str, item: QueueItem, info: Metadata) -> up.model.InputData:
         from unipercept.model import CameraModel, InputData
 

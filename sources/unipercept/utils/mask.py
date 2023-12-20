@@ -3,8 +3,7 @@ import torch
 __all__ = ["masks_to_centers", "masks_to_boxes"]
 
 
-@torch.jit.script_if_tracing
-def masks_to_centers(masks: torch.Tensor, stride: int = 1) -> torch.Tensor:
+def masks_to_centers(masks: torch.Tensor, stride: int = 1, use_vmap: bool = False) -> torch.Tensor:
     """
     Converts a mask to a center point.
 
@@ -24,12 +23,17 @@ def masks_to_centers(masks: torch.Tensor, stride: int = 1) -> torch.Tensor:
 
     masks = masks.permute(0, 2, 1)  # Ensure output is XY not YX
     axes = _get_index_axes_like(masks, stride=stride)
-    cmap = torch.vmap(_get_mass_center, (None, -1), (1))(masks, axes)
 
-    return cmap
+    if use_vmap:
+        return torch.vmap(_get_mass_center, (None, -1), (1))(masks, axes)
+    else:
+        cmap = []
+        for i in range(axes.shape[-1]):
+            cmap.append(_get_mass_center(masks, axes[..., i]))
+        return torch.stack(cmap, dim=-1)
 
 
-def masks_to_boxes(masks: torch.Tensor, stride: int = 1) -> torch.Tensor:
+def masks_to_boxes(masks: torch.Tensor, stride: int = 1, use_vmap: bool = False) -> torch.Tensor:
     """
     Convert masks to bounding boxes.
 
@@ -44,14 +48,21 @@ def masks_to_boxes(masks: torch.Tensor, stride: int = 1) -> torch.Tensor:
     -------
         Bounding box tensor (N, (X1,Y1,X2,Y2)), where X in [0,W] and Y in [0,H]
     """
-    # if masks.numel() == 0:
-    #     return torch.zeros((0, 4), device=masks.device, dtype=masks.dtype)
-
     masks = masks.bool().permute(0, 2, 1).long()  # Ensure output is XY not YX
     axes = _get_index_axes_like(masks, stride=stride)
-    xyxy = torch.vmap(_get_bounding_box, (-1,), (1, 1))(axes, masks=masks)
 
-    return torch.cat(xyxy, dim=-1)
+    if use_vmap:
+        xyxy = torch.vmap(_get_bounding_box, (-1, None), (1, 1))(axes, masks)
+        return torch.cat(xyxy, dim=-1)
+    else:
+        xy1 = []
+        xy2 = []
+        for i in range(axes.shape[-1]):
+            min_index, max_index = _get_bounding_box(axes[..., i], masks=masks)
+            xy1.append(min_index)
+            xy2.append(max_index)
+
+        return torch.cat([torch.stack(xy1, dim=-1), torch.stack(xy2, dim=-1)], dim=-1)
 
 
 def _get_index_axes_like(t: torch.Tensor, *, stride: int) -> torch.Tensor:
@@ -75,7 +86,7 @@ def _get_mass_center(masks: torch.Tensor, index_axes: torch.Tensor) -> torch.Ten
     # return (m / m * ax).nanmean(dim=(-2, -1))
 
 
-def _get_bounding_box(index_axes: torch.Tensor, *, masks: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _get_bounding_box(index_axes: torch.Tensor, masks: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     # Select the maximum index in the valid indices tensor
     max_coords = masks * index_axes[None, :, :]
     max_index = max_coords.amax(dim=(-1, -2))

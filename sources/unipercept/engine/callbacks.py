@@ -499,7 +499,7 @@ class ConditionalStoppingCallback(CallbackDispatcher):
     """
 
     def __init__(self, metric_name: str, maximize: bool, threshold: float, patience: int = 1):
-        if self.patience <= 0:
+        if patience <= 0:
             raise ValueError(f"patience must be positive, got {patience}")
 
         self.metric_name = metric_name

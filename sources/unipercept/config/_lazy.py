@@ -8,11 +8,9 @@ import ast
 import builtins
 import collections.abc as abc
 import dataclasses
-import importlib
-import inspect
-import logging
 import os
 import pydoc
+import types
 import typing as T
 import uuid
 from contextlib import contextmanager
@@ -20,7 +18,6 @@ from copy import deepcopy
 from dataclasses import is_dataclass
 from typing import Any, List, Tuple, Union
 
-import cloudpickle
 import omegaconf
 import torch.nn as nn
 import yaml
@@ -53,6 +50,21 @@ __all__ = [
 ]
 
 
+# Some global constants for lazy configuration
+_TARGET_KEY: T.Final = "_target_"
+_PACKAGE_PREFIX: T.Final = "_config_"
+_OMEGA_DICT_FLAGS: T.Final = {"allow_objects": True}
+
+# Type alias for a DictConfig that is used to store a lazy configuration.
+LazyConfigDict: T.TypeAlias = DictConfig
+
+# Type vars
+_C = T.TypeVar("_C", DictConfig, ListConfig, contravariant=True)
+_P = T.ParamSpec("_P")
+_L = T.TypeVar("_L")
+
+
+# See detectron2 implementation
 class LazyCall:
     """
     Wrap a callable so that when it's called, the call will not be executed,
@@ -73,24 +85,28 @@ class LazyCall:
             target = self._target
         kwargs["_target_"] = target
 
-        return DictConfig(content=kwargs, flags={"allow_objects": True})
+        return DictConfig(content=kwargs, flags=_OMEGA_DICT_FLAGS)
 
 
-def _visit_dict_config(cfg, func):
+def _apply_recursive(cfg: _C, func: T.Callable[[_C], None]) -> None:
     """
     Apply func recursively to all DictConfig in cfg.
     """
     if isinstance(cfg, DictConfig):
         func(cfg)
         for v in cfg.values():
-            _visit_dict_config(v, func)
+            _apply_recursive(v, func)
     elif isinstance(cfg, ListConfig):
         for v in cfg:
-            _visit_dict_config(v, func)
+            _apply_recursive(v, func)
 
 
-def _validate_py_syntax(filename):
-    # see also https://github.com/open-mmlab/mmcv/blob/master/mmcv/utils/config.py
+def _validate_syntax(filename):
+    """
+    Validate the syntax of a Python-based configuration file.
+
+    Adapted from: https://github.com/open-mmlab/mmcv/blob/master/mmcv/utils/config.py
+    """
     with file_io.open(filename, "r") as f:
         content = f.read()
     try:
@@ -99,45 +115,41 @@ def _validate_py_syntax(filename):
         raise SyntaxError(f"Config file {filename} has syntax error!") from e
 
 
-def _cast_to_config(obj):
-    # if given a dict, return DictConfig instead
+def _as_omegadict(obj: dict | DictConfig) -> DictConfig:
     if isinstance(obj, dict):
-        return DictConfig(obj, flags={"allow_objects": True})
+        return DictConfig(obj, flags=_OMEGA_DICT_FLAGS)
     return obj
 
 
-_CFG_PACKAGE_NAME = "detectron2._cfg_loader"
-"""
-A namespace to put all imported config into.
-"""
-
-
-def _random_package_name(filename):
+def _generate_packagename(path: str):
     # generate a random package name when loading config files
-    return _CFG_PACKAGE_NAME + str(uuid.uuid4())[:4] + "." + os.path.basename(filename)
+    return _PACKAGE_PREFIX + str(uuid.uuid4())[:4] + "." + os.path.basename(path)
 
 
 @contextmanager
 def _patch_import():
     """
-    Enhance relative import statements in config files, so that they:
-    1. locate files purely based on relative location, regardless of packages.
-       e.g. you can import file without having __init__
-    2. do not cache modules globally; modifications of module states has no side effect
-    3. support other storage system through file_io, so config files can be in the cloud
-    4. imported dict are turned into omegaconf.DictConfig automatically
+    Context manager that patches ``builtins.__import__`` to:
+    - locate files purely based on relative location, regardless of packages.
+            e.g. you can import file without having __init__
+    - do not cache modules globally; modifications of module states has no side effect
+    - support other storage system through file_io, so config files can be in the cloud
+    - imported dict are turned into omegaconf.DictConfig automatically
     """
-    old_import = builtins.__import__
+    import importlib.machinery
+    import importlib.util
 
-    def find_relative_file(original_file, relative_import_path, level):
+    # Reference the 'original' import function such that we can revert to normal behavior
+    # after exiting the context manager.
+    import_default = builtins.__import__
+
+    def find_relative(original_file, relative_import_path, level):
         # NOTE: "from . import x" is not handled. Because then it's unclear
         # if such import should produce `x` as a python module or DictConfig.
         # This can be discussed further if needed.
-        relative_import_err = """
-Relative import of directories is not allowed within config files.
-Within a config file, relative import can only import other config files.
-""".replace(
-            "\n", " "
+        relative_import_err = (
+            "Relative import of directories is not allowed within config files. "
+            "Within a config file, relative import can only import other config files."
         )
         if not len(relative_import_path):
             raise ImportError(relative_import_err)
@@ -160,30 +172,30 @@ Within a config file, relative import can only import other config files.
                 )
         return cur_file
 
-    def new_import(name, globals=None, locals=None, fromlist=(), level=0):
+    def import_patched(name, globals=None, locals=None, fromlist=(), level=0):
         if (
             # Only deal with relative imports inside config files
             level != 0
             and globals is not None
-            and (globals.get("__package__", "") or "").startswith(_CFG_PACKAGE_NAME)
+            and (globals.get("__package__", "") or "").startswith(_PACKAGE_PREFIX)
         ):
-            cur_file = find_relative_file(globals["__file__"], name, level)
-            _validate_py_syntax(cur_file)
-            spec = importlib.machinery.ModuleSpec(_random_package_name(cur_file), None, origin=cur_file)
+            cur_file = find_relative(globals["__file__"], name, level)
+            _validate_syntax(cur_file)
+            spec = importlib.machinery.ModuleSpec(_generate_packagename(cur_file), None, origin=cur_file)
             module = importlib.util.module_from_spec(spec)
             module.__file__ = cur_file
             with file_io.open(cur_file) as f:
                 content = f.read()
             exec(compile(content, cur_file, "exec"), module.__dict__)
             for name in fromlist:  # turn imported dict into DictConfig automatically
-                val = _cast_to_config(module.__dict__[name])
+                val = _as_omegadict(module.__dict__[name])
                 module.__dict__[name] = val
             return module
-        return old_import(name, globals, locals, fromlist=fromlist, level=level)
+        return import_default(name, globals, locals, fromlist=fromlist, level=level)
 
-    builtins.__import__ = new_import
-    yield new_import
-    builtins.__import__ = old_import
+    builtins.__import__ = import_patched
+    yield import_patched
+    builtins.__import__ = import_default
 
 
 class LazyConfig:
@@ -193,88 +205,82 @@ class LazyConfig:
     """
 
     @staticmethod
-    def load_rel(filename: str, keys: Union[None, str, Tuple[str, ...]] = None):
-        """
-        Similar to :meth:`load()`, but load path relative to the caller's
-        source file.
-
-        This has the same functionality as a relative import, except that this method
-        accepts filename as a string, so more characters are allowed in the filename.
-        """
-        caller_frame = inspect.stack()[1]
-        caller_fname = caller_frame[0].f_code.co_filename
-        assert caller_fname != "<string>", "load_rel Unable to find caller"
-        caller_dir = os.path.dirname(caller_fname)
-        filename = os.path.join(caller_dir, filename)
-        return LazyConfig.load(filename, keys)
-
-    @staticmethod
-    def load(filename: str, keys: Union[None, str, Tuple[str, ...]] = None):
+    def load(path: str, keys: T.Iterable[str] | None = None):
         """
         Load a config file.
 
-        Args:
-            filename: absolute path or relative path w.r.t. the current working directory
-            keys: keys to load and return. If not given, return all keys
-                (whose values are config objects) in a dict.
+        Parameters
+        ----------
+        path
+            The path to the config file.
+        keys
+            The keys to load from the config file. If not specified, all keys will be loaded.
+
+        Returns
+        -------
+        DictConfig
+            A lazy configuration object.
         """
         has_keys = keys is not None
-        filename = filename.replace("/./", "/")  # redundant
-        if os.path.splitext(filename)[1] not in [".py", ".yaml", ".yml"]:
-            raise ValueError(f"Config file {filename} has to be a python or yaml file.")
-        if filename.endswith(".py"):
-            _validate_py_syntax(filename)
+        path = path.replace("/./", "/")  # redundant
+        ext = os.path.splitext(path)[1]
+        match ext.lower():
+            case ".py":
+                _validate_syntax(path)
 
-            with _patch_import():
-                # Record the filename
-                module_namespace = {
-                    "__file__": filename,
-                    "__package__": _random_package_name(filename),
-                }
-                with file_io.open(filename) as f:
-                    content = f.read()
-                # Compile first with filename to:
-                # 1. make filename appears in stacktrace
-                # 2. make load_rel able to find its parent's (possibly remote) location
-                exec(compile(content, filename, "exec"), module_namespace)
+                with _patch_import():
+                    # Record the filename
+                    module_namespace = {
+                        "__file__": path,
+                        "__package__": _generate_packagename(path),
+                    }
+                    with file_io.open(path) as f:
+                        content = f.read()
+                    # Compile first with filename to:
+                    # 1. make filename appears in stacktrace
+                    # 2. make load_rel able to find its parent's (possibly remote) location
+                    exec(compile(content, path, "exec"), module_namespace)
 
-            ret = module_namespace
-        else:
-            with file_io.open(filename) as f:
-                obj = yaml.unsafe_load(f)
-            ret = OmegaConf.create(obj, flags={"allow_objects": True})
+                ret = module_namespace
+            case ".yaml":
+                with file_io.open(path) as f:
+                    obj = yaml.unsafe_load(f)
+                ret = OmegaConf.create(obj, flags=_OMEGA_DICT_FLAGS)
+            case _:
+                raise ValueError(f"Unsupported file extension {ext}!")
 
         if has_keys:
-            if isinstance(keys, str):
-                return _cast_to_config(ret[keys])
-            else:
-                return tuple(_cast_to_config(ret[a]) for a in keys)
+            return tuple(_as_omegadict(ret[a]) for a in keys)
         else:
-            if filename.endswith(".py"):
+            if path.endswith(".py"):
                 # when not specified, only load those that are config objects
                 ret = DictConfig(
                     {
-                        name: _cast_to_config(value)
+                        name: _as_omegadict(value)
                         for name, value in ret.items()
                         if isinstance(value, (DictConfig, ListConfig, dict)) and not name.startswith("_")
                     },
-                    flags={"allow_objects": True},
+                    flags=_OMEGA_DICT_FLAGS,
                 )
             return ret
 
     @staticmethod
-    def save(cfg, filename: str):
+    def save(cfg, path: str):
         """
         Save a config object to a yaml file.
-        Note that when the config dictionary contains complex objects (e.g. lambda),
-        it can't be saved to yaml. In that case we will print an error and
-        attempt to save to a pkl file instead.
 
-        Args:
-            cfg: an omegaconf config object
-            filename: yaml file name to save the config file
+        Parameters
+        ----------
+        cfg
+            An omegaconf config object.
+        filename
+            The file name to save the config file.
+
+        Notes
+        -----
+        When the config dictionary contains complex objects (e.g. lambda), it cannot be saved to yaml.
+        In that case, an error will be printed and the config will be saved to a pkl file instead.
         """
-        logger = logging.getLogger(__name__)
         try:
             cfg = deepcopy(cfg)
         except Exception:
@@ -289,9 +295,8 @@ class LazyConfig:
                         pass
 
             # not necessary, but makes yaml looks nicer
-            _visit_dict_config(cfg, _replace_type_by_name)
+            _apply_recursive(cfg, _replace_type_by_name)
 
-        save_pkl = False
         try:
             dict = OmegaConf.to_container(
                 cfg,
@@ -302,46 +307,33 @@ class LazyConfig:
                 # Without this option, the type information of the dataclass will be erased.
                 structured_config_mode=SCMode.INSTANTIATE,
             )
-            dumped = yaml.dump(dict, default_flow_style=None, allow_unicode=True, width=9999)
-            with file_io.open(filename, "w") as f:
+            dumped = yaml.dump(dict, default_flow_style=None, allow_unicode=True)
+            with file_io.open(path, "w") as f:
                 f.write(dumped)
 
-            try:
-                _ = yaml.unsafe_load(dumped)  # test that it is loadable
-            except Exception:
-                logger.warning(
-                    "The config contains objects that cannot serialize to a valid yaml. "
-                    f"{filename} is human-readable but cannot be loaded."
-                )
-                save_pkl = True
-        except Exception:
-            logger.exception("Unable to serialize the config to yaml. Error:")
-            save_pkl = True
-
-        if save_pkl:
-            new_filename = filename + ".pkl"
-            try:
-                # retry by pickle
-                with file_io.open(new_filename, "wb") as f:
-                    cloudpickle.dump(cfg, f)
-                logger.warning(f"Config is saved using cloudpickle at {new_filename}.")
-            except Exception:
-                pass
+            _ = yaml.unsafe_load(dumped)  # test that it is loadable
+        except Exception as err:
+            raise SyntaxError(f"Config file {path} cannot be saved to yaml!") from err
 
     @staticmethod
     def apply_overrides(cfg, overrides: List[str]):
         """
         In-place override contents of cfg.
 
-        Args:
-            cfg: an omegaconf config object
-            overrides: list of strings in the format of "a=b" to override configs.
-                See https://hydra.cc/docs/next/advanced/override_grammar/basic/
-                for syntax.
+        Parameters
+        ----------
+        cfg
+            An omegaconf config object
+        overrides
+            List of strings in the format of "a=b" to override configs.
+            See: https://hydra.cc/docs/next/advanced/override_grammar/basic/
 
-        Returns:
-            the cfg object
+        Returns
+        -------
+        DictConfig
+            Lazy configuration object
         """
+        from hydra.core.override_parser.overrides_parser import OverridesParser
 
         def safe_update(cfg, key, value):
             parts = key.split(".")
@@ -356,101 +348,19 @@ class LazyConfig:
                     )
             OmegaConf.update(cfg, key, value, merge=True)
 
-        try:
-            from hydra.core.override_parser.overrides_parser import OverridesParser
+        for o in OverridesParser.create().parse_overrides(overrides):
+            key = o.key_or_group
+            value = o.value()
+            if o.is_delete():
+                raise NotImplementedError("deletion is not yet a supported override")
+            safe_update(cfg, key, value)
 
-            has_hydra = True
-        except ImportError:
-            has_hydra = False
-
-        if has_hydra:
-            parser = OverridesParser.create()
-            overrides = parser.parse_overrides(overrides)
-            for o in overrides:
-                key = o.key_or_group
-                value = o.value()
-                if o.is_delete():
-                    # TODO support this
-                    raise NotImplementedError("deletion is not yet a supported override")
-                safe_update(cfg, key, value)
-        else:
-            # Fallback. Does not support all the features and error checking like hydra.
-            for o in overrides:
-                key, value = o.split("=")
-                try:
-                    value = eval(value, {})
-                except NameError:
-                    pass
-                safe_update(cfg, key, value)
         return cfg
-
-    @staticmethod
-    def to_py(cfg, prefix: str = "cfg."):
-        """
-        Try to convert a config object into Python-like psuedo code.
-
-        Note that perfect conversion is not always possible. So the returned
-        results are mainly meant to be human-readable, and not meant to be executed.
-
-        Args:
-            cfg: an omegaconf config object
-            prefix: root name for the resulting code (default: "cfg.")
-
-
-        Returns:
-            str of formatted Python code
-        """
-        import black
-
-        cfg = OmegaConf.to_container(cfg, resolve=True)
-
-        def _to_str(obj, prefix=None, inside_call=False):
-            if prefix is None:
-                prefix = []
-            if isinstance(obj, abc.Mapping) and "_target_" in obj:
-                # Dict representing a function call
-                target = _convert_target_to_string(obj.pop("_target_"))
-                args = []
-                for k, v in sorted(obj.items()):
-                    args.append(f"{k}={_to_str(v, inside_call=True)}")
-                args = ", ".join(args)
-                call = f"{target}({args})"
-                return "".join(prefix) + call
-            elif isinstance(obj, abc.Mapping) and not inside_call:
-                # Dict that is not inside a call is a list of top-level config objects that we
-                # render as one object per line with dot separated prefixes
-                key_list = []
-                for k, v in sorted(obj.items()):
-                    if isinstance(v, abc.Mapping) and "_target_" not in v:
-                        key_list.append(_to_str(v, prefix=prefix + [k + "."]))
-                    else:
-                        key = "".join(prefix) + k
-                        key_list.append(f"{key}={_to_str(v)}")
-                return "\n".join(key_list)
-            elif isinstance(obj, abc.Mapping):
-                # Dict that is inside a call is rendered as a regular dict
-                return (
-                    "{"
-                    + ",".join(f"{repr(k)}: {_to_str(v, inside_call=inside_call)}" for k, v in sorted(obj.items()))
-                    + "}"
-                )
-            elif isinstance(obj, list):
-                return "[" + ",".join(_to_str(x, inside_call=inside_call) for x in obj) + "]"
-            else:
-                return repr(obj)
-
-        py_str = _to_str(cfg, prefix=[prefix])
-        try:
-            return black.format_str(py_str, mode=black.Mode())
-        except black.InvalidInput:
-            return py_str
 
 
 # HACK: This is a workaround for a bug in OmegaConf, where lazily called objects are incompatible with the structured
 # config system. This is a temporary solution until the bug is fixed.
 if T.TYPE_CHECKING:
-    _P = T.ParamSpec("_P")
-    _L = T.TypeVar("_L")
 
     class LazyObject(T.Generic[_L]):
         def __getattr__(self, name: str) -> T.Any:
@@ -476,6 +386,32 @@ def bind(func: T.Callable[_P, _L], /) -> T.Callable[_P, LazyObject[_L]]:
     return call(func)  # type: ignore
 
 
+class _LazyCall(T.Generic[_P, _L]):
+    """
+    Wrap a callable so that when it's called, the call will not be executed,
+    but returns a dict that describes the call.
+
+    LazyCall object has to be called with only keyword arguments. Positional
+    arguments are not yet supported.
+    """
+
+    def __init__(self, target: T.Callable[_P, _L]):
+        if not (callable(target) or isinstance(target, (str, abc.Mapping))):
+            raise TypeError(f"target of LazyCall must be a callable or defines a callable! Got {target}")
+        self._target = target
+
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> DictConfig:
+        if is_dataclass(self._target):
+            # omegaconf object cannot hold dataclass type
+            # https://github.com/omry/omegaconf/issues/784
+            target = _convert_target_to_string(self._target)
+        else:
+            target = self._target
+        kwargs[_TARGET_KEY] = target
+
+        return DictConfig(content=kwargs, flags=_OMEGA_DICT_FLAGS)
+
+
 def call(func: T.Callable[_P, _L], /) -> T.Callable[_P, _L]:
     """
     Wrap a callable object so that it can be lazily called.
@@ -496,9 +432,7 @@ def call(func: T.Callable[_P, _L], /) -> T.Callable[_P, _L]:
     and keyword arguments. The actual call to the wrapped function is
     deferred until the returned object is called.
     """
-    from detectron2.config import LazyCall as _L
-
-    return _L(func)  # type: ignore
+    return _LazyCall(func)  # type: ignore
 
 
 def _convert_target_to_string(t: Any) -> str:

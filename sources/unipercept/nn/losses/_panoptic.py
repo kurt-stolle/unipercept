@@ -9,17 +9,18 @@ import typing as T
 
 import torch
 import torch.nn as nn
-from typing_extensions import override
+import typing_extensions as TX
 
 from .mixins import ScaledLossMixin, StableLossMixin
+
+__all__ = ["WeightedStuffDiceLoss", "WeightedThingDiceLoss", "WeightedThingFocalLoss"]
 
 
 class WeightedStuffDiceLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    @override
-    @torch.jit.script_if_tracing
+    @TX.override
     def forward(
         self,
         x: torch.Tensor,
@@ -48,7 +49,6 @@ class WeightedStuffDiceLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         return self._dice(x, y, y_mask, None)
 
     @torch.jit.export
-    @torch.jit.script_if_tracing
     def _dice(
         self,
         x: torch.Tensor,
@@ -71,8 +71,7 @@ class WeightedStuffDiceLoss(StableLossMixin, ScaledLossMixin, nn.Module):
 
 
 class WeightedThingDiceLoss(WeightedStuffDiceLoss):
-    @override
-    @torch.jit.script_if_tracing
+    @TX.override
     def forward(
         self,
         x: torch.Tensor,
@@ -111,3 +110,78 @@ class WeightedThingDiceLoss(WeightedStuffDiceLoss):
             y_mask = y_mask.reshape(int(y_num), weight_num, h * w)
 
         return self._dice(x, y, y_mask, weights)
+
+
+class WeightedThingFocalLoss(ScaledLossMixin, StableLossMixin, nn.Module):
+    reduction: torch.jit.Final[str]
+    alpha: torch.jit.Final[float]
+    gamma: torch.jit.Final[float]
+
+    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, **kwargs):
+        super().__init__(**kwargs)
+
+        self.alpha = alpha
+        self.gamma = gamma
+
+    @TX.override
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        y_num: int,
+        index_mask: torch.Tensor,
+        instance_num: int,
+        weights: torch.Tensor,
+        weight_num: int,
+    ) -> torch.Tensor:
+        """
+        Weighted version of Dice Loss used in PanopticFCN for multi-positive optimization.
+
+        Adapted from: https://github.com/DdeGeus/PanopticFCN-IBS/blob/master/panopticfcn/loss.py
+
+        Parameters
+        ----------
+        x
+            prediction logits
+        y
+            segmentation target for Things or Stuff,
+        gt_num
+            ground truth number for Things or Stuff,
+        index_mask
+            positive index mask for Things or Stuff,
+        instance_num
+            instance number of Things or Stuff,
+        weighted_val
+            values of k positives,
+        weighted_num
+            number k for weighted loss,
+        """
+        # avoid Nan
+        if y_num == 0:
+            loss = x.sigmoid().mean() + self.eps
+            return loss * y_num
+
+        n, _, h, w = y.shape
+        x = x.reshape(n, instance_num, weight_num, h, w)
+        x = x.reshape(-1, weight_num, h, w)[index_mask, ...]
+        y = y.unsqueeze(2).expand(n, instance_num, weight_num, h, w)
+        y = y.reshape(-1, weight_num, h, w)[index_mask, ...]
+        weights = weights.reshape(-1, weight_num)[index_mask, ...]
+        weights = weights / torch.clamp(weights.sum(dim=-1, keepdim=True), min=self.eps)
+        x = x.reshape(int(y_num), weight_num, h * w)
+        y = y.reshape(int(y_num), weight_num, h * w)
+
+        p = torch.sigmoid(x)
+        ce_loss = nn.functional.binary_cross_entropy_with_logits(x, y, reduction="none")
+
+        p_t = p * y + (1 - p) * (1 - y)
+        loss = ce_loss * ((1 - p_t) ** self.gamma)
+
+        if self.alpha >= 0:
+            alpha_t = self.alpha * y + (1 - self.alpha) * (1 - y)
+            loss = alpha_t * loss
+
+        loss = loss.mean(dim=-1)
+        loss = loss * weights
+
+        return loss.sum()

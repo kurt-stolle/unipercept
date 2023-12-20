@@ -42,7 +42,7 @@ class CoordCat2d(nn.Module):
 
         # Add the grid to each group
         grid_x, grid_y = self._make_grid(self.gamma, t.shape, t.device)
-        t_split = [torch.cat([t, grid_x, grid_y], dim=1) for t in t_split]
+        t_split = [torch.cat([t_n, grid_x, grid_y], dim=1) for t_n in t_split]
 
         # Concatenate the groups back together
         return torch.cat(t_split, dim=1)

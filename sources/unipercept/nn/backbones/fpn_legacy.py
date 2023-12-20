@@ -410,7 +410,7 @@ class FeaturePyramidNetwork(nn.Module):
 
         self.in_features = tuple(in_features)
 
-        self.feature_info = {f"fpn.{i+1}": info for i, info in enumerate(info_list[-num_levels::])}
+        self.feature_info = {f"fpn_{i+1}": info for i, info in enumerate(info_list[-num_levels::])}
 
     @override
     def forward(self, features: TensorDictBase) -> TensorDictBase:
@@ -426,7 +426,7 @@ class FeaturePyramidNetwork(nn.Module):
 
         # Result
         for i, input in enumerate(inputs):
-            features.set(f"fpn.{i+1}", input, inplace=not self.training)
+            features.set(f"fpn_{i+1}", input, inplace=not self.training)
 
         return features
 

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import enum as E
 import functools
 import typing as T
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from typing_extensions import override
+
+NormFactory: T.TypeAlias = T.Callable[[int], nn.Module]
 
 
 def GroupNorm32(num_channels: int, **kwargs) -> nn.GroupNorm:

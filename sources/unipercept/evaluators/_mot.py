@@ -11,7 +11,6 @@ import torch
 import torch.types
 from tensordict import TensorDict, TensorDictBase
 
-from ..model import ModelOutput
 from ._base import Evaluator
 
 TRUE_OBJECTS = "true_objects"

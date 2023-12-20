@@ -74,6 +74,11 @@ class EngineParams:
     # FP16 modes during inference
     inference_precision: InferencePrecision = InferencePrecision.DEFAULT
 
+    # Convert BatchNorm to SyncBatchNorm?
+    convert_sync_batchnorm: bool = D.field(
+        default=False, metadata={"help": "Whether to convert BatchNorm to SyncBatchNorm."}
+    )
+
     ########################################
     # Training
     ########################################

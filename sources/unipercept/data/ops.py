@@ -37,7 +37,15 @@ _logger = get_logger(__name__)
 __disable_warning()
 
 
-__all__ = ["apply_dataset", "Op", "CloneOp", "NoOp", "TorchvisionOp"]
+__all__ = [
+    "apply_dataset",
+    "Op",
+    "CloneOp",
+    "TorchvisionOp",
+    "BoxesFromMasks",
+    "PseudoMotion",
+    "GuidedRandomCrop",
+]
 
 
 ########################################################################################################################
@@ -70,42 +78,6 @@ class Op(torch.nn.Module, metaclass=abc.ABCMeta):
             ...
 
 
-########################################################################################################################
-# BASIC OPS
-########################################################################################################################
-
-
-class NoOp(Op):
-    """Do nothing."""
-
-    @override
-    def _run(self, inputs: InputData) -> InputData:
-        return inputs
-
-
-class PinOp(Op):
-    """Pin the input data to the device."""
-
-    @override
-    def _run(self, inputs: InputData) -> InputData:
-        inputs = inputs.pin_memory()
-        return inputs
-
-
-class LogOp(NoOp):
-    """Log the input data."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-
-        self.register_forward_hook(self._log)  # type: ignore
-
-    @staticmethod
-    def _log(mod, inputs: InputData, outputs: tuple[list[str], InputData]) -> None:
-        ids_str = ", ".join(inputs.ids)
-        print(f"Applying ops on: '{ids_str}'...")
-
-
 class CloneOp(Op):
     """Copy the input data."""
 
@@ -115,9 +87,9 @@ class CloneOp(Op):
         return inputs
 
 
-########################################################################################################################
-# TORCHVISION: Wrappers for torchvision transforms
-########################################################################################################################
+####################################################
+# TORCHVISION: Wrappers for torchvision transforms #
+####################################################
 
 
 class TorchvisionOp(Op):
@@ -147,26 +119,30 @@ class TorchvisionOp(Op):
 
         inputs.captures = self._transforms(inputs.captures.fix_subtypes_())
         return inputs
-    
+
+
 ############
 # CROPPING #
 ############
+
 
 class GuidedRandomCrop(Op):
     """
     Performs random cropping based on the (panoptic) segmentation map.
     """
 
-    def __init__(self, 
-        size: T.Iterable[int] | tuple[int,int] | int, *, 
+    def __init__(
+        self,
+        size: T.Iterable[int] | tuple[int, int] | int,
+        *,
         min_unique_classes: int = 2,
         min_unique_instances: int = 1,
         min_instance_area: float = 1e-3,
-        min_valid_area: float = 0.75,
-        max_iterations: int = 40,
-        step_factor: int = 1,
+        min_valid_area: float = 0.70,
+        max_iterations: int = 10,
+        step_factor: int = 2,
         verbose=False,
-        ) -> None:
+    ) -> None:
         """
         Parameters
         ----------
@@ -174,7 +150,7 @@ class GuidedRandomCrop(Op):
             Output size of the crop. If a single integer is given, the output will be a square crop.
         verbose
             Whether to print debug information.
-        
+
         """
         from unipercept.utils.function import to_2tuple
 
@@ -195,8 +171,7 @@ class GuidedRandomCrop(Op):
         self._min_valid_area = min_valid_area
         self._max_iterations = max_iterations
 
-
-    def _find_crop(self, panoptic: PanopticMap) -> tuple[int,int]:
+    def _find_crop(self, panoptic: PanopticMap) -> tuple[int, int]:
         # TODO: what if only some conditions are met?
 
         assert panoptic.ndim == 3, f"Expected a panoptic map with shape PHW, got {panoptic.shape}!"
@@ -217,9 +192,13 @@ class GuidedRandomCrop(Op):
         total_area = height * width
 
         # Create random crops until the conditions are met or the maximum number of iterations is reached
-        for top, left in zip(random.choices(top_choices, k=self._max_iterations), random.choices(left_choices, k=self._max_iterations)):
+        for top, left in zip(
+            random.choices(top_choices, k=self._max_iterations), random.choices(left_choices, k=self._max_iterations)
+        ):
             # Randomly select a crop
-            crop = torchvision.transforms.v2.functional.crop_mask(panoptic, top, left, height, width).as_subclass(PanopticMap)
+            crop = torchvision.transforms.v2.functional.crop_mask(panoptic, top, left, height, width).as_subclass(
+                PanopticMap
+            )
 
             crop_sem = crop.get_semantic_map()
             crop_ins = crop.get_instance_map()
@@ -228,7 +207,7 @@ class GuidedRandomCrop(Op):
             # Compute the area of the ignore regions in the crop
             valid_area = (crop_valid).float().sum() / total_area
             if valid_area < self._min_valid_area:
-                continue          
+                continue
 
             # Compute the number of unique classes and instances in the crop
             unique_classes = torch.unique(crop_sem[crop_valid]).numel()
@@ -252,10 +231,8 @@ class GuidedRandomCrop(Op):
             if self._verbose:
                 _logger.warning(f"Failed to find a valid crop after {self._max_iterations} iterations!")
             return random.choice(top_choices), random.choice(left_choices)
-        
+
         raise RuntimeError("Failed to find a valid crop!")
-
-
 
     @override
     def _run(self, inputs: InputData) -> InputData:
@@ -276,6 +253,7 @@ class GuidedRandomCrop(Op):
 
         inputs.captures = inputs.captures.fix_subtypes_().apply(apply_crop, batch_size=inputs.captures.batch_size)
         return inputs
+
 
 #################
 # PSEUDO MOTION #

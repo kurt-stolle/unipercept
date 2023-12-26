@@ -30,7 +30,7 @@ def true_panoptic(true_info):
     panseg = PanopticMap.read("assets/sample-annotated/segmentation.png", true_info, format=LabelsFormat.KITTI)
 
     panseg.unsqueeze_(1)
-    panseg = interpolate(panseg.float(), scale_factor=0.25, mode="nearest").long()
+    panseg = interpolate(panseg.float(), scale_factor=0.25, mode="nearest-exact").long()
     panseg.squeeze_(1)
 
     return panseg

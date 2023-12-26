@@ -3,10 +3,6 @@ An implementation of the DICE loss function for segmentation based on a padded t
 and foreground classes.
 """
 
-# from __future__ import annotations
-
-import typing as T
-
 import torch
 import torch.nn as nn
 import typing_extensions as TX
@@ -113,7 +109,6 @@ class WeightedThingDiceLoss(WeightedStuffDiceLoss):
 
 
 class WeightedThingFocalLoss(ScaledLossMixin, StableLossMixin, nn.Module):
-    reduction: torch.jit.Final[str]
     alpha: torch.jit.Final[float]
     gamma: torch.jit.Final[float]
 
@@ -184,4 +179,4 @@ class WeightedThingFocalLoss(ScaledLossMixin, StableLossMixin, nn.Module):
         loss = loss.mean(dim=-1)
         loss = loss * weights
 
-        return loss.sum()
+        return loss.sum() * self.scale

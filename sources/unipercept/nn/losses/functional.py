@@ -116,7 +116,7 @@ def segmentation_guided_triplet_loss(
 
     with torch.no_grad():
         seg_true = seg_true.float()
-        seg_true = nn.functional.interpolate(seg_true, size=dep_feat.shape[-2:], mode="nearest", antialias=False)
+        seg_true = nn.functional.interpolate(seg_true, size=dep_feat.shape[-2:], mode="nearest-exact")
 
     # Split both depth estimated output and panoptic label into NxN patches
     # P ~= (H * W) / (5 * 5)

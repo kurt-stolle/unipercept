@@ -1,11 +1,11 @@
-from typing import Callable, Iterable, Optional
+import typing as T
 
 import torch
 
-__all__ = ["cat_nonempty", "gather_feature", "topk_score"]
+__all__ = []
 
 
-def cat_nonempty(tensors: Iterable[torch.Tensor | None], dim=0) -> Optional[torch.Tensor]:
+def cat_nonempty(tensors: T.Iterable[torch.Tensor | None], dim=0) -> T.Optional[torch.Tensor]:
     """
     Concatenate an interable of tensors for each entry that has a length greater
     than zero.
@@ -13,7 +13,7 @@ def cat_nonempty(tensors: Iterable[torch.Tensor | None], dim=0) -> Optional[torc
     Parameters
     ----------
     tensors
-        Iterable of `Tensor` objects.
+        T.Iterable of `Tensor` objects.
     dim, optional
         Dimension to concatenate, by default 0
 
@@ -66,7 +66,7 @@ def topk_score(scores, *, K: int, score_shape: torch.Size):
 
 
 def gather_feature(
-    fmap: torch.Tensor, index: torch.Tensor, mask: Optional[torch.Tensor] = None, use_transform: bool = False
+    fmap: torch.Tensor, index: torch.Tensor, mask: T.Optional[torch.Tensor] = None, use_transform: bool = False
 ) -> torch.Tensor:
     """
     Gather features from a mapping.
@@ -99,3 +99,71 @@ def gather_feature(
         fmap = fmap[mask]
         fmap = fmap.reshape(-1, dim)
     return fmap
+
+
+def map_values(
+    x: torch.Tensor,
+    translation: torch.Tensor | T.Tuple[torch.Tensor, torch.Tensor] | T.Dict[int, int | float | bool],
+    default: int | float | bool | None = None,
+) -> torch.Tensor:
+    """
+    Maps the values in a tensor to a new set of values.
+
+    Parameters
+    ----------
+    x
+        Input tensor.
+    translation
+        Mapping from old values to new values.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with mapped values.
+
+
+    Examples
+    --------
+    >>> t = (torch.arange(0, 256), torch.randperm(256))
+    >>> x = torch.randint(0, 256, (16, 224, 224, 3))
+    >>> y = map_values(x, t)
+    """
+
+    # Find the translation sources and target values
+    if isinstance(translation, dict):
+        assert all(isinstance(k, int) for k in translation.keys()), "Expected integer keys"
+        t_from = torch.tensor(translation.keys(), dtype=torch.int64, device=x.device)
+        t_to = torch.tensor(translation.values(), device=x.device)
+    elif isinstance(translation, torch.Tensor):
+        assert translation.ndim == 2, f"Expected 2D tensor, got {translation.ndim}D tensor"
+        t_from = translation[0, :]
+        t_to = translation[1, :]
+    else:
+        assert isinstance(translation, tuple) and len(translation) == 2, "Expected tuple of length 2"
+        t_from, t_to = translation
+        assert t_from.ndim == 1 and t_to.ndim == 1, "Expected 1D tensors"
+
+    # Ensure that values in `x` are in `t_from`
+    if default is not None:
+        v_unique = torch.unique(x)
+        t_missing = ~torch.isin(v_unique, t_from)
+
+        # Add missing values
+        t_from = torch.cat([t_from, v_unique[t_missing]])
+        t_to = torch.cat([t_to, torch.full_like(v_unique[t_missing], default)])
+
+        # Sort the values (for bucketize)
+        t_from_sort_indices = torch.argsort(t_from)
+        t_from = t_from[t_from_sort_indices]
+        t_to = t_to[t_from_sort_indices]
+
+    assert t_from.shape == t_to.shape, "Expected tensors of the same shape"
+    assert torch.all(
+        torch.isin(x, t_from)
+    ), f"Not all values in `x` ({x.detach().unique().cpu().tolist()}) are in `t_from` ({t_from.detach().cpu().tolist()}))"
+
+    # Map the values
+    i = torch.bucketize(x.ravel(), t_from)
+    y = t_to[i]
+
+    return y.reshape(x.shape)

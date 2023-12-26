@@ -58,7 +58,7 @@ class PanopticWriter(Evaluator):
     @override
     def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
         super().update(storage, inputs, outputs)
-        storage.setdefault(TRUE_PANOPTIC, inputs.get("captures", "segmentations"), inplace=True)
+        storage.setdefault(TRUE_PANOPTIC, inputs.get(("captures", "segmentations")), inplace=True)
         storage.setdefault(PRED_PANOPTIC, outputs.get("segmentations"), inplace=True)
 
     @override

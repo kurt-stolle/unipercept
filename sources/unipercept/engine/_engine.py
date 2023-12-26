@@ -55,8 +55,6 @@ torch._dynamo.config.suppress_errors = True
 if T.TYPE_CHECKING:
     from unipercept.evaluators import Evaluator
 
-    from ..model import ModelOutput
-
     try:
         from wandb.sdk.wandb_run import Run as WandBRun
     except ImportError:
@@ -463,7 +461,7 @@ class Engine:
         if self._params.convert_sync_batchnorm:
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = self._xlr.prepare_model(model)
-        model = torch.compile(model, mode="reduce-overhead")
+        # model = torch.compile(model)# , mode="reduce-overhead")
         loader, scheduler, optimizer = self._xlr.prepare(loader, scheduler, optimizer)
 
         checkpoint_dir = os.path.join(self._xlr.project_dir, "checkpoints")
@@ -576,7 +574,7 @@ class Engine:
                     assert tr_loss is not None
 
                 for k, tr_loss_value in tr_loss.items():
-                    tr_loss_step_value = tr_loss_step.get(k)
+                    tr_loss_step_value = tr_loss_step.get(k, torch.tensor(torch.nan, device=tr_loss_step.device))
                     if self._params.logging_nan_inf_filter and (
                         torch.isnan(tr_loss_step_value) or torch.isinf(tr_loss_step_value)
                     ):
@@ -722,11 +720,6 @@ class Engine:
             # self.store_flops()
             self._training_log(logs)
 
-        if self._signal.should_evaluate:
-            _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
-
-            self.evaluate(lambda _: model, trial=trial)
-
         if self._signal.should_save:
             _logger.info("Saving state and model at step %d (epoch %d)", self._state.step, self._state.epoch)
 
@@ -746,6 +739,11 @@ class Engine:
 
             # Report event
             self._event(Event.ON_SAVE, model_path=model_path, state_path=state_path)
+
+        if self._signal.should_evaluate:
+            _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
+
+            self.evaluate(lambda _: model, trial=trial)
 
     def _training_log(self, logs: dict[str, float | str | int | bool]) -> None:
         """
@@ -837,7 +835,7 @@ class Engine:
 
         return a_off, a_total
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def _inference_loop(
         self,
         model: nn.Module,
@@ -871,6 +869,7 @@ class Engine:
         if self._xlr.unwrap_model(model) is model:
             _logger.info(f"Preparing model for evaluation: {model.__class__.__name__}")
             model = self._xlr.prepare_model(model, evaluation_mode=True)
+            # model = torch.compile(model)
         else:
             _logger.info(f"Model is already prepared for evaluation: {model.__class__.__name__}")
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import dataclasses as D
 import enum as E
+import functools
 import typing as T
 
 import torch
@@ -123,14 +124,18 @@ class CanonicalClass:
 # DATASET METADATA #
 # ---------------- #
 
+DatasetID = T.NewType("DatasetID", int)  # The ID as given in the dataset
+OffsetID = T.NewType("OffsetID", int)  # The ID as an index in the list of all valid IDs, unique for all classes
+EmbeddedID = T.NewType("EmbeddedID", int)  # The ID as it is represented internally, not unique for things and stuff
 
-class StuffMode(E.StrEnum):
+
+class StuffMode(E.Enum):
     """
     Defines segmentation modes.
 
     Attributes
     ----------
-    BACKGROUND : int
+    STUFF_ONLY : int
         Only background is considered `stuff`.
     ALL_CLASSES : int
         All classes are included in the segmentation, including `thing` classes.
@@ -143,7 +148,7 @@ class StuffMode(E.StrEnum):
     WITH_THING = E.auto()
 
 
-@D.dataclass(slots=True, frozen=True, kw_only=True, weakref_slot=True, unsafe_hash=True)
+@D.dataclass(frozen=True, kw_only=True, unsafe_hash=True)
 class Metadata:
     """
     Implements common dataset metadata for Unipercept.
@@ -167,18 +172,39 @@ class Metadata:
     stuff_offsets: frozendict[int, int]
     stuff_mode: StuffMode
 
-    # Dataset ID -> Sem. ID and Sem. ID -> Dataset ID
+    # Dataset ID -> Sem. ID
     translations_dataset: frozendict[int, int]
+
+    # Sem. ID -> Dataset ID
     translations_semantic: frozendict[int, int]
 
     @property
-    def thing_ids(self) -> frozenset[int]:
+    def thing_o2e(self) -> T.Dict[int, int]:
         """
-        Returns the IDs of all object classes, i.e. those that can be is_thingly detected.
+        Returns a mapping of dataset IDs to embedded IDs for object classes.
         """
-        return frozenset(self.thing_offsets.keys())
+        return self.thing_offsets
+    
+    @property
+    def stuff_o2e(self) -> T.Dict[int, int]:
+        """
+        Returns a mapping of dataset IDs to embedded IDs for semantic classes.
+        """
+        return self.stuff_offsets
+    
+    @functools.cached_property
+    def thing_e2o(self) -> T.Dict[int, int]:
+        """
+        Returns a mapping of embedded IDs to dataset IDs for object classes.
+        """
+        return {v: k for k, v in self.thing_offsets.items()}
 
-    object_ids = thing_ids
+    @functools.cached_property
+    def stuff_e2o(self) -> dict[int, int]:
+        """
+        Returns a mapping of embedded IDs to dataset IDs for semantic classes.
+        """
+        return {v: k for k, v in self.stuff_offsets.items()}
 
     @property
     def depth_fixed(self) -> T.Dict[int, float]:
@@ -190,49 +216,74 @@ class Metadata:
             for sem_id, sem_cls in self.semantic_classes.items()
             if sem_cls.depth_fixed is not None
         }
+    
+    # -------------- #
+    # Thing specific #
+    # -------------- #
+
+    @property
+    def thing_ids(self) -> frozenset[int]:
+        """
+        Returns the IDs of all object classes, i.e. those that can be is_thingly detected.
+        """
+        return frozenset(self.thing_offsets.keys())
+
+
+    object_ids = thing_ids
 
     @property
     def thing_amount(self) -> int:
         """
-        Returns the amount of is_thingly detectable object classes.
+        Returns the amount of **detectable** thing-type object classes. Defined as the amount of object classes that
+        are not background (pure stuff) classes.
         """
-        return len(self.thing_ids)
+        return len(self.thing_e2o)
 
-    @property
+    @functools.cached_property
     def things(self) -> T.Tuple[SClass, ...]:
         """
         Returns the class specification of all is_thingly detectable object classes.
         """
         return tuple(self.semantic_classes[sem_id] for sem_id in self.thing_ids)
+    
+    # -------------- #
+    # Stuff specific #
+    # -------------- #
 
-    @property
+
+    @functools.cached_property
     def stuff_ids(self) -> frozenset[int]:
         """
-        Returns the IDs of all semantic classes, which may include is_thing classes depending on the segmentation mode.
+        Returns the IDs of all semantic classes, which may include thing-type objects depending on the mode.
         """
         return frozenset(self.stuff_offsets.keys())
 
-    @property
+    @functools.cached_property
     def background_ids(self) -> frozenset[int]:
         """
         Returns the IDs of all background (pure stuff) classes.
         """
         return frozenset(self.stuff_ids - self.thing_ids)
 
-    @property
+    @functools.cached_property
     def stuff_amount(self) -> int:
         """
-        Returns the amount of semantic classes, which may include is_thing classes depending on the segmentation mode.
+        Returns the amount of semantic classes, which may include thing-type objects depending on the segmentation mode.
         """
-        return len(self.stuff_ids)
+        return len(self.stuff_e2o)
 
-    @property
+    @functools.cached_property
     def stuff(self) -> T.Tuple[SClass, ...]:
         """
         Returns the class specification of all semantic classes, which may include is_thing classes depending on the
         segmentation mode.
         """
         return tuple(self.semantic_classes[sem_id] for sem_id in self.stuff_ids)
+
+
+    # ---------------- #
+    # General metadata #
+    # ---------------- #
 
     def __getitem__(self, key: str) -> T.Any:
         return getattr(self, key)
@@ -245,13 +296,13 @@ class Metadata:
     @TX.deprecated("Use `stuff_mode` instead.")
     def stuff_all_classes(self) -> bool:
         """Deprecated."""
-        return StuffMode.ALL_CLASSES in self.stuff_mode
+        return StuffMode.ALL_CLASSES == self.stuff_mode
 
     @property
     @TX.deprecated("Use `stuff_mode` instead.")
     def stuff_with_things(self) -> bool:
         """Deprecated."""
-        return StuffMode.WITH_THING in self.stuff_mode
+        return StuffMode.WITH_THING == self.stuff_mode
 
     @property
     @TX.deprecated("Use `thing_amount` instead.")
@@ -312,18 +363,6 @@ class Metadata:
     def stuff_embeddings(self) -> dict[int, int]:
         """Deprecated."""
         return self.stuff_offsets
-
-    @property
-    @TX.deprecated("Use `thing_offsets` instead.")
-    def thing_train_id2contiguous_id(self) -> dict[int, int]:
-        """Deprecated."""
-        return {v: k for k, v in self.thing_offsets.items()}
-
-    @property
-    @TX.deprecated("Use `stuff_offsets` instead.")
-    def stuff_train_id2contiguous_id(self) -> dict[int, int]:
-        """Deprecated."""
-        return {v: k for k, v in self.stuff_offsets.items()}
 
 
 # --------------------------- #
@@ -413,10 +452,11 @@ def info_factory(
     ignore_depth: float = 0.0,
     ignore_label: int = 255,
     fps: float = 17.0,
-    stuff_mode: StuffMode = StuffMode.WITH_THING,
+    stuff_mode: StuffMode = StuffMode.ALL_CLASSES,
 ) -> Metadata:
     """Generate dataset metadata object."""
 
+    # Sort the list of classes such that stuff classes come first, then things
     sem_seq = sorted(
         sem_seq,
         key=lambda c: (int(1e6) if c.get("is_thing") else 0) + c["unified_id"],
@@ -433,8 +473,9 @@ def info_factory(
         else:
             stuff_offsets[sem_id] = len(stuff_offsets)
 
+    # Add a special thing class to the segmentation, which is used to mask out thing classes while detecting stuff 
+    # classes
     if stuff_mode == StuffMode.WITH_THING:
-        # Cast to tuple in order to not alter the original dict while iterating
         for sem_id in tuple(stuff_offsets.keys()):
             stuff_offsets[sem_id] += 1
 

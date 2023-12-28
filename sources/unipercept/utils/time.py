@@ -17,9 +17,10 @@ class TimestampFormat(E.StrEnum):
     UNIX = E.auto()
     ISO = E.auto()
     LOCALE = E.auto()
+    SHORT_YMD_HMS = E.auto()
 
 
-def get_timestamp(*, format: TimestampFormat = TimestampFormat.ISO) -> str:
+def get_timestamp(*, format: str | TimestampFormat = TimestampFormat.ISO) -> str:
     """
     Returns a timestamp in the given format.
     """
@@ -31,7 +32,9 @@ def get_timestamp(*, format: TimestampFormat = TimestampFormat.ISO) -> str:
         case TimestampFormat.ISO:
             return now.isoformat(timespec="seconds")
         case TimestampFormat.LOCALE:
-            return now.strftime("%c")
+            return now.strftime(r"%c")
+        case TimestampFormat.SHORT_YMD_HMS:
+            return now.strftime(r"%y%j%H%M%S")
         case _:
             raise ValueError(f"Invalid timestamp format: {format}")
 

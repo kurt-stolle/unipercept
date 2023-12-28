@@ -11,7 +11,7 @@ from omegaconf import dictconfig
 from typing_extensions import deprecated
 from unicore import file_io
 
-from unipercept.utils.time import get_timestamp
+from unipercept.utils.time import TimestampFormat, get_timestamp
 
 __all__ = ["get_project_name", "get_session_name", "set_session_name", "flatten_config"]
 
@@ -80,14 +80,15 @@ def get_session_name(config_path: str | Path | PathLike, *, relative_to="configs
     def _read_session_name():
         stamp = os.getenv(ENV_SESSION)
         if stamp is None or stamp != "" or stamp != "None":
-            stamp = get_timestamp()  #  + "@" + socket.gethostname()
+            stamp = get_timestamp(format=TimestampFormat.SHORT_YMD_HMS)  #  + "@" + socket.gethostname()
             set_session_name(stamp)
 
         parts = _split_config_filepath(config_path, relative_to)
         variant = parts.pop(-1).split("_", 1)
         if len(variant) > 1:
             parts.append(variant[1])
-        parts.append(stamp)
+        parts.insert(0, variant[0])
+        parts.insert(0, stamp)
 
         return "/".join(parts)
 

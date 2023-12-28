@@ -382,19 +382,9 @@ class EngineParams:
         default=DebugMode.NONE,
         metadata={
             "help": (
-                "Whether or not to enable debug mode. Current options: "
-                "`underflow_overflow` (Detect underflow and overflow in activations and weights), "
-                "`tpu_metrics_debug` (print debug metrics on TPU)."
+                "Configures the debugging mode, see the `DebugMode` enum for more information. Defaults to `NONE`."
             )
         },
-    )
-
-    ###############################################
-    # Online temporal ensembling
-    ###############################################
-    past_index: int = D.field(
-        default=-1,
-        metadata={"help": "If >=0, uses the corresponding part of the output as the past state for next step."},
     )
 
     ###############################################

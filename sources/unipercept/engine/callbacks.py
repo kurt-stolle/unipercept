@@ -187,7 +187,7 @@ class CallbackDispatcher:
         """
         pass
 
-    def on_trackers_setup(self, params: EngineParams, state: State, control: Signal, *, model: nn.Module):
+    def on_trackers_setup(self, params: EngineParams, state: State, control: Signal, **kwargs):
         """
         Event called just before the initialization of the trackers, such that the user can pass additional keyword
         arguments to the tracker by modifying the ``init_kwargs`` dictionary.

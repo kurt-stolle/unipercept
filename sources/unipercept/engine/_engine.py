@@ -26,7 +26,7 @@ import torch.utils.data
 import wandb
 from omegaconf import OmegaConf
 from PIL import Image as pil_image
-from tensordict import TensorDict
+from tensordict import TensorDict, TensorDictBase
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
@@ -40,7 +40,7 @@ from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import PersistentTensordictWriter
 from unipercept.log import get_logger
-from unipercept.state import check_main_process
+from unipercept.state import check_main_process, on_main_process
 from unipercept.utils.seed import set_seed
 from unipercept.utils.time import ProfileAccumulator, profile
 
@@ -76,10 +76,11 @@ class EngineStatus(E.IntFlag):
     control flow, e.g. in cases where the evaluation loop is ran while also training.
     """
 
-    TRAINING = E.auto()
-    EVALUATION = E.auto()
-    PREDICTION = E.auto()
-    TUNING = E.auto()
+    IS_TRAINING_RUN = E.auto()
+    IS_EVALUATION_RUN = E.auto()
+    IS_PREDICTION_RUN = E.auto()
+    HP_TUNING_MODE = E.auto()
+    EXPERIMENT_TRACKERS_STARTED = E.auto()
 
 
 class Engine:
@@ -101,7 +102,6 @@ class Engine:
         "_mem_tracker",
         "_flops",
         "_globalstep_last_logged",
-        "_past",
         "_recover_path",
         "_notes",
         "_tags",
@@ -143,12 +143,11 @@ class Engine:
         self._get_scheduler: T.Final = scheduler
         self._flops = 0
         self._globalstep_last_logged = -1
-        self._past = None
         self._recover_path = None  # See: `recover` method
 
         self._xlr.register_for_checkpointing(self._state)
 
-        self._event(Event.ON_CREATE)
+        self._edge(Event.ON_CREATE)
         self._mem_tracker.stop_and_update_metrics("init")
 
     status = StatusDescriptor(EngineStatus, default=EngineStatus(0))
@@ -208,19 +207,20 @@ class Engine:
 
         if model is not None:
             self._xlr.prepare_model(model, evaluation_mode=True)
-        self._xlr.load_state(self._recover_path)  # type: ignore
+        self._load_state(self._recover_path)  # type: ignore
 
         _logger.info("Recovered engine state at step %d", self._state.step)
 
         return None
 
-    @status(EngineStatus.TRAINING)
+    @status(EngineStatus.IS_TRAINING_RUN)
     def train(
         self,
         model_factory: ModelFactory[Trial, nn.Module],
         *,
         trial: Trial | None = None,
         stage: int | str | None = None,
+        weights: str | None = None,
     ) -> nn.Module:
         """
         Train a model.
@@ -235,11 +235,11 @@ class Engine:
             A checkpoint to resume training from.
         trial : Trial, optional
             The trial to train.
-        evaluation_handlers
-            A list of evaluators to use for evaluation.
+        stage : int | str, optional
+            The stage to train. If not specified, the current stage is used.
+        weights : str, optional
+            Path to a checkpoint to load **model** weights from.
         """
-
-        self.status |= EngineStatus.TRAINING
 
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("train")
@@ -304,10 +304,10 @@ class Engine:
             optimizer,
             scheduler,
             trial=trial,
-            checkpoint=self._recover_path,
+            weights=weights,
         )
 
-    @status(EngineStatus.EVALUATION)
+    @status(EngineStatus.IS_EVALUATION_RUN)
     @torch.no_grad()
     def evaluate(
         self,
@@ -315,6 +315,7 @@ class Engine:
         *,
         trial: Trial | None = None,
         prefix: str = "evaluation",
+        weights: str | None = None,
     ) -> dict[str, float]:
         _logger.info("*** Starting evaluation ***")
 
@@ -336,14 +337,11 @@ class Engine:
             loader = loader_factory(self._params.infer_batch_size)
 
             metrics, samples_processed = self._inference_loop(
-                model,
-                loader,
-                prefix=prefix_suite,
-                handlers=handlers,
+                model, loader, prefix=prefix_suite, handlers=handlers, weights=weights
             )
 
             self._training_log(metrics)
-            self._event(Event.ON_EVALUATE, metrics=metrics)
+            self._edge(Event.ON_EVALUATE, metrics=metrics)
             self._mem_tracker.stop_and_update_metrics("eval", metrics)
 
             del loader
@@ -357,8 +355,8 @@ class Engine:
 
         return metrics_overall
 
-    @status.assert_status(~(EngineStatus.TRAINING | EngineStatus.EVALUATION))
-    @status(EngineStatus.PREDICTION)
+    @status.assert_status(~(EngineStatus.IS_TRAINING_RUN | EngineStatus.IS_EVALUATION_RUN))
+    @status(EngineStatus.IS_PREDICTION_RUN)
     @torch.no_grad()
     def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
         raise NotImplementedError("TODO: Implement prediction")
@@ -373,16 +371,16 @@ class Engine:
         """
         set_seed(self._params.seed, fully_deterministic=self._params.full_determinism)
 
-    def _event(self, event: Event, **kwargs) -> None:
+    def _edge(self, event: Event, **kwargs) -> None:
         """
         Called internally on every event.
         """
         self._signal = self._delegate(event, self._params, self._state, self._signal, **kwargs)
 
-    def _config_object(self) -> dict[str, T.Any]:
+    def _get_config_object(self) -> dict[str, T.Any]:
         """
         Attempt to locate the configuration YAML file for the current project.
-        If that does not exist, return None. If it does exist, return the parsed and flattened YAML.
+        If that does not exist, return None. If it does exist, return the configuration object.
         """
         from unipercept.config import LazyConfig
 
@@ -396,47 +394,72 @@ class Engine:
             _logger.warn(f"Could not load configuration from {lazy_path}: {e}")
             return {}
 
-        # return flatten_config(config)
         lazy_obj = OmegaConf.to_container(lazy, resolve=False)
         assert isinstance(lazy_obj, dict)
         return T.cast(dict[str, T.Any], lazy_obj)
 
-    def _setup_trackers(self, model: nn.Module) -> None:
+    def _start_experiment_trackers(self, *, restart: bool = True) -> None:
         """
-        (Re)-Initialize the loggers, e.g. WandB, TensorBoard. This is called at the beginning of every training run.
+        Initialize the experiment trackers, e.g. WandB, TensorBoard. This should be called at the beginning of training
+        and inference.
+
+        Parameters
+        ----------
+        model : nn.Module
+            The model to be watched by the loggers. Only applicable to some loggers (e.g. WandB)
+        restart : bool, optional
+            Whether to restart the loggers, by default True. Can be set to False to continue logging to the same
+            trackers, e.g. when running an inference loop during training.
         """
 
+        if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status and not restart:
+            _logger.debug("Trackers already started, skipping setup")
+            return
+        else:
+            self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED
+
+        _logger.debug("Setting up experiment trackers")
+
+        # Session name is organised in /group_part1/group_part2/.../session_name
         session_name_parts = self._params.session_name.split("/")
         if len(session_name_parts) > 1:
             session_group = "-".join(session_name_parts[:-1])
         else:
-            session_group = self._params.session_name
+            session_group = "ungrouped"
 
+        # Determine the job type from the status
+        if self.status & EngineStatus.IS_TRAINING_RUN:
+            job_type = "train"
+        elif self.status & EngineStatus.IS_EVALUATION_RUN:
+            job_type = "eval"
+        elif self.status & EngineStatus.IS_PREDICTION_RUN:
+            job_type = "pred"
+        else:
+            job_type = "misc"
+
+        # WandB-specific setup
         def __wandb_sanitize(s):
             for c in R"/\#?%:":
                 s = s.replace(c, "-")
             return s
 
         __wandb_kwargs = {
-            "name": __wandb_sanitize(self._params.session_name),
-            "job_type": "train" if (self.status & EngineStatus.TRAINING) else "eval",
+            "name": __wandb_sanitize(self._params.session_name.replace("/", " ")),
+            "job_type": job_type,
             "group": session_group,
             "notes": self._params.notes,
             "tags": [f"stage_{self._state.stage}"] + list(self._params.tags),
-            "id": __wandb_sanitize(f"{self._params.project_name}-{self._params.session_name}"),
+            "id": __wandb_sanitize(f"{self._params.project_name}-{self._params.session_name}-{job_type}"),
             "save_code": False,
         }
 
+        # Accelerate handles the experiment trackers for us
         self._xlr.init_trackers(
             self._params.project_name.replace("/", " "),
-            config=self._config_object(),
+            config=self._get_config_object(),
             init_kwargs={"wandb": __wandb_kwargs},
         )
-
-        # Run additional setup in callbacks
-        self._event(Event.ON_TRACKERS_SETUP, model=model)
-
-        # Wait for synchronization - avoids race conditions in some third-party trackers
+        self._edge(Event.ON_TRACKERS_SETUP)
         self._xlr.wait_for_everyone()
 
     def _train_loop(
@@ -446,32 +469,25 @@ class Engine:
         optimizer: torch.optim.Optimizer,
         scheduler: TimmScheduler,
         *,
-        checkpoint: str | None = None,
+        weights: str | None = None,
         **kwargs,
     ) -> nn.Module:
         """
-        The main training loop, roughly following the implementation of the HuggingFace Engine. The cycle is rougly as
-        follows: (1) load the checkpoint, (2) train until an evaluation signal is given, (3) evaluate, (4) repeat or
-        stop, (5) save the final checkpoint.
+        The main training loop. This method is called by the `train` method.
         """
 
-        # Register and prepare using Accelerate
         self._xlr.free_memory()
+        self._start_experiment_trackers()
 
         if self._params.convert_sync_batchnorm:
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        if weights is not None:
+            model = self._load_weights(weights, model)
         model = self._xlr.prepare_model(model)
-        # model = torch.compile(model)# , mode="reduce-overhead")
         loader, scheduler, optimizer = self._xlr.prepare(loader, scheduler, optimizer)
 
-        checkpoint_dir = os.path.join(self._xlr.project_dir, "checkpoints")
-        if checkpoint is not None:
-            self._xlr.load_state(checkpoint)  # type: ignore
-        elif file_io.isdir(checkpoint_dir) and len(file_io.ls(checkpoint_dir)) > 0:
-            self._xlr.load_state(None)  # type: ignore
-
-        # Initialize loggers
-        self._setup_trackers(model)
+        # First load the initial weights, then the state
+        self._load_state(None)  # type: ignore
 
         # Debugging
         # debug_overflow = DebugUnderflowOverflow(model)  # noqa
@@ -490,7 +506,7 @@ class Engine:
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
 
-        self._event(Event.ON_TRAIN_BEGIN)
+        self._edge(Event.ON_TRAIN_BEGIN, model=model)
 
         total_sesssion_samples = 0
         total_session_steps = 0
@@ -521,11 +537,7 @@ class Engine:
             # Set the epoch iterator to the original dataloader
             epoch_iterator = loader
 
-            # Reset the past mems state at the beginning of each epoch if necessary.
-            if self._params.past_index >= 0:
-                self._past = None
-
-            self._event(Event.ON_TRAIN_EPOCH_BEGIN)
+            self._edge(Event.ON_TRAIN_EPOCH_BEGIN)
 
             steps_skipped = 0
             if steps_trained_in_current_epoch > 0:
@@ -556,7 +568,7 @@ class Engine:
                     steps_trained_progress_bar = None
 
                 if step % self._params.gradient_accumulation_steps == 0:
-                    self._event(Event.ON_TRAIN_STEP_BEGIN)
+                    self._edge(Event.ON_TRAIN_STEP_BEGIN)
 
                 with self._xlr.accumulate(model):
                     tr_loss_step = self._training_step(model, inputs)
@@ -621,10 +633,10 @@ class Engine:
 
                     del inputs
 
-                    self._event(Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer)
-                    self._maybe_log_save_evaluate(tr_loss, model, optimizer, **kwargs)
+                    self._edge(Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer)
+                    self._train_handle_log_save_eval(tr_loss, model, optimizer, **kwargs)
                 else:
-                    self._event(Event.ON_TRAIN_SUBSTEP_END)
+                    self._edge(Event.ON_TRAIN_SUBSTEP_END)
 
                 total_session_steps += 1
 
@@ -643,8 +655,8 @@ class Engine:
 
             scheduler.step(round(self._state.epoch), metric=None)
 
-            self._event(Event.ON_TRAIN_EPOCH_END)
-            self._maybe_log_save_evaluate(tr_loss, model, optimizer, **kwargs)
+            self._edge(Event.ON_TRAIN_EPOCH_END)
+            self._train_handle_log_save_eval(tr_loss, model, optimizer, **kwargs)
 
             epochs_trained += 1
 
@@ -652,10 +664,6 @@ class Engine:
                 break
 
         # -- End of training -------------------------------------------------------------------------------------------
-
-        if self._params.past_index and hasattr(self, "_past"):
-            # Clean the state at the end of training
-            delattr(self, "_past")
 
         _logger.info("\n\nTraining completed.\n\n")
 
@@ -681,11 +689,11 @@ class Engine:
 
         self._mem_tracker.stop_and_update_metrics("train", metrics)
         self._training_log(metrics)
-        self._event(Event.ON_TRAIN_END)
+        self._edge(Event.ON_TRAIN_END)
 
         return model
 
-    def _maybe_log_save_evaluate(
+    def _train_handle_log_save_eval(
         self,
         tr_loss: TensorDict,
         model: nn.Module,
@@ -707,7 +715,7 @@ class Engine:
             logs["optimizer/lr"] = _get_learning_rate(optimizer)
 
             # all_gather + mean() to get average loss over all processes
-            tr_loss_scalar = {k: self._nested_gather(l).mean().item() for k, l in tr_loss.items()}
+            tr_loss_scalar = {k: self._xlr.gather(l).mean().item() for k, l in tr_loss.items()}
 
             # reset tr_loss to zero
             # tr_loss -= tr_loss
@@ -732,13 +740,13 @@ class Engine:
 
             # Save the (unwrapped) model
             try:
-                model_path = self._save_model(None, model)
+                model_path = self._save_weights(None, model)
             except Exception as e:
                 model_path = None
                 _logger.error("Failed to save model: %s", e, stacklevel=2)
 
             # Report event
-            self._event(Event.ON_SAVE, model_path=model_path, state_path=state_path)
+            self._edge(Event.ON_SAVE, model_path=model_path, state_path=state_path)
 
         if self._signal.should_evaluate:
             _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
@@ -761,7 +769,7 @@ class Engine:
         logs["engine/epoch_step"] = self._xlr.step
         logs["engine/status"] = self.status
 
-        self._event(Event.ON_LOG, logs=logs)  # NOTE: logs may be updated in-place
+        self._edge(Event.ON_LOG, logs=logs)  # NOTE: logs may be updated in-place
 
         self._state.log_history.append(logs)
         if len(self._state.log_history) > self._params.logging_history:
@@ -790,7 +798,28 @@ class Engine:
         losses.detach_()
         return losses.apply(lambda _l: _l / self._params.gradient_accumulation_steps)
 
-    def _save_model(self, path: T.Optional[str], model: nn.Module) -> str:
+    def _load_weights(self, path: str, model: nn.Module) -> nn.Module:
+        """
+        Load the model checkpoint at the given path.
+
+        Parameters
+        ----------
+        path : str
+            The path to the model checkpoint. Skipped when `None`.
+        model : nn.Module
+            The model to load the checkpoint into.
+
+        Returns
+        -------
+        nn.Module
+            The model with the loaded checkpoint.
+        """
+        from accelerate import load_checkpoint_and_dispatch
+
+        _logger.debug("Loading weights from %s", path)
+        return load_checkpoint_and_dispatch(model, file_io.get_local_path(path))
+
+    def _save_weights(self, path: T.Optional[str], model: nn.Module) -> str:
         """
         Save a model, unwrapping it from the accelerator
 
@@ -809,11 +838,32 @@ class Engine:
 
         return path
 
+    def _load_state(self, path: T.Optional[str]) -> None:
+        """
+        Load the engine state from the given path, if no path is given, the last checkpoint is used.
+        """
+        if path is not None:
+            _logger.debug("Loading engine state at %s", path)
+            path = file_io.get_local_path(path)
+        elif self._recover_path is not None:
+            _logger.debug("Loading engine state from recovery path: %s", path)
+            path = file_io.get_local_path(self._recover_path)
+        else:
+            auto_dir = os.path.join(self._xlr.project_dir, "checkpoints")
+            if file_io.isdir(auto_dir) and len(file_io.ls(auto_dir)) > 0:
+                _logger.debug("No engine state path given and no automatic checkpoints found.")
+                return
+            else:
+                _logger.debug("No engine state path given. Defaulting to last automatic checkpoint in %s", auto_dir)
+        self._xlr.load_state(path)  # type: ignore
+
     def _save_state(self, path: T.Optional[str]) -> str:
         """
         Save the engine state for recovery/resume. Sometimes called a 'checkpoint'.
         """
-        return self._xlr.save_state(path)
+        if path is not None:
+            path = file_io.get_local_path(path)
+        return self._xlr.save_state(path)  # type: ignore
 
     def _inference_gather_total_batches(self, dataloader: torch.utils.data.DataLoader) -> tuple[list[int], int]:
         a = len(dataloader)
@@ -841,8 +891,10 @@ class Engine:
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
         prefix: str,
-        handlers: T.Sequence[Evaluator] = [],
-        results_path: file_io.Path | os.PathLike | str | None = None,
+        handlers: T.Sequence[Evaluator] | None = None,
+        results_path: T.Optional[file_io.PathLike] = None,
+        *,
+        weights: T.Optional[file_io.PathLike] = None,
     ) -> tuple[dict[str, T.Any], int]:
         """
         Evaluation loop, which roughly follows the folowing procedure:
@@ -852,9 +904,10 @@ class Engine:
             (3) iterate the dataset again, and run the evaluation function of each evaluator
         """
 
+        self._start_experiment_trackers(restart=False)
+
         _logger.info("***** Running inference *****")
 
-        # Clear CUDA memory
         torch.cuda.empty_cache()
         gc.collect()
 
@@ -864,17 +917,20 @@ class Engine:
 
         _logger.debug(f"Expecting {samples_total} samples in total across {batch_total} batches")
 
-        # Prepare model
+        # Prepare data loader
         dataloader = self._xlr.prepare_data_loader(dataloader)
+
+        # Prepare model
+        if weights is not None:
+            model = self._load_weights(weights, model)
         if self._xlr.unwrap_model(model) is model:
             _logger.info(f"Preparing model for evaluation: {model.__class__.__name__}")
             model = self._xlr.prepare_model(model, evaluation_mode=True)
-            # model = torch.compile(model)
         else:
             _logger.info(f"Model is already prepared for evaluation: {model.__class__.__name__}")
 
         # If not in training status, apply the proper datatype
-        if not (self.status & EngineStatus.TRAINING):
+        if not (self.status & EngineStatus.IS_TRAINING_RUN):
             match self._params.inference_precision:
                 case InferencePrecision.FULL_FP16:
                     model = model.to(dtype=torch.float16, device=self._xlr.device)
@@ -889,10 +945,6 @@ class Engine:
 
         # Global start time
         t_start_all = time.time()
-
-        # Reset past
-        if self._params.past_index >= 0:
-            self._past = None
 
         # Output memory
         if results_path is None:
@@ -912,7 +964,7 @@ class Engine:
             batch_size = self._params.infer_batch_size
             # write_index = batch_offsets[self._xlr.process_index] * batch_size
 
-            self._event(Event.ON_INFERENCE_BEGIN, loader=dataloader)
+            self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
             timings = ProfileAccumulator()
 
             for inputs in dataloader:
@@ -941,7 +993,7 @@ class Engine:
 
                     # write_index += samples_in_batch
                     samples_processed += samples_in_batch
-                self._event(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
+                self._edge(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
 
             results_mem.write()
 
@@ -952,10 +1004,7 @@ class Engine:
                 timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
             )
 
-            self._event(Event.ON_INFERENCE_END, timings=timings, results=results_mem, results_path=results_path)
-
-            # Clear the past memory
-            self._past = None
+            self._edge(Event.ON_INFERENCE_END, timings=timings, results=results_mem, results_path=results_path)
 
             # Wait for everyone to finish writing
             self._xlr.wait_for_everyone()
@@ -973,7 +1022,7 @@ class Engine:
                     )
                 )
                 assert results_mem is not None, "Expected results memory to be initialized"
-                for evaluator in handlers:
+                for evaluator in handlers or []:
                     _logger.debug(f"Running evaluation handler: {evaluator}")
                     metrics.update(evaluator.compute(results_mem.tensordict, device=self._xlr.device))
                     visuals.update(evaluator.plot(results_mem.tensordict))
@@ -1017,16 +1066,6 @@ class Engine:
             if wandb_run is not None:
                 wandb_run.log({f"{prefix}/{key}": wandb.Image(img)}, step=self._state.step)
 
-    def _nested_gather(self, tensors: MaybeTensorType) -> MaybeTensorType:
-        """
-        Gather value of `tensors` (tensor or list/tuple of nested tensors)
-        """
-        if tensors is None:
-            return tensors
-        if self._xlr.use_distributed:
-            tensors = self._xlr.gather(tensors)
-        return tensors
-
     def _inference_step(
         self,
         model: nn.Module,
@@ -1042,8 +1081,6 @@ class Engine:
         else:
             predictions = outputs
 
-        if self._params.past_index >= 0:
-            self._past = predictions[self._params.past_index - 1]
         return predictions
 
     def _default_setup(self):

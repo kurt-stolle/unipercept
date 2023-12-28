@@ -38,7 +38,7 @@ def train(subparser: argparse.ArgumentParser):
     #     help="whether to attempt to resume training from the checkpoint directory",
     # )
     subparser.add_argument("--stage", type=int, default=-1, help="stage number to start training from")
-    subparser.add_argument("--weights", "-w", type=file_io.Path, help="path to load model weights from")
+    subparser.add_argument("--weights", "-w", type=str, help="path to load model weights from")
 
     subparser_mode = subparser.add_mutually_exclusive_group(required=False)
     subparser_mode.add_argument(
@@ -107,13 +107,13 @@ def main(args):
         up.config.LazyConfig.save(lazy_config, str(config_path))
 
     # Setup dataloaders
-    model_factory = up.model.ModelFactory(lazy_config.model, args.weights or None)
+    model_factory = up.model.ModelFactory(lazy_config.model)
 
     if args.evaluation:
-        results = engine.evaluate(model_factory)
+        results = engine.evaluate(model_factory, weights=args.weights)
         _logger.info("Evaluation results: \n%s", up.log.create_table(results, format="long"))
     else:
-        engine.train(model_factory, trial=None, stage=args.stage if args.stage >= 0 else None)
+        engine.train(model_factory, trial=None, stage=args.stage if args.stage >= 0 else None, weights=args.weights)
 
 
 if __name__ == "__main__":

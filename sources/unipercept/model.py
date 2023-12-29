@@ -256,9 +256,7 @@ class InputData(Tensorclass):
         ), f"Batch size must be 0 for all inputs! Got: {[b.batch_size for b in batch]}"
 
         return torch.stack(batch)  # type: ignore
-
         # batch = [b.to_tensordict() for b in batch]
-
         # return LazyStackedTensorDict(*batch)
 
 

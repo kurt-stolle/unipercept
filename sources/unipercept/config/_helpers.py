@@ -6,11 +6,10 @@ from os import PathLike
 from pathlib import Path
 
 import torch.distributed as dist
-from accelerate import PartialState
-from omegaconf import dictconfig
 from typing_extensions import deprecated
 from unicore import file_io
 
+from unipercept.state import check_distributed
 from unipercept.utils.time import TimestampFormat, get_timestamp
 
 __all__ = ["get_project_name", "get_session_name", "set_session_name", "flatten_config"]
@@ -92,8 +91,7 @@ def get_session_name(config_path: str | Path | PathLike, *, relative_to="configs
 
         return "/".join(parts)
 
-    state = PartialState()
-    if state.use_distributed:
+    if check_distributed():
         if not dist.is_available():
             raise RuntimeError("Distributed training is not available.")
 

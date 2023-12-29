@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import typing as T
+
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -21,28 +23,26 @@ class CoordCat2d(nn.Module):
 
         assert self.gamma > 0.0, f"Gamma must be positive: {gamma}"
 
-    @staticmethod
-    # @lru_cache(maxsize=16)
-    def _make_grid(gamma: float, shape: torch.Size, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
-        with torch.no_grad():
-            x_pos = torch.linspace(-gamma, gamma, shape[-2], device=device)
-            y_pos = torch.linspace(-gamma, gamma, shape[-1], device=device)
-
-            grid_x, grid_y = (
-                g.unsqueeze_(0).unsqueeze_(0).expand(shape[0], -1, -1, -1)
-                for g in torch.meshgrid(x_pos, y_pos, indexing="ij")
-            )
-            del x_pos, y_pos
-        return grid_x, grid_y
-
     @override
     def forward(self, t: Tensor) -> Tensor:
         # Split the tensor into groups
         t_split = torch.split(t, t.shape[1] // self.groups, dim=1)
 
         # Add the grid to each group
-        grid_x, grid_y = self._make_grid(self.gamma, t.shape, t.device)
+        grid_x, grid_y = _make_grid(self.gamma, t.shape, t.device)
         t_split = [torch.cat([t_n, grid_x, grid_y], dim=1) for t_n in t_split]
 
         # Concatenate the groups back together
         return torch.cat(t_split, dim=1)
+
+
+@torch.no_grad()
+def _make_grid(gamma: float, shape: torch.Size, device: torch.device) -> T.Tuple[torch.Tensor, torch.Tensor]:
+    x_pos = torch.linspace(-gamma, gamma, shape[-2], device=device)
+    y_pos = torch.linspace(-gamma, gamma, shape[-1], device=device)
+
+    grid_x, grid_y = torch.meshgrid(x_pos, y_pos, indexing="ij")
+    grid_x = grid_x.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
+    grid_y = grid_y.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
+
+    return grid_x, grid_y

@@ -96,14 +96,17 @@ def hwc_to_chw(t: torch.Tensor) -> torch.Tensor:
 
 
 def infer_shapes(
-    mod: T.Callable[[torch.Tensor], T.List[torch.Tensor]], /, test_shape: tuple[int, int] = (512, 256)
+    mod: T.Callable[[torch.Tensor], T.List[torch.Tensor]], test_shape: tuple[int, int]
 ) -> list[torch.Size]:
-    inp = torch.randn(1, 3, *test_shape)
-    with torch.no_grad():
-        out = mod(inp)
-    if isinstance(out, dict):
-        out = list(out.values())
-    shapes = [o.shape for o in out]
+    import copy
+
+    mod_clone = copy.deepcopy(mod)
+    with torch.inference_mode():
+        inp = torch.randn((8, 3, *test_shape), dtype=torch.float32, requires_grad=False)
+        out = mod_clone(inp)
+        if isinstance(out, dict):
+            out = list(out.values())
+        shapes = [o.shape for o in out]
 
     return shapes
 
@@ -115,7 +118,7 @@ def infer_feature_info(
     test_shape: tuple[int, int] = (512, 256),
 ) -> tuple[BackboneFeatureInfo, ...]:
     """Information about the extracted features."""
-    shapes = infer_shapes(mod, test_shape=test_shape)
+    shapes = infer_shapes(mod, test_shape)
 
     def __infer():
         for shape in shapes:

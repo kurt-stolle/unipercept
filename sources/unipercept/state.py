@@ -24,13 +24,57 @@ _state_backend = accelerate.PartialState()
 _state_unipercept = _ProcessStateManager()
 
 
-##############################
-# Wrappers around Accelerate #
-##############################
+####################
+# Unipercept state #
+####################
 
 
 def get_interactive():
     return _state_unipercept.interactive
+
+
+##################################
+# Data and multiprocessing utils #
+##################################
+
+
+@T.overload
+def get_total_batchsize(
+    dataloader: torch.utils.data.DataLoader, device: torch.types.Device, return_offsets: T.Literal[False] = False
+) -> int:
+    ...
+
+
+@T.overload
+def get_total_batchsize(
+    dataloader: torch.utils.data.DataLoader, device: torch.types.Device, return_offsets: T.Literal[True]
+) -> tuple[int, list[int]]:
+    ...
+
+
+def get_total_batchsize(
+    dataloader: torch.utils.data.DataLoader, device: torch.types.Device, return_offsets: bool = False
+) -> int | tuple[int, list[int]]:
+    a = len(dataloader)
+
+    # Gather the size of dataloaders across all processes
+    a_dist = torch.tensor([a], dtype=torch.int64, device=device)
+    a_dist = gather(a_dist)
+    assert isinstance(a_dist, torch.Tensor), f"Expected Tensor, got {type(a_dist)}"
+    # Compute total amount of samples
+    a_total = int(a_dist.sum().item())
+
+    if return_offsets:
+        a_off: list[int] = a_dist.cumsum(0).tolist()
+        a_off = [0] + a_off[:-1]
+        return a_total, a_off
+    else:
+        return a_total
+
+
+##############################
+# Wrappers around Accelerate #
+##############################
 
 
 def get_process_index(local=False):
@@ -49,13 +93,17 @@ def check_debug_enabled():
     return _state_backend.debug
 
 
-def barrier(*args):
+def barrier():
     return _state_backend.wait_for_everyone()
 
 
 main_process_first = _state_backend.main_process_first
 local_main_process_first = _state_backend.local_main_process_first
 print = _state_backend.print
+
+
+def check_distributed() -> bool:
+    return _state_backend.use_distributed
 
 
 def on_process():

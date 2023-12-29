@@ -27,7 +27,6 @@ class Separable2d(utils.NormActivationMixin, nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        *,
         expansion: int = 1,
         bias: bool = True,
         depthwise: Callable[..., nn.Module] = Conv2d,

@@ -13,9 +13,9 @@ import timm.optim
 import timm.optim.optim_factory
 import torch.nn as nn
 import torch.optim
-from accelerate import PartialState
 
 from unipercept.log import get_logger
+from unipercept.state import get_process_count
 
 __all__ = ["create_optimizer", "OptimType", "OptimPackage", "OptimizerFactory", "ParameterHPs"]
 
@@ -163,7 +163,7 @@ def create_optimizer(
     opt = OptimType(opt) if isinstance(opt, str) else opt
     pkg = OptimPackage(pkg) if isinstance(pkg, str) else pkg
 
-    lr *= PartialState().num_processes
+    lr *= get_process_count()
 
     # Extract parameters from model
     parameters = get_optimizer_params(

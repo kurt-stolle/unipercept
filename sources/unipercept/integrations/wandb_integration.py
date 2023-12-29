@@ -5,16 +5,18 @@ See: https://wandb.ai
 """
 
 from __future__ import annotations
-import functools
-import typing as T
+
 import dataclasses as D
 import enum as E
+import functools
 import os
 import tempfile
+import typing as T
 
 import torch.nn as nn
 import typing_extensions as TX
 import wandb
+from unicore import file_io
 
 from unipercept import read_config
 from unipercept.engine import EngineParams
@@ -95,8 +97,6 @@ def skip_no_run(fn: T.Callable[_P, _R | None]) -> T.Callable[_P, _R | None]:
 class WandBCallback(CallbackDispatcher):
     """
     Extended integration with Weights & Biases.
-
-    Since Accelerate already provides a WandB integration, this callback only adds new features.
     """
 
     watch_model: WandBWatchMode | None | str = None
@@ -109,6 +109,7 @@ class WandBCallback(CallbackDispatcher):
             )
         },
     )
+    upload_config: bool = True
     upload_code: bool = True
     model_history: int = 1
     state_history: int = 1
@@ -132,6 +133,10 @@ class WandBCallback(CallbackDispatcher):
         _logger.info(f"Logging additional metrics to WandB run {self.run.name}")
         if self.upload_code:
             self.run.log_code("./sources", include_fn=lambda path, root: path.endswith(".py"))
+        if self.upload_config:
+            config_path = file_io.Path(params.root) / "config.yaml"
+            assert config_path.is_file(), f"Config file {config_path} does not exist!"
+            self.run.log_artifact(config_path, type=ArtifactType.CONFIG.value, name=f"config-{self.run.id}")
 
     @TX.override
     @skip_no_run

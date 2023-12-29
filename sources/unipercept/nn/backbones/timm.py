@@ -61,7 +61,7 @@ class TimmBackbone(WrapperBase):
         nodes: T.Sequence[int] | None | int = None,
         keys: T.Sequence[str] | None = None,
         jit_script: bool = False,
-        use_graph: bool = False,
+        use_graph: bool = True,
         **kwargs,
     ):
         dims = _get_dimension_order(name)

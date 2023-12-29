@@ -15,13 +15,12 @@ import shutil
 import time
 import typing as T
 
-import accelerate
-import accelerate.utils
 import torch
 import torch._dynamo
 import torch._dynamo.config
 import torch.nn as nn
 import torch.optim
+import torch.types
 import torch.utils.data
 import wandb
 from omegaconf import OmegaConf
@@ -40,7 +39,7 @@ from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import PersistentTensordictWriter
 from unipercept.log import get_logger
-from unipercept.state import check_main_process, on_main_process
+from unipercept.state import check_main_process, gather, get_total_batchsize
 from unipercept.utils.seed import set_seed
 from unipercept.utils.time import ProfileAccumulator, profile
 
@@ -53,12 +52,9 @@ from ._types import DataLoaderFactory, ModelFactory
 torch._dynamo.config.suppress_errors = True
 
 if T.TYPE_CHECKING:
-    from unipercept.evaluators import Evaluator
+    from accelerate import Accelerator
 
-    try:
-        from wandb.sdk.wandb_run import Run as WandBRun
-    except ImportError:
-        pass
+    from unipercept.evaluators import Evaluator
 
 MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
 
@@ -106,7 +102,7 @@ class Engine:
         "_notes",
         "_tags",
         "__dict__",
-    ]
+    ]  # NOTE: Slots are used as a development aid to prevent bugs due to typos, since this is a large class
 
     def __init__(
         self,
@@ -175,21 +171,21 @@ class Engine:
     def __repr__(self) -> str:
         return str(self)
 
-    @functools.cached_property
+    @property
     def root_path(self) -> file_io.Path:
         """
         Returns the local path to the root directory of this engine as a ``pathlib.Path`` class.
         """
         return file_io.Path(self._params.root).resolve()
 
-    @functools.cached_property
+    @property
     def logs_path(self) -> file_io.Path:
         """
         Returns the local path to the logs directory of this engine as a ``pathlib.Path`` class.
         """
         return file_io.Path(self._xlr.logging_dir)
 
-    @functools.cached_property
+    @property
     def outputs_path(self) -> file_io.Path:
         """
         Returns the local path to the outputs directory of this engine as a ``pathlib.Path`` class.
@@ -384,9 +380,9 @@ class Engine:
         """
         from unipercept.config import LazyConfig
 
-        lazy_path = file_io.Path(self._xlr.project_dir) / ".." / "config.yaml"
+        lazy_path = self.root_path / "config.yaml"
         if not lazy_path.exists():
-            return {}
+            raise RuntimeError(f"Could not find configuration file at {lazy_path}")
 
         try:
             lazy = LazyConfig.load(str(lazy_path))
@@ -553,8 +549,7 @@ class Engine:
 
             step = -1  # If the value of the iterator is still -1 after the loop, something went wrong
             for step, inputs in enumerate(epoch_iterator):
-                assert isinstance(inputs, InputType), f"Expected InputType, got {type(inputs)}"
-
+                # assert isinstance(inputs, InputType), f"Expected InputType, got {type(inputs)}"
                 total_sesssion_samples += 1
 
                 # Skip past any already trained steps if resuming training
@@ -634,7 +629,7 @@ class Engine:
                     del inputs
 
                     self._edge(Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer)
-                    self._train_handle_log_save_eval(tr_loss, model, optimizer, **kwargs)
+                    self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
                 else:
                     self._edge(Event.ON_TRAIN_SUBSTEP_END)
 
@@ -656,7 +651,7 @@ class Engine:
             scheduler.step(round(self._state.epoch), metric=None)
 
             self._edge(Event.ON_TRAIN_EPOCH_END)
-            self._train_handle_log_save_eval(tr_loss, model, optimizer, **kwargs)
+            self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
 
             epochs_trained += 1
 
@@ -693,7 +688,7 @@ class Engine:
 
         return model
 
-    def _train_handle_log_save_eval(
+    def _train_handle_signals(
         self,
         tr_loss: TensorDict,
         model: nn.Module,
@@ -706,6 +701,7 @@ class Engine:
         Steps could be skipped depending on the configuration.
         """
 
+        # SIGNAL: logging
         if self._signal.should_log:
             assert (
                 self._state.step != self._globalstep_last_logged
@@ -715,7 +711,7 @@ class Engine:
             logs["optimizer/lr"] = _get_learning_rate(optimizer)
 
             # all_gather + mean() to get average loss over all processes
-            tr_loss_scalar = {k: self._xlr.gather(l).mean().item() for k, l in tr_loss.items()}
+            tr_loss_scalar = {k: gather(l).mean().item() for k, l in tr_loss.items()}
 
             # reset tr_loss to zero
             # tr_loss -= tr_loss
@@ -728,6 +724,7 @@ class Engine:
             # self.store_flops()
             self._training_log(logs)
 
+        # SIGNAL: save model
         if self._signal.should_save:
             _logger.info("Saving state and model at step %d (epoch %d)", self._state.step, self._state.epoch)
 
@@ -748,12 +745,13 @@ class Engine:
             # Report event
             self._edge(Event.ON_SAVE, model_path=model_path, state_path=state_path)
 
+        # SIGNAL: evaluate model
         if self._signal.should_evaluate:
             _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
 
             self.evaluate(lambda _: model, trial=trial)
 
-    def _training_log(self, logs: dict[str, float | str | int | bool]) -> None:
+    def _training_log(self, logs: dict[str, T.Any]) -> None:
         """
         Log `logs` on the various objects watching training.
 
@@ -850,7 +848,7 @@ class Engine:
             path = file_io.get_local_path(self._recover_path)
         else:
             auto_dir = os.path.join(self._xlr.project_dir, "checkpoints")
-            if file_io.isdir(auto_dir) and len(file_io.ls(auto_dir)) > 0:
+            if not file_io.isdir(auto_dir) or len(file_io.ls(auto_dir)) == 0:
                 _logger.debug("No engine state path given and no automatic checkpoints found.")
                 return
             else:
@@ -864,26 +862,6 @@ class Engine:
         if path is not None:
             path = file_io.get_local_path(path)
         return self._xlr.save_state(path)  # type: ignore
-
-    def _inference_gather_total_batches(self, dataloader: torch.utils.data.DataLoader) -> tuple[list[int], int]:
-        a = len(dataloader)
-
-        # Gather the size of dataloaders across all processes
-        a_dist = torch.tensor([a], dtype=torch.int64, device=self._xlr.device)
-        a_dist = self._xlr.gather(a_dist)
-        assert isinstance(a_dist, torch.Tensor), f"Expected Tensor, got {type(a_dist)}"
-
-        # Compute the offsets list
-        a_off: list[int] = a_dist.cumsum(0).tolist()
-        a_off = [0] + a_off[:-1]
-        assert len(a_off) == self._xlr.num_processes, f"Expected {self._xlr.num_processes} offsets, got {len(a_off)}"
-
-        # Compute total amount of samples
-        a_total = int(a_dist.sum().item())
-
-        _logger.debug("Gathered sample offsets: %s (%d total samples)", a_off, a_total)
-
-        return a_off, a_total
 
     @torch.inference_mode()
     def _inference_loop(
@@ -912,7 +890,7 @@ class Engine:
         gc.collect()
 
         # Find the size of the dataset *before* preparation to correctly map each output
-        _, batch_total = self._inference_gather_total_batches(dataloader)
+        batch_total = get_total_batchsize(dataloader, self._xlr.device)
         samples_total = batch_total * self._params.infer_batch_size
 
         _logger.debug(f"Expecting {samples_total} samples in total across {batch_total} batches")
@@ -1191,7 +1169,7 @@ def _enforce_prefix(metrics: dict[str, T.Any], prefix: str, sep: str = "/") -> N
         metrics[prefix + key] = metrics.pop(key)
 
 
-def _build_accelerator(params: EngineParams) -> accelerate.Accelerator:
+def _build_accelerator(params: EngineParams) -> Accelerator:
     """
     Builds the Accelerator object.
 
@@ -1205,8 +1183,12 @@ def _build_accelerator(params: EngineParams) -> accelerate.Accelerator:
     accelerate.Accelerator
         The accelerator object.
     """
-    from accelerate.accelerator import ProjectConfiguration
-    from accelerate.utils import DistributedDataParallelKwargs
+    from accelerate.accelerator import Accelerator, ProjectConfiguration
+    from accelerate.utils import (
+        DistributedDataParallelKwargs,
+        DynamoBackend,
+        TorchDynamoPlugin,
+    )
 
     root = file_io.Path(params.root).resolve()
 
@@ -1216,7 +1198,7 @@ def _build_accelerator(params: EngineParams) -> accelerate.Accelerator:
     project_dir.mkdir(parents=True, exist_ok=True)
     logging_dir.mkdir(parents=True, exist_ok=True)
 
-    acc = accelerate.Accelerator(
+    acc = Accelerator(
         project_dir=project_dir,
         project_config=ProjectConfiguration(
             project_dir=str(project_dir), logging_dir=str(logging_dir), automatic_checkpoint_naming=True, total_limit=4
@@ -1224,13 +1206,21 @@ def _build_accelerator(params: EngineParams) -> accelerate.Accelerator:
         kwargs_handlers=[
             DistributedDataParallelKwargs(
                 find_unused_parameters=params.find_unused_parameters,
-                broadcast_buffers=False,
+                broadcast_buffers=True,  # False,
                 gradient_as_bucket_view=True,
-            )
+                static_graph=True,
+            ),
         ],
         step_scheduler_with_optimizer=False,
         log_with=list(params.trackers),
         dispatch_batches=False,
         gradient_accumulation_steps=params.gradient_accumulation_steps,
+        split_batches=False,
+        device_placement=True,
+        mixed_precision="bf16",
+        dynamo_backend=None,
+    )
+    acc.state.dynamo_plugin = TorchDynamoPlugin(
+        # backend=DynamoBackend.INDUCTOR,
     )
     return acc

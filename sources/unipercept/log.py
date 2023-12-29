@@ -38,17 +38,6 @@ LOG_LEVELS: T.Final[dict[str, int]] = {
 # Default logging level, can be overridden by setting the UNI_LOG_LEVEL environment variable.
 DEFAULT_LEVEL: T.Final[str] = os.getenv("UNI_LOG_LEVEL", "debug")
 
-# Some packages have long names, so we abbreviate them to keep the logs more readable.
-PACKAGE_ABBREVIATIONS: dict[str, str] = {
-    "unipercept": "🔬",
-    "unicore": "🧬",
-    "unimodels": "🧠",
-    "unicli": "📟",
-    "unitrack": "🚘",
-    "accelerate": "🤗",
-    "torch": "🔦",
-}
-
 
 def log_every_n(level: str, message: str, n: int = 1, *, name: str | None = None) -> None:
     """
@@ -168,7 +157,6 @@ def _get_handler(
 
     # Determine the full name and the short name
     root_name, *sub_name = name.split(".", 1)
-    short_name = PACKAGE_ABBREVIATIONS.get(root_name, root_name)
 
     # Translate the logging level
     level = _get_level(level)
@@ -180,7 +168,7 @@ def _get_handler(
     if stdout and process_rank == 0:
         ch = logging.StreamHandler(stream=sys.stdout)
         ch.setLevel(level)
-        ch.setFormatter(_get_formatter(root_name, short_name, color))
+        ch.setFormatter(_get_formatter(root_name, color))
 
         logger.addHandler(ch)
 
@@ -206,7 +194,7 @@ def _get_handler(
 
 
 @functools.lru_cache(maxsize=None)
-def _get_formatter(root_name: str, short_name: str, color: bool = True) -> logging.Formatter:
+def _get_formatter(root_name: str, color: bool = True) -> logging.Formatter:
     """
     Get a formatter instance, cached to ensure that the same formatter is shared across all the sites that call this.
     """
@@ -218,7 +206,6 @@ def _get_formatter(root_name: str, short_name: str, color: bool = True) -> loggi
             prefix + " " + "%(message)s",
             datefmt=datefmt,
             root_name=root_name,
-            short_name=str(short_name),
         )
     else:
         formatter = logging.Formatter("[ %(asctime)s @ %(name)s ] (%(levelname)s) : %(message)s", datefmt=datefmt)
@@ -243,18 +230,13 @@ class _ColorfulFormatter(logging.Formatter):
     Based on `detectron2.utils.logger._ColorfulFormatter`.
     """
 
-    def __init__(self, *args, root_name: str, short_name: str = "", use_abbreviations: bool = False, **kwargs):
+    def __init__(self, *args, root_name: str, **kwargs):
         self._root_name = root_name + "."
-        self._short_name = (short_name + ".") if short_name is not None else ""
-        self._use_abbreviations = use_abbreviations
 
         super().__init__(*args, **kwargs)
 
     @override
     def formatMessage(self, record):
-        if self._use_abbreviations:
-            record.name = record.name.replace(self._root_name, self._short_name)
-
         date, time = record.asctime.split(" ")
         record.asctime = colored(date, color="cyan") + " " + colored(time, color="light_cyan")
 
@@ -271,7 +253,7 @@ class _ColorfulFormatter(logging.Formatter):
                 level_icon = "📝"
 
         root, *sub = record.name.split(".", 1)
-        package_color = "yellow" if root in PACKAGE_ABBREVIATIONS else "light_yellow"
+        package_color = "yellow" if root == "unipercept" else "light_yellow"
         record.name = colored(root, attrs=["bold"], color=package_color)
         if sub and len(sub) > 0:
             record.name += colored("." + sub[0], color=package_color)

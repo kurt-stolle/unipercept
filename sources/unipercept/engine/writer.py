@@ -6,26 +6,16 @@ from __future__ import annotations
 
 import abc
 import functools
-import tempfile
 import typing as T
 
-import accelerate
 import torch
 import torch.types
 import typing_extensions as TX
-from tensordict import PersistentTensorDict, TensorDict, TensorDictBase
+from tensordict import PersistentTensorDict, TensorDictBase
 from unicore import file_io
 
 from unipercept.log import get_logger
-from unipercept.state import (
-    barrier,
-    check_main_process,
-    gather_tensordict,
-    get_process_count,
-    get_process_index,
-    main_process_first,
-    on_main_process,
-)
+from unipercept.state import check_main_process, gather_tensordict, on_main_process
 
 __all__ = ["ResultsWriter", "PersistentTensordictWriter"]
 

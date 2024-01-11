@@ -1,19 +1,58 @@
-from __future__ import annotations
+"""
+Normalization layers. These are mostly wrappers around PyTorch's norm layers, enabling straightforward configuration 
+through the config system.
+"""
 
-import enum as E
 import functools
 import typing as T
 
 import torch
 import torch.nn as nn
 from typing_extensions import override
+from unipercept.utils.inspect import locate_object
 
 NormFactory: T.TypeAlias = T.Callable[[int], nn.Module]
+NormSpec: T.TypeAlias = str | NormFactory | nn.Module | None
+
+
+def get_norm(spec: NormSpec, num_channels: int, **kwargs) -> nn.Module:
+    """
+    Resolve a norm module from a string, a factory function or a module instance. When a module instance is provided,
+    the ``num_channels`` argument is ignored and the object is returned as-is.
+
+    Parameters
+    ----------
+    norm
+        A string, a factory function or an instance of a norm module.
+    num_channels
+        Number of channels to normalize.
+    **kwargs
+        Additional keyword arguments to pass to the norm factory.
+
+    """
+
+    if spec is None:
+        spec = nn.Identity()
+    elif isinstance(spec, str):
+        spec = locate_object(spec)
+
+    # If already a module instance, return that instance directly (num_channels is ignored)
+    if isinstance(spec, nn.Module):
+        return spec
+    elif callable(spec):
+        return spec(num_channels, **kwargs)
+    else:
+        raise ValueError(f"Cannot resolve value as a norm module: {spec}")
 
 
 def GroupNorm32(num_channels: int, **kwargs) -> nn.GroupNorm:
     """
     GroupNorm with the number of groups equal to 32, like in Detectron2.
+
+    Notes
+    -----
+    The amount of channels' value (32) originates from the optimal value found in the GroupNorm paper. This is
+    only the case for the specific families tested, and may be suboptimal for other specific cases.
     """
     return nn.GroupNorm(32, num_channels=num_channels, **kwargs)
 
@@ -57,7 +96,6 @@ def GroupNormFactory(*, num_groups: int, **kwargs) -> T.Callable[[int], nn.Group
 #         self.normalized_shape = (normalized_shape,)
 
 #     @override
-#     def forward(self, x):
 #         return layer_norm_chw(x.float(), self.weight, self.bias, self.eps).type_as(x)
 
 

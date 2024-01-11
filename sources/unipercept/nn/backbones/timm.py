@@ -60,7 +60,6 @@ class TimmBackbone(WrapperBase):
         pretrained: bool = True,
         nodes: T.Sequence[int] | None | int = None,
         keys: T.Sequence[str] | None = None,
-        jit_script: bool = False,
         use_graph: bool = True,
         **kwargs,
     ):
@@ -82,7 +81,7 @@ class TimmBackbone(WrapperBase):
 
         self.ext = extractor
 
-        if jit_script:
+        if kwargs.get("jit_script", False):
             self.ext = torch.jit.script(self.ext)  # type: ignore
 
     @override

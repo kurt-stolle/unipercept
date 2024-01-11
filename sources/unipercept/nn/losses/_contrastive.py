@@ -14,7 +14,7 @@ class TripletMarginSimilarityLoss(nn.TripletMarginWithDistanceLoss):
     anchor have a higher cosine similarity than the target and negative.
     """
 
-    def __init__(self, *, margin: float = 0.25, **kwargs):
+    def __init__(self, *, margin: float = 0.1, **kwargs):
         super().__init__(**kwargs, margin=margin, distance_function=cosine_distance)
 
 

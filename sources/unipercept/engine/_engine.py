@@ -38,6 +38,7 @@ from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, S
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import PersistentTensordictWriter
+from unipercept.engine.accelerate import Accelerator
 from unipercept.log import get_logger
 from unipercept.state import check_main_process, gather, get_total_batchsize
 from unipercept.utils.seed import set_seed
@@ -52,8 +53,6 @@ from ._types import DataLoaderFactory, ModelFactory
 torch._dynamo.config.suppress_errors = True
 
 if T.TYPE_CHECKING:
-    from accelerate import Accelerator
-
     from unipercept.evaluators import Evaluator
 
 MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
@@ -122,7 +121,7 @@ class Engine:
         _logger.info("Initializing Engine: %s @ %s", params.project_name, params.session_name)
 
         self._params: T.Final[EngineParams] = params
-        self._xlr = _build_accelerator(params)
+        self._xlr = Accelerator.from_engine_params(params)
         self._state = State()
 
         self._loaders: T.Final = loaders or {}
@@ -318,7 +317,7 @@ class Engine:
         metrics_overall = {}
 
         for loader_key, handlers in self._evaluators.items():
-            _logger.info(f"Running inference on loader '%s' for %d handlers", loader_key, len(handlers))
+            _logger.info("Running inference on loader '%s' for %d handlers", loader_key, len(handlers))
 
             prefix_suite = "/".join([prefix, loader_key])
 
@@ -396,8 +395,7 @@ class Engine:
 
     def _start_experiment_trackers(self, *, restart: bool = True) -> None:
         """
-        Initialize the experiment trackers, e.g. WandB, TensorBoard. This should be called at the beginning of training
-        and inference.
+        Initialize the experiment trackers, e.g. WandB, TensorBoard.
 
         Parameters
         ----------
@@ -406,7 +404,13 @@ class Engine:
         restart : bool, optional
             Whether to restart the loggers, by default True. Can be set to False to continue logging to the same
             trackers, e.g. when running an inference loop during training.
+
+        Notes
+        -----
+        This should be called at the beginning of training  and inference.
         """
+
+        from unipercept.integrations import wandb_integration
 
         if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status and not restart:
             _logger.debug("Trackers already started, skipping setup")
@@ -433,29 +437,27 @@ class Engine:
         else:
             job_type = "misc"
 
-        # WandB-specific setup
-        def __wandb_sanitize(s):
-            for c in R"/\#?%:":
-                s = s.replace(c, "-")
-            return s
+        session_id = f"{self._params.project_name}-{self._params.session_name}-{job_type}".replace("/", "-")
 
-        __wandb_kwargs = {
-            "name": __wandb_sanitize(self._params.session_name.replace("/", " ")),
+        # Set up tracker-specific parameters
+        specific_kwargs = {}
+        specific_kwargs["wandb"] = {
+            "name": wandb_integration.sanitize(self._params.session_name.replace("/", " ")),
             "job_type": job_type,
             "group": session_group,
             "notes": self._params.notes,
             "tags": [f"stage_{self._state.stage}"] + list(self._params.tags),
-            "id": __wandb_sanitize(f"{self._params.project_name}-{self._params.session_name}-{job_type}"),
-            "save_code": False,
+            "id": wandb_integration.sanitize(session_id),
+            "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
         }
 
         # Accelerate handles the experiment trackers for us
         self._xlr.init_trackers(
-            self._params.project_name.replace("/", " "),
+            session_id,
             config=self._get_config_object(),
-            init_kwargs={"wandb": __wandb_kwargs},
+            init_kwargs=specific_kwargs,
         )
-        self._edge(Event.ON_TRACKERS_SETUP)
+        self._edge(Event.ON_TRACKERS_SETUP, session_id=session_id)
         self._xlr.wait_for_everyone()
 
     def _train_loop(
@@ -901,11 +903,15 @@ class Engine:
         # Prepare model
         if weights is not None:
             model = self._load_weights(weights, model)
+
+        # TODO: The FP32 wrapper added by prepare breaks our model
         if self._xlr.unwrap_model(model) is model:
             _logger.info(f"Preparing model for evaluation: {model.__class__.__name__}")
             model = self._xlr.prepare_model(model, evaluation_mode=True)
         else:
             _logger.info(f"Model is already prepared for evaluation: {model.__class__.__name__}")
+
+        model = self._xlr.unwrap_model(model, keep_fp32_wrapper=False)
 
         # If not in training status, apply the proper datatype
         if not (self.status & EngineStatus.IS_TRAINING_RUN):
@@ -1167,60 +1173,3 @@ def _enforce_prefix(metrics: dict[str, T.Any], prefix: str, sep: str = "/") -> N
         if key.startswith(prefix):
             continue
         metrics[prefix + key] = metrics.pop(key)
-
-
-def _build_accelerator(params: EngineParams) -> Accelerator:
-    """
-    Builds the Accelerator object.
-
-    Parameters
-    ----------
-    config : EngineConfig
-        The configuration object.
-
-    Returns
-    -------
-    accelerate.Accelerator
-        The accelerator object.
-    """
-    from accelerate.accelerator import Accelerator, ProjectConfiguration
-    from accelerate.utils import (
-        DistributedDataParallelKwargs,
-        DynamoBackend,
-        TorchDynamoPlugin,
-    )
-
-    root = file_io.Path(params.root).resolve()
-
-    project_dir = root / "outputs"
-    logging_dir = root / "logs"
-
-    project_dir.mkdir(parents=True, exist_ok=True)
-    logging_dir.mkdir(parents=True, exist_ok=True)
-
-    acc = Accelerator(
-        project_dir=project_dir,
-        project_config=ProjectConfiguration(
-            project_dir=str(project_dir), logging_dir=str(logging_dir), automatic_checkpoint_naming=True, total_limit=4
-        ),
-        kwargs_handlers=[
-            DistributedDataParallelKwargs(
-                find_unused_parameters=params.find_unused_parameters,
-                broadcast_buffers=True,  # False,
-                gradient_as_bucket_view=True,
-                static_graph=True,
-            ),
-        ],
-        step_scheduler_with_optimizer=False,
-        log_with=list(params.trackers),
-        dispatch_batches=False,
-        gradient_accumulation_steps=params.gradient_accumulation_steps,
-        split_batches=False,
-        device_placement=True,
-        mixed_precision="bf16",
-        dynamo_backend=None,
-    )
-    acc.state.dynamo_plugin = TorchDynamoPlugin(
-        # backend=DynamoBackend.INDUCTOR,
-    )
-    return acc

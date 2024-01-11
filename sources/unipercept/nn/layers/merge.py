@@ -13,8 +13,7 @@ from typing_extensions import override
 import unipercept.nn.layers.conv as convolution
 from unipercept.nn.backbones import BackboneFeatureInfo
 from unipercept.nn.layers import SelfAttention2d, SqueezeExcite2d
-from unipercept.nn.layers.norm import GroupNorm32, GroupNormCG, LayerNormCHW
-from unipercept.nn.typings import Norm
+from unipercept.nn.layers.norm import GroupNorm32, GroupNormCG, LayerNormCHW, NormSpec
 
 __all__ = ["SemanticMerge"]
 
@@ -40,7 +39,7 @@ class SemanticMerge(nn.Module):
         in_features: T.Mapping[str, BackboneFeatureInfo],
         common_stride: int,
         out_channels: int,
-        norm: Norm | None = GroupNorm32,
+        norm: NormSpec  = GroupNorm32,
         weight_method: WeightMethod | str = WeightMethod.SUM,
         squeeze_excite: bool = False,
     ):
@@ -141,11 +140,9 @@ class SemanticShuffle(nn.Module):
         input_shape: T.Mapping[str, BackboneFeatureInfo],
         common_stride: int,
         out_channels: int,
-        norm: Norm | None = GroupNorm32,
+        norm: NormSpec | None = GroupNorm32,
         weight_method: WeightMethod | str = WeightMethod.SUM,
     ):
-        from .norm import GroupNormFactory
-
         super().__init__()
 
         self.in_features = list(in_features)

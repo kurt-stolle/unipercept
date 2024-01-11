@@ -182,18 +182,27 @@ class InputData(Tensorclass):
                 "Capture data for each frame in the batch. The first dimension is the batch dimension, the second "
                 "dimension is the frame/pair dimension."
             ),
+            "tensorclass": CaptureData,
         }
     )
     motions: MotionData | None = field(
+        default=None,
         metadata={
             "shape": ["B", "F"],
             "help": "Motion data between frames, if available. The motion at the first frame is by definition zero.",
-        }
+            "tensorclass": MotionData,
+        },
     )
-    cameras: CameraModel = field(
-        metadata={"shape": ["B"], "help": "Camera parameters for each capture item in the batch."}
+    cameras: CameraModel | None = field(
+        default=None,
+        metadata={
+            "shape": ["B"],
+            "help": "Camera parameters for each capture item in the batch.",
+            "tensorclass": CameraModel,
+        },
     )
-    content_boxes: torch.Tensor = field(
+    content_boxes: torch.Tensor | None = field(
+        default=None,
         metadata={
             "shape": ["B", 4],
             "help": (
@@ -201,7 +210,7 @@ class InputData(Tensorclass):
                 "Useful in cases where some of the images in a batch "
                 "are padded, e.g. when using a sampler that samples from a dataset with images of different sizes."
             ),
-        }
+        },
     )
 
     @property
@@ -237,11 +246,6 @@ class InputData(Tensorclass):
             batch_size=self.batch_size,
         )
 
-    def __post_init__(self):
-        assert (
-            len(self.batch_size) <= 1
-        ), f"Input data should be unbatched or have one batch dimension got {self.batch_size}"
-
     @classmethod
     def collate(cls, batch: T.Sequence[T.Self]) -> LazyStackedTensorDict:
         """
@@ -263,6 +267,9 @@ class InputData(Tensorclass):
 #########################
 # BASE CLASS FOR MODELS #
 #########################
+
+ModelInput = InputData | TensorDictBase | T.Dict[str, torch.Tensor]
+ModelOutput = TensorDictBase
 
 
 class ModelBase(nn.Module):
@@ -286,11 +293,11 @@ class ModelBase(nn.Module):
 
         @abc.abstractmethod
         @TX.override
-        def forward(self, inputs: TensorDictBase) -> TensorDictBase:
+        def forward(self, inputs: ModelInput) -> ModelOutput:
             ...
 
         @TX.override
-        def __call__(self, inputs: TensorDictBase) -> TensorDictBase:
+        def __call__(self, inputs: ModelInput) -> ModelOutput:
             ...
 
 

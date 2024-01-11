@@ -88,6 +88,20 @@ def skip_no_run(fn: T.Callable[_P, _R | None]) -> T.Callable[_P, _R | None]:
     return wrapper
 
 
+############################
+# WANDB ENGINE INTEGRATION #
+############################
+
+
+def sanitize(s: str) -> str:
+    """
+    Replaces any characters that are not allowed in a WandB run/artifact/group/uri.
+    """
+    for c in R"/\#?%:":
+        s = s.replace(c, "-")
+    return s
+
+
 ##################
 # WANDB CALLBACK #
 ##################
@@ -116,11 +130,21 @@ class WandBCallback(CallbackDispatcher):
     inference_history: int = 0
     tabulate_inference_timings: bool = False
 
+    _session_id: str | None = D.field(default=None, init=False)  # set when tracking begins
+
+    @property
+    def session_id(self) -> str:
+        if self._session_id is None:
+            raise RuntimeError("Engine not in session")
+        return self._session_id
+
     @property
     def run(self) -> WandBRun:
         """
         Current WandB run.
         """
+        assert self.session_id is not None
+
         run = wandb.run
         if run is None:
             raise RuntimeError("WandB run not initialized")
@@ -129,8 +153,11 @@ class WandBCallback(CallbackDispatcher):
     @TX.override
     @skip_no_run
     @on_main_process()
-    def on_trackers_setup(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        _logger.info(f"Logging additional metrics to WandB run {self.run.name}")
+    def on_trackers_setup(self, params: EngineParams, state: State, control: Signal, *, session_id: str, **kwargs):
+        self._session_id = session_id
+
+        _logger.info("Tracking current experiment to WandB run %s", self.run.name)
+
         if self.upload_code:
             self.run.log_code("./sources", include_fn=lambda path, root: path.endswith(".py"))
         if self.upload_config:

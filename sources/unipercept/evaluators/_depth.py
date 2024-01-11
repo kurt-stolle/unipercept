@@ -18,12 +18,12 @@ from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
-_logger = get_logger(__name__)
 
-PRED_DEPTH = "pred_depth"
-TRUE_DEPTH = "true_depth"
+__all__ = ["DepthEvaluator", "DepthWriter", "DepthMetrics", "PRED_DEPTH", "TRUE_DEPTH", "VALID_DEPTH"]
 
-KEY_VALID_PXS = "valid"
+PRED_DEPTH: T.Final[str] = "pred_depth"
+TRUE_DEPTH: T.Final[str] = "true_depth"
+VALID_DEPTH: T.Final[str] = "valid_depth"
 
 
 @D.dataclass(kw_only=True)
@@ -37,6 +37,10 @@ class DepthWriter(Evaluator):
     plot_samples: int = 1
     plot_true: PlotMode = PlotMode.ONCE
     plot_pred: PlotMode = PlotMode.ALWAYS
+
+    pred_key = "depths"
+    true_key = ("captures", "depths")
+    true_group_index = -1  # the most recent group, assuming temporal ordering
 
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
@@ -52,8 +56,27 @@ class DepthWriter(Evaluator):
     @override
     def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
         super().update(storage, inputs, outputs)
-        storage.setdefault(TRUE_DEPTH, inputs.get("captures", "depths"), inplace=True)
-        storage.setdefault(PRED_DEPTH, outputs.get("depths", None), inplace=True)
+
+        storage_keys = storage.keys(leaves_only=True, include_nested=True)
+        if TRUE_DEPTH in storage_keys and PRED_DEPTH in storage_keys and VALID_DEPTH in storage_keys:
+            return
+
+        pred = outputs.get(self.pred_key, None)
+        if pred is None:
+            raise RuntimeError(f"Missing key {self.pred_key} in {outputs=}")
+
+        true = inputs.get(self.true_key, None)
+        if true is None:  # Generate dummy values for robust evaluation downstream
+            true = torch.full_like(pred, 0, dtype=torch.float32)
+        else:
+            true = true[:, self.true_group_index, ...]
+
+        assert true.ndim == 3, f"Expected 3D tensor for {self.true_key}, got {true.shape=}"
+
+        valid = (true > 1e-8).any(-1).any(-1)
+
+        for key, item in ((TRUE_DEPTH, true), (PRED_DEPTH, pred), (VALID_DEPTH, valid)):
+            storage.set(key, item, inplace=True)
 
     @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
@@ -75,6 +98,9 @@ class DepthWriter(Evaluator):
         return result
 
 
+_KEY_VALID_PX = "valid"
+
+
 class DepthEvaluator(DepthWriter):
     @classmethod
     @override
@@ -91,6 +117,10 @@ class DepthEvaluator(DepthWriter):
 
         metrics_list: list[DepthMetrics] = []
         for n in range(num_samples):
+            valid = storage.get_at(VALID_DEPTH, n).item()
+            if not valid:
+                continue
+
             pred = storage.get_at(PRED_DEPTH, n, None).clone().to(device=device)
             true = storage.get_at(TRUE_DEPTH, n, None).clone().to(device=device)
 
@@ -107,10 +137,10 @@ class DepthEvaluator(DepthWriter):
         metrics = {}
 
         for m in metrics_list:  # accumulate metrics
-            valid_pixels = m[KEY_VALID_PXS]
-            metrics[KEY_VALID_PXS] = metrics.get(KEY_VALID_PXS, 0) + valid_pixels
+            valid_pixels = m[_KEY_VALID_PX]
+            metrics[_KEY_VALID_PX] = metrics.get(_KEY_VALID_PX, 0) + valid_pixels
             for k, v in m.items():
-                if k == KEY_VALID_PXS:
+                if k == _KEY_VALID_PX:
                     continue
                 elif k == "accuracy":
                     assert isinstance(v, dict)
@@ -122,15 +152,15 @@ class DepthEvaluator(DepthWriter):
                     metrics.setdefault(k, 0.0)
                     metrics[k] += v * valid_pixels
         for k, v in metrics.items():  # divide by total pixels
-            if k == KEY_VALID_PXS:
+            if k == _KEY_VALID_PX:
                 continue
             elif k == "accuracy":
                 assert isinstance(v, dict)
                 for i in v.keys():
-                    v[i] /= metrics[KEY_VALID_PXS]
+                    v[i] /= metrics[_KEY_VALID_PX]
             else:
                 assert isinstance(v, float)
-                v /= metrics[KEY_VALID_PXS]
+                v /= metrics[_KEY_VALID_PX]
 
         # Add metrics from parent class
         metrics.update(super().compute(storage, device=device))
@@ -151,7 +181,7 @@ DepthMetrics = T.TypedDict(
 )
 
 
-DEFAULT_THRESHOLDS: T.Final[list[int]] = [1, 2, 3]
+_THRES_DEFAULT: T.Final[list[int]] = [1, 2, 3]
 
 
 def _threshold_to_key(t_base: float, n: int) -> str:
@@ -178,7 +208,7 @@ def _threshold_to_key(t_base: float, n: int) -> str:
 
 
 def _depth_metrics_single(
-    *, pred: torch.Tensor, true: torch.Tensor, t_base: float = 1.25, t_n: T.Iterable[int] = DEFAULT_THRESHOLDS, eps=1e-8
+    *, pred: torch.Tensor, true: torch.Tensor, t_base: float = 1.25, t_n: T.Iterable[int] = _THRES_DEFAULT, eps=1e-8
 ) -> DepthMetrics | None:
     """
     Computation of error metrics between predicted and ground truth depths.
@@ -231,7 +261,7 @@ def _depth_metrics_single(
     sq_rel = torch.mean(((true - pred) ** 2) / true)
 
     return {
-        KEY_VALID_PXS: valid_amt,
+        _KEY_VALID_PX: valid_amt,
         "abs_rel": abs_rel.item(),
         "sq_rel": sq_rel.item(),
         "rmse": rmse.item(),

@@ -1,7 +1,5 @@
 """Various utility functions and classes for working with convolutional layers."""
 
-from __future__ import annotations
-
 import enum
 import functools
 import inspect
@@ -13,11 +11,44 @@ import torch
 import torch.nn as nn
 from typing_extensions import override
 
-from unipercept.nn.typings import Activation, Norm
+
+from unipercept.nn.layers.norm import NormSpec, get_norm
+from unipercept.nn.layers.activation import ActivationSpec, get_activation
+
+
 from unipercept.utils.abbreviate import short_name
 from unipercept.utils.function import to_2tuple
 
 __all__ = ["with_norm_activation", "NormActivationMixin", "with_padding_support", "Padding", "PaddingMixin"]
+
+
+_OUTPUT_CHANNEL_PROPERTIES = ["out_channels", "out_dims"]
+
+
+@T.overload
+def get_output_channels(mod: nn.Module, *, use_weight: bool = True, none_ok: bool = False) -> int:
+    ...
+
+
+@T.overload
+def get_output_channels(mod: nn.Module, *, use_weight: bool = True, none_ok: bool = True) -> int | None:
+    ...
+
+
+def get_output_channels(mod: nn.Module, *, use_weight=True, none_ok=False) -> int | None:
+    """Returns the number of output channels of a module."""
+    for prop in _OUTPUT_CHANNEL_PROPERTIES:
+        if not hasattr(mod, prop):
+            continue
+        return getattr(mod, prop)
+
+    if use_weight and hasattr(mod, "weight"):
+        return mod.weight.shape[0]
+
+    if none_ok is True:
+        return None
+    else:
+        raise ValueError(f"Module {mod} does not have an output channel property!")
 
 
 # ---------------------- #
@@ -27,11 +58,11 @@ __all__ = ["with_norm_activation", "NormActivationMixin", "with_padding_support"
 
 @torch.jit.ignore()
 def _init_sequential_norm_activation(
-    cls, *args, norm: T.Optional[Norm], activation: T.Optional[Activation], **kwargs
+    cls, *args, norm: T.Optional[NormSpec], activation: T.Optional[ActivationSpec], **kwargs
 ) -> nn.Sequential:
     """Adds optional `norm` and `activation` parameters."""
 
-    act = activation() if activation is not None else nn.Identity()
+    act = get_activation(activation)
 
     seq = _init_sequential_norm(cls, *args, norm=norm, **kwargs)
     seq.add_module(short_name(act), act)
@@ -40,7 +71,9 @@ def _init_sequential_norm_activation(
 
 
 @torch.jit.ignore()
-def _init_sequential_norm(cls, *args, norm: T.Optional[Norm], bias: T.Optional[bool] = None, **kwargs) -> nn.Sequential:
+def _init_sequential_norm(
+    cls, *args, norm: T.Optional[NormSpec], bias: T.Optional[bool] = None, **kwargs
+) -> nn.Sequential:
     """
     Adds an optional ``norm`` parameter, which defaults to LayerNormCHW.
     Setting the ``bias`` parameter to ``None`` will determine whether a bias should
@@ -52,13 +85,8 @@ def _init_sequential_norm(cls, *args, norm: T.Optional[Norm], bias: T.Optional[b
     assert isinstance(bias, bool)
 
     mod = cls(*args, bias=bias, **kwargs)
-    if norm is not None:
-        if not hasattr(mod, "out_channels"):
-            raise ValueError(f"Module {cls} has no attribute `out_channels`!")
-        assert isinstance(mod.out_channels, int)
-        nrm = norm(mod.out_channels)
-    else:
-        nrm = nn.Identity()
+    num_channels = get_output_channels(mod, none_ok=False)
+    nrm = get_norm(norm, num_channels)
 
     seq = nn.Sequential()
     seq.add_module(short_name(mod), mod)
@@ -67,10 +95,10 @@ def _init_sequential_norm(cls, *args, norm: T.Optional[Norm], bias: T.Optional[b
 
 
 @torch.jit.ignore()
-def _init_sequential_activation(cls, *args, activation: T.Optional[Activation] = None, **kwargs) -> nn.Sequential:
+def _init_sequential_activation(cls, *args, activation: T.Optional[ActivationSpec] = None, **kwargs) -> nn.Sequential:
     """Adds an optional `activation` parameter."""
     mod = cls(*args, **kwargs)
-    act = activation() if activation is not None else nn.Identity()
+    act = get_activation(activation)
 
     seq = nn.Sequential()
     seq.add_module(short_name(mod), mod)
@@ -79,10 +107,10 @@ def _init_sequential_activation(cls, *args, activation: T.Optional[Activation] =
     return seq
 
 
-M = T.TypeVar("M", bound=nn.Module)
+_M = T.TypeVar("_M", bound=nn.Module)
 
 
-def with_norm_activation(cls: type[M]) -> type[M]:
+def with_norm_activation(cls: type[_M]) -> type[_M]:
     """Augments a class with norm and activation helpers."""
 
     cls.with_activation = classmethod(_init_sequential_activation)  # type: ignore
@@ -260,6 +288,11 @@ class PaddingMixin:
         return x
 
 
+# -------------------- #
+# Other helper methods #
+# -------------------- #
+
+_Maybe2Int: T.TypeAlias = int | T.Tuple[int, int]
 # -------------------------------- #
 # Pooling for convolutional layers #
 # -------------------------------- #
@@ -355,9 +388,3 @@ POOLING_LAYERS = {
     "max": MaxPool2d,
     "avg": AvgPool2d,
 }
-
-# -------------------- #
-# Other helper methods #
-# -------------------- #
-
-_Maybe2Int: T.TypeAlias = int | T.Tuple[int, int]

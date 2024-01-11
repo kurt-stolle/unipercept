@@ -13,9 +13,10 @@ from torch.utils.checkpoint import checkpoint
 from typing_extensions import override
 
 import unipercept.nn.layers as _ML
-import unipercept.nn.typings as _MT
 from unipercept.log import get_logger
-
+from unipercept.nn.layers.norm import NormSpec, get_norm
+from unipercept.nn.layers.activation import ActivationSpec, get_activation
+from unipercept.nn.layers.conv import Conv2d as ConvModule
 from ._base import Backbone, BackboneFeatureInfo, BackboneFeatures
 
 __all__ = [
@@ -73,8 +74,8 @@ class _Resample(nn.Sequential):
         out_stride: int,
         downsample_mode: str | None,
         upsample_mode: str | None,
-        norm: _MT.Norm | None = _DEFAULT_NORM,
-        pre_activation: bool | _MT.Activation = False,
+        norm: NormSpec | None = _DEFAULT_NORM,
+        pre_activation: bool | ActivationSpec = False,
     ):
         super().__init__()
 
@@ -85,7 +86,7 @@ class _Resample(nn.Sequential):
 
         scale: float = out_stride / in_stride
 
-        pre_act_mod: _MT.Activation | None
+        pre_act_mod: ActivationSpec | None
         if pre_activation is True:
             pre_act_mod = _DEFAULT_ACTIVATION
         elif pre_activation is False:
@@ -173,7 +174,7 @@ class _Combine(nn.Module):
         *,
         downsample_mode: str,
         upsample_mode: str,
-        norm: _MT.Norm | None,
+        norm: NormSpec | None,
         weight_method: WeightMethod | str = WeightMethod.FAST_ATTENTION,
     ):
         super().__init__()
@@ -261,9 +262,9 @@ class FeaturePyramidNetworkLayer(nn.Module):
         *,
         level_to_stride: dict[int, int],
         num_levels: int,
-        activation: _MT.Activation,
-        norm: _MT.Norm,
-        conv_module: type[_MT.ConvModule],
+        activation: ActivationSpec,
+        norm: NormSpec,
+        conv_module: type[ConvModule],
         norm_combine=True,
         padding="same",
         downsample_mode: str = "max",
@@ -333,12 +334,12 @@ class FeaturePyramidNetwork(nn.Module):
         routing: Routing,
         out_channels: int,
         num_hidden: int = 1,
-        norm: _MT.Norm = _DEFAULT_NORM,
-        activation: _MT.Activation = _DEFAULT_ACTIVATION,
+        norm: NormSpec = _DEFAULT_NORM,
+        activation: ActivationSpec = _DEFAULT_ACTIVATION,
         downsample_mode: str = "max",
         upsample_mode: str = "bilinear",
         fill_stride_ratio: float = 2.0,
-        conv_module: type[_MT.ConvModule] = _ML.conv.Separable2d,
+        conv_module: type[ConvModule] = _ML.conv.Separable2d,
     ):
         super().__init__()
 

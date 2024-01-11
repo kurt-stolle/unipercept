@@ -14,6 +14,8 @@ from omegaconf import DictConfig
 from PIL import Image as pil_image
 from unicore import file_io
 
+from unipercept.log import get_logger
+
 if T.TYPE_CHECKING:
     import torch.types
 
@@ -39,39 +41,50 @@ __all__ = [
     "prepare_images",
 ]
 
+_logger = get_logger(__name__)
+
+
+_KEY_REMOTE_PATH = "_remote_path_"  # Key used to store the path used to initialize the config through the API
+
 
 ##########################
-# READING CONFIGURATIONS #
+# SUPPORT FOR W&B REMOTE #
 ##########################
-
 
 WANDB_RUN_PREFIX = "wandb-run://"
 
 
 def _read_config_wandb(path: str) -> DictConfig:
     """
-    Read a configuration file from wiehgts and biases. Prefix wandb-run://entity/project/name
+    Read a configuration file from W&B. Prefix wandb-run://entity/project/name
     """
 
     import wandb
 
     assert path.startswith(WANDB_RUN_PREFIX)
+
+    _logger.info("Reading W&B configuration from %s", path)
 
     run_name = path[len(WANDB_RUN_PREFIX) :]
     wandb_api = wandb.Api()
     run = wandb_api.run(run_name)
 
-    return DictConfig(run.config)
+    config = DictConfig(run.config)
+    config[_KEY_REMOTE_PATH] = path
+
+    return config
 
 
 def _read_model_wandb(path: str) -> str:
     """
-    Read a model from wiehgts and biases. Prefix wandb-run://entity/project/name
+    Read a model from W7B. Prefix wandb-run://entity/project/name
     """
 
     import wandb
 
     assert path.startswith(WANDB_RUN_PREFIX)
+
+    _logger.info("Reading W&B model checkpoint from %s", path)
 
     run_name = path[len(WANDB_RUN_PREFIX) :]
     wandb_api = wandb.Api()
@@ -80,6 +93,11 @@ def _read_model_wandb(path: str) -> str:
     model_artifact_name = f"{run.entity}/{run.project}/model-{run.name}:latest/model.safetensors"
 
     return file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
+
+
+##########################
+# READING CONFIGURATIONS #
+##########################
 
 
 def read_config(config: ConfigParam) -> DictConfig:
@@ -103,6 +121,8 @@ def read_config(config: ConfigParam) -> DictConfig:
         return _read_config_wandb(config)
 
     if isinstance(config, str) or isinstance(config, os.PathLike):
+        _logger.info("Reading configuration from path %s", config)
+
         config_path = file_io.Path(config).resolve().expanduser()
         if not config_path.is_file():
             raise FileNotFoundError(f"Could not find configuration file at {config_path}")
@@ -134,7 +154,14 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
     target
         The model to load the state into.
     """
+
+    # Check remote
+    if isinstance(state, str) and state.startswith(WANDB_RUN_PREFIX):
+        state = _read_model_wandb(state)
+
+    # Check argument type
     if isinstance(state, str) or isinstance(state, os.PathLike):
+        _logger.info("Loading checkpoint from path %s", state)
         # State was passed as a file path
         state_path = file_io.Path(state)
         if not state_path.is_file():
@@ -160,9 +187,11 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
             case _:
                 raise ValueError(f"Checkpoint file must be a .pth or .safetensors file, got {state_path}")
     elif isinstance(state, Engine):
+        _logger.info("Loading checkpoint from engine")
         # State was passed as a Engine object
         state.recover(model=target)
     elif isinstance(state, T.Mapping):
+        _logger.info("Loading state from weights mapping")
         target.load_state_dict(state, strict=True)
     else:
         raise TypeError(f"Expected a checkpoint file path or a dictionary, got {state}")
@@ -173,7 +202,7 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
 ####################
 
 
-def create_engine(config: ConfigParam, *, model: nn.Module | None = None) -> Engine:
+def create_engine(config: ConfigParam) -> Engine:
     """
     Create a engine from a configuration file. The engine will be initialized with the default parameters, and
     the configuration file will be used to override them.
@@ -192,7 +221,6 @@ def create_engine(config: ConfigParam, *, model: nn.Module | None = None) -> Eng
 
     config = read_config(config)
     engine: Engine = instantiate(config.engine)
-    engine.recover(model=model)
 
     return engine
 
@@ -220,17 +248,21 @@ def create_model(
     """
 
     from .config import instantiate
-    from .engine import Engine
 
+    # Check remote
     if isinstance(config, str) and config.startswith(WANDB_RUN_PREFIX):
+        if state is None:
+            state = _read_model_wandb(config)
         config = _read_config_wandb(config)
-        state = _read_model_wandb(config)
 
+    # Handle binary PyTorch model
     if (
         isinstance(config, (str, os.PathLike))
         and (pickle_path := file_io.Path(config)).is_file()
         and pickle_path.suffix == ".bin"
     ):
+        _logger.info("Loading binary PyTorch model from %s", pickle_path)
+
         if state is not None:
             raise ValueError("Cannot specify both a binary PyTorch model (`.bin` suffix) and a state")
         with open(pickle_path, "rb") as f:
@@ -239,17 +271,23 @@ def create_model(
             raise TypeError(f"Expected binary file to load an `nn.Module` class, got {type(model)}")
         return model
 
+    # Default handling
     config = read_config(config)
     model: ModelBase = instantiate(config.model)
 
     if state is not None:
         load_checkpoint(state, model)
+    elif _KEY_REMOTE_PATH in config:
+        _logger.info(
+            "Loading remote checkpoint matching configuration read path",
+        )
+        load_checkpoint(config[_KEY_REMOTE_PATH], model)
 
     return model.eval().to(device)
 
 
 def create_dataset(
-    config: ConfigParam, variant: str = "test", batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam, variant: T.Optional[str] = None, batch_size: int = 1, return_loader: bool = True
 ) -> tuple[T.Iterator[InputData], Metadata]:
     """
     Create an iterator of a dataloader as specified in a configuration file.
@@ -277,12 +315,15 @@ def create_dataset(
 
     config = read_config(config)
 
-    if variant not in config.engine.loaders:
-        raise KeyError(
-            f"Variant {variant} not found in data configuration, available variants are {dict(config.engine.loaders).keys()}"
-        )
+    loaders = dict(config.engine.loaders)
 
-    datafactory = instantiate(config.engine.loaders[variant])
+    if variant is None:
+        keys = list(loaders.keys())
+        variant = keys[-1]
+    elif variant not in loaders:
+        raise KeyError(f"Variant {variant} not found in data configuration, available variants are {loaders.keys()}")
+
+    datafactory = instantiate(loaders[variant])
     dataloader = datafactory(batch_size)
     if return_loader:
         return dataloader, datafactory.dataset.info
@@ -317,6 +358,11 @@ def create_loaders(config: ConfigParam, *, keys: T.Optional[T.Collection[str]] =
         loaders[key] = instantiate(loader)
 
     return loaders
+
+
+####################################################
+# FEEDING IMAGES TO MODELS WITHOUT USING A DATASET #
+####################################################
 
 
 def prepare_images(

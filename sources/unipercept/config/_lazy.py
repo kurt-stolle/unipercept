@@ -9,21 +9,20 @@ import builtins
 import collections.abc as abc
 import dataclasses
 import os
-import pydoc
 import types
 import typing as T
 import uuid
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import is_dataclass
-from typing import Any, List, Tuple, Union
+from typing import Any, List
 
 import omegaconf
-import torch.nn as nn
 import yaml
 from omegaconf import DictConfig, ListConfig, OmegaConf, SCMode
 from typing_extensions import override
 from unicore import file_io
+from unipercept.utils.inspect import generate_path, locate_object
 
 __all__ = [
     "LazyCall",
@@ -32,9 +31,6 @@ __all__ = [
     "bind",
     "LazyObject",
     "instantiate",
-    "locate",
-    "use_norm",
-    "use_activation",
     "as_dict",
     "as_set",
     "as_tuple",
@@ -80,7 +76,7 @@ class LazyCall:
         if is_dataclass(self._target):
             # omegaconf object cannot hold dataclass type
             # https://github.com/omry/omegaconf/issues/784
-            target = _convert_target_to_string(self._target)
+            target = generate_path(self._target)
         else:
             target = self._target
         kwargs["_target_"] = target
@@ -290,7 +286,7 @@ class LazyConfig:
             def _replace_type_by_name(x):
                 if "_target_" in x and callable(x._target_):
                     try:
-                        x._target_ = _convert_target_to_string(x._target_)
+                        x._target_ = generate_path(x._target_)
                     except AttributeError:
                         pass
 
@@ -404,7 +400,7 @@ class _LazyCall(T.Generic[_P, _L]):
         if is_dataclass(self._target):
             # omegaconf object cannot hold dataclass type
             # https://github.com/omry/omegaconf/issues/784
-            target = _convert_target_to_string(self._target)
+            target = generate_path(self._target)
         else:
             target = self._target
         kwargs[_TARGET_KEY] = target
@@ -433,68 +429,6 @@ def call(func: T.Callable[_P, _L], /) -> T.Callable[_P, _L]:
     deferred until the returned object is called.
     """
     return _LazyCall(func)  # type: ignore
-
-
-def _convert_target_to_string(t: Any) -> str:
-    """
-    Inverse of ``locate()``.
-
-    Args:
-        t: any object with ``__module__`` and ``__qualname__``
-    """
-    module, qualname = t.__module__, t.__qualname__
-
-    # Compress the path to this object, e.g. ``module.submodule._impl.class``
-    # may become ``module.submodule.class``, if the later also resolves to the same
-    # object. This simplifies the string, and also is less affected by moving the
-    # class implementation.
-    module_parts = module.split(".")
-    for k in range(1, len(module_parts)):
-        prefix = ".".join(module_parts[:k])
-        candidate = f"{prefix}.{qualname}"
-        try:
-            if locate(candidate) is t:
-                return candidate
-        except ImportError:
-            pass
-    return f"{module}.{qualname}"
-
-
-def locate(name: str) -> T.Any:
-    """
-    Dynamically locates and returns an object by its fully qualified name.
-
-    Based on Detectron2's `locate` function.
-
-    Parameters
-    ----------
-    name (str):
-        The fully qualified name of the object to locate.
-
-    Returns
-    -------
-    Any:
-        The located object.
-
-    Raises
-    ------
-    ImportError
-        If the object cannot be located.
-    """
-    obj = pydoc.locate(name)
-
-    # Some cases (e.g. torch.optim.sgd.SGD) not handled correctly
-    # by pydoc.locate. Try a private function from hydra.
-    if obj is None:
-        try:
-            # from hydra.utils import get_method - will print many errors
-            from hydra.utils import _locate
-        except ImportError as e:
-            raise ImportError(f"Cannot dynamically locate object {name}!") from e
-        else:
-            obj = _locate(name)  # it raises if fails
-
-    return obj
 
 
 _INST_SEQ_TYPEMAP: dict[type, type] = {
@@ -553,7 +487,7 @@ def instantiate(cfg: T.Any, /) -> T.Any:
 
         if isinstance(cls, str):
             cls_name = cls
-            cls = locate(cls_name)
+            cls = locate_object(cls_name)
             assert cls is not None, cls_name
         else:
             try:
@@ -618,20 +552,6 @@ def wrap_on_result(func_wrap, func_next, **kwargs_next):
         return func_next(func_wrap(*args, **kwargs), **kwargs_next)
 
     return wrapper
-
-
-def use_norm(name: str):
-    from unipercept.nn.layers.utils import wrap_norm
-
-    return call(wrap_norm)(name=name)
-
-
-def use_activation(module: type[nn.Module], inplace: T.Optional[bool] = None, **kwargs):
-    from unipercept.nn.layers.utils import wrap_activation
-
-    if inplace is not None:
-        kwargs["inplace"] = inplace
-    return call(wrap_activation)(module=module, **kwargs)
 
 
 def as_dict(**kwargs):

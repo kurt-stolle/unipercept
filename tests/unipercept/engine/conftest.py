@@ -4,9 +4,17 @@ import typing as T
 
 import pytest
 import torch.nn as nn
-from unimodels import toys
 
 import unipercept as up
+
+
+class SemSegModel(nn.Module):
+    def __init__(self, in_channels, out_classes):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_classes, 1)
+
+    def forward(self, x):
+        return self.conv(x).softmax(dim=1)
 
 
 @pytest.fixture(scope="session")
@@ -18,13 +26,13 @@ def dataset():
 
 @pytest.fixture(scope="session")
 def model() -> nn.Module:
-    return toys.SemanticSegmenter(10, 3)
+    return SemSegModel(3, 10)
 
 
 @pytest.fixture(scope="session")
 def model_factory() -> T.Callable[..., nn.Module]:
     def create_model(trial):
-        return toys.SemanticSegmenter(10, 3)
+        return SemSegModel(3, 10)
 
     return create_model
 

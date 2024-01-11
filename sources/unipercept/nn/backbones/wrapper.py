@@ -51,12 +51,16 @@ class WrapperBase(Backbone, metaclass=abc.ABCMeta):
         dimension_order: str | DimensionOrder,
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225],
+        jit_script: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
         self.dimension_order = DimensionOrder(dimension_order)
-        self.normalize = torch.jit.script(Normalizer(mean, std))
+        self.normalize = Normalizer(mean, std)
+
+        if jit_script:
+            self.normalize = torch.jit.script(self.normalize)
 
     @override
     def forward(self, images: torch.Tensor) -> TensorDictBase:

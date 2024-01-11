@@ -41,12 +41,24 @@ class DVPSWriter(PanopticWriter, DepthWriter):
     Writes DVPS requirements to storage.
     """
 
+    ids_key = "ids"
+
     @TX.override
     def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
         super().update(storage, inputs, outputs)
 
-        storage.setdefault(SEQUENCE_ID, inputs.get_at("ids", 0), inplace=True)
-        storage.setdefault(FRAME_ID, inputs.get_at("ids", 1), inplace=True)
+        storage_keys = storage.keys(include_nested=True, leaves_only=True)
+        if SEQUENCE_ID in storage_keys and FRAME_ID in storage_keys:
+            return
+
+        combined_id = inputs.get(self.ids_key)
+        assert combined_id.shape[-1] == 2, f"Expected {self.ids_key} to have shape (..., 2). Got {combined_id.shape}."
+
+        sequence_id = combined_id[..., 0]
+        frame_id = combined_id[..., 1]
+
+        storage.set(SEQUENCE_ID, sequence_id, inplace=True)
+        storage.set(FRAME_ID, frame_id, inplace=True)
 
 
 @D.dataclass(kw_only=True)

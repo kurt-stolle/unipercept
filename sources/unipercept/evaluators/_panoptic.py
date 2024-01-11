@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses as D
 import enum as E
 import typing as T
+from xml.etree.ElementInclude import include
 
 import einops
 import pandas as pd
@@ -33,6 +34,7 @@ _ColorType: T.TypeAlias = tuple[
     int, int
 ]  # A (category_id, instance_id) tuple that uniquely identifies a panoptic segment.
 
+VALID_PANOPTIC: T.Final[str] = "valid_panoptic"
 TRUE_PANOPTIC: T.Final[str] = "true_panoptic"
 PRED_PANOPTIC: T.Final[str] = "pred_panoptic"
 
@@ -49,6 +51,10 @@ class PanopticWriter(Evaluator):
     plot_true: PlotMode = PlotMode.ONCE
     plot_pred: PlotMode = PlotMode.ALWAYS
 
+    true_key = ("captures", "segmentations")
+    true_group_index = -1  # the most recent group, assuming temporal ordering
+    pred_key = "segmentations"
+
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
         from unipercept import get_info
@@ -57,9 +63,29 @@ class PanopticWriter(Evaluator):
 
     @override
     def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
+        """
+        Stores the panoptic segmentation predictions and ground truths in storage for later evaluation.
+        """
         super().update(storage, inputs, outputs)
-        storage.setdefault(TRUE_PANOPTIC, inputs.get(("captures", "segmentations")), inplace=True)
-        storage.setdefault(PRED_PANOPTIC, outputs.get("segmentations"), inplace=True)
+
+        storage_keys = storage.keys(include_nested=True, leaves_only=True)
+        if TRUE_PANOPTIC in storage_keys and PRED_PANOPTIC in storage_keys and VALID_PANOPTIC in storage_keys:
+            return
+
+        pred = outputs.get(self.pred_key)
+        if pred is None:
+            raise RuntimeError(f"Panoptic segmentation output not found in {outputs=}")
+
+        true: torch.Tensor = inputs.get(self.true_key, default=None)
+        if true is None:  # Generate dummy values for robust evaluation downstream
+            true = torch.full_like(pred, PanopticMap.IGNORE, dtype=torch.long)
+        else:
+            true = true[:, self.true_group_index, ...]
+
+        valid = (true != PanopticMap.IGNORE).any(dim=(-1)).any(dim=-1)
+
+        for key, item in ((TRUE_PANOPTIC, true), (PRED_PANOPTIC, pred), (VALID_PANOPTIC, valid)):
+            storage.set(key, item, inplace=True)
 
     @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
@@ -157,6 +183,9 @@ class PanopticEvaluator(PanopticWriter):
             n_iter = tqdm(n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt)
 
         for n in n_iter:
+            valid = storage.get_at(VALID_PANOPTIC, n).item()
+            if not valid:
+                continue
             pred = storage.get_at(PRED_PANOPTIC, n).clone().to(device=device)
             true = storage.get_at(TRUE_PANOPTIC, n).clone().to(device=device)
 

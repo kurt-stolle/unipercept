@@ -12,9 +12,10 @@ import torch.nn as nn
 import torch.utils.data
 from omegaconf import DictConfig
 from PIL import Image as pil_image
-from unicore import file_io
+from unipercept import file_io
 
 from unipercept.log import get_logger
+from unipercept.model import ModelFactory
 
 if T.TYPE_CHECKING:
     import torch.types
@@ -225,6 +226,17 @@ def create_engine(config: ConfigParam) -> Engine:
     return engine
 
 
+def create_model_factory(config: ConfigParam, *, state: str | None) -> ModelFactory:
+    """
+    Create a factory for models from a configuration file. The factory will be initialized with the default parameters,
+    and the configuration file will be used to override them.
+    """
+    config = read_config(config)
+    model_factory = ModelFactory(config.model, checkpoint_path=state)
+
+    return model_factory
+
+
 def create_model(
     config: ConfigParam, *, state: StateParam | None = None, device: str | torch.types.Device = "cpu"
 ) -> ModelBase:
@@ -286,9 +298,23 @@ def create_model(
     return model.eval().to(device)
 
 
+@T.overload
+def create_dataset(
+    config: ConfigParam, variant: T.Optional[str], batch_size: int = 1, return_loader: bool = True
+) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
+    ...
+
+
+@T.overload
+def create_dataset(
+    config: ConfigParam, variant: T.Optional[str], batch_size: int = 1, return_loader: bool = True
+) -> tuple[T.Iterator[InputData], Metadata]:
+    ...
+
+
 def create_dataset(
     config: ConfigParam, variant: T.Optional[str] = None, batch_size: int = 1, return_loader: bool = True
-) -> tuple[T.Iterator[InputData], Metadata]:
+) -> tuple[T.Iterator[InputData] | torch.utils.data.DataLoader[InputData], Metadata]:
     """
     Create an iterator of a dataloader as specified in a configuration file.
 

@@ -21,7 +21,7 @@ import omegaconf
 import yaml
 from omegaconf import DictConfig, ListConfig, OmegaConf, SCMode
 from typing_extensions import override
-from unicore import file_io
+from unipercept import file_io
 from unipercept.utils.inspect import generate_path, locate_object
 
 __all__ = [

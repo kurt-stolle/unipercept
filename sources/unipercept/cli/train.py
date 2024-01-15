@@ -7,7 +7,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
-from unicore import file_io
+from unipercept import file_io
 
 import unipercept as up
 
@@ -123,10 +123,10 @@ def main(args):
     model_factory = up.model.ModelFactory(lazy_config.model)
 
     if args.evaluation:
-        results = engine.evaluate(model_factory, weights=args.weights)
+        results = engine.run_evaluation(model_factory, weights=args.weights)
         _logger.info("Evaluation results: \n%s", up.log.create_table(results, format="long"))
     else:
-        engine.train(model_factory, trial=None, stage=args.stage if args.stage >= 0 else None, weights=args.weights)
+        engine.run_training(model_factory, trial=None, stage=args.stage if args.stage >= 0 else None, weights=args.weights)
 
 
 if __name__ == "__main__":

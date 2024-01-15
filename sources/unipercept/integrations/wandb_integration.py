@@ -16,7 +16,7 @@ import typing as T
 import torch.nn as nn
 import typing_extensions as TX
 import wandb
-from unicore import file_io
+from unipercept import file_io
 
 from unipercept import read_config
 from unipercept.engine import EngineParams

@@ -8,7 +8,7 @@ import typing as T
 
 import torch
 from tqdm import tqdm
-from unicore import file_io
+from unipercept import file_io
 
 import unipercept
 

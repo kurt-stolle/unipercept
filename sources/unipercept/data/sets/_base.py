@@ -10,10 +10,10 @@ import typing as T
 
 import torch
 import typing_extensions as TX
-from unicore.catalog import DataManager
-from unicore.utils.dataset import Dataset as _BaseDataset
-from unicore.utils.frozendict import frozendict
-from unicore.utils.tensorclass import Tensorclass
+from unipercept.catalog import DataManager
+from unipercept.utils.dataset import Dataset as _BaseDataset
+from unipercept.utils.frozendict import frozendict
+from unipercept.utils.tensorclass import Tensorclass
 
 from unipercept.data.tensors import PanopticMap
 from unipercept.utils.camera import build_calibration_matrix

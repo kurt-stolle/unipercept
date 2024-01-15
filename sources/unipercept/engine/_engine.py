@@ -29,9 +29,9 @@ from tensordict import TensorDict, TensorDictBase
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
-from unicore import file_io
-from unicore.utils.status import StatusDescriptor
-from unicore.utils.tensorclass import Tensorclass
+from unipercept import file_io
+from unipercept.utils.status import StatusDescriptor
+from unipercept.utils.tensorclass import Tensorclass
 
 import unipercept.integrations.slurm_integration
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
@@ -76,6 +76,19 @@ class EngineStatus(E.IntFlag):
     IS_PREDICTION_RUN = E.auto()
     HP_TUNING_MODE = E.auto()
     EXPERIMENT_TRACKERS_STARTED = E.auto()
+
+
+class FloatingPointPrecision(E.StrEnum):
+    """
+    Floating point precision type.
+    """
+
+    FP32 = E.auto()
+    FP16 = E.auto()
+    BF16 = E.auto()
+
+
+FloatingPointPrecisionType: T.TypeAlias = T.Literal["fp32", "fp16", "bf16"] | FloatingPointPrecision
 
 
 class Engine:
@@ -209,12 +222,12 @@ class Engine:
         return None
 
     @status(EngineStatus.IS_TRAINING_RUN)
-    def train(
+    def run_training(
         self,
         model_factory: ModelFactory[Trial, nn.Module],
         *,
         trial: Trial | None = None,
-        stage: int | str | None = None,
+        stage: int | None = None,
         weights: str | None = None,
     ) -> nn.Module:
         """
@@ -239,37 +252,10 @@ class Engine:
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("train")
 
-        # Stage resolver
         if stage is None:
             stage = self._state.stage
-        elif isinstance(stage, str):
-            stage = self._stages.index(stage)
 
-        # Divide batch size over the amount of processes
-        assert self._params.train_batch_size % self._xlr.num_processes == 0, (
-            f"Training batch size {self._params.train_batch_size} must be divisible over the amount of "
-            f"processes {self._xlr.num_processes}."
-        )
-        loader_factory = self._loaders[self._stages[stage]]
-        loader = loader_factory(self._params.train_batch_size // self._xlr.num_processes)
-
-        # Infer the number of steps/updates per epoch
-        steps_per_epoch = len(loader) // self._xlr.num_processes
-        updates_per_epoch = math.ceil(steps_per_epoch / self._params.gradient_accumulation_steps)
-
-        _logger.debug(
-            (
-                "Loader contains %d batches (%d processes, %d steps per epoch, %d accumulation steps, "
-                f"%d steps per optimization)"
-            ),
-            len(loader),
-            self._xlr.num_processes,
-            steps_per_epoch,
-            self._params.gradient_accumulation_steps,
-            updates_per_epoch,
-        )
-
-        # Instantiate a model through the model factory
+        loader, steps_per_epoch, updates_per_epoch = self.get_training_loader(stage)
         model = model_factory(trial)
         scheduled_epochs = self._params.get_train_epochs(steps_per_epoch)
         optimizer = self._get_optimizer(model)
@@ -293,7 +279,7 @@ class Engine:
             self._state.trial_name = "training"
             self._state.trial_params = {}
 
-        return self._train_loop(
+        return self.run_training_loop(
             loader,
             model,
             optimizer,
@@ -304,7 +290,7 @@ class Engine:
 
     @status(EngineStatus.IS_EVALUATION_RUN)
     @torch.no_grad()
-    def evaluate(
+    def run_evaluation(
         self,
         model_factory: ModelFactory[Trial, nn.Module],
         *,
@@ -331,11 +317,11 @@ class Engine:
             loader_factory = self._loaders[loader_key]
             loader = loader_factory(self._params.infer_batch_size)
 
-            metrics, samples_processed = self._inference_loop(
+            metrics, samples_processed = self.run_inference_loop(
                 model, loader, prefix=prefix_suite, handlers=handlers, weights=weights
             )
 
-            self._training_log(metrics)
+            self._train_log(metrics)
             self._edge(Event.ON_EVALUATE, metrics=metrics)
             self._mem_tracker.stop_and_update_metrics("eval", metrics)
 
@@ -350,117 +336,63 @@ class Engine:
 
         return metrics_overall
 
-    @status.assert_status(~(EngineStatus.IS_TRAINING_RUN | EngineStatus.IS_EVALUATION_RUN))
-    @status(EngineStatus.IS_PREDICTION_RUN)
-    @torch.no_grad()
-    def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
-        raise NotImplementedError("TODO: Implement prediction")
-
-    ############
-    # Privates #
-    ############
-
-    def _seed(self) -> None:
+    def get_training_loader(self, stage: int) -> tuple[torch.utils.data.DataLoader, int, int]:
         """
-        Seed the random number generators.
-        """
-        set_seed(self._params.seed, fully_deterministic=self._params.full_determinism)
-
-    def _edge(self, event: Event, **kwargs) -> None:
-        """
-        Called internally on every event.
-        """
-        self._signal = self._delegate(event, self._params, self._state, self._signal, **kwargs)
-
-    def _get_config_object(self) -> dict[str, T.Any]:
-        """
-        Attempt to locate the configuration YAML file for the current project.
-        If that does not exist, return None. If it does exist, return the configuration object.
-        """
-        from unipercept.config import LazyConfig
-
-        lazy_path = self.root_path / "config.yaml"
-        if not lazy_path.exists():
-            raise RuntimeError(f"Could not find configuration file at {lazy_path}")
-
-        try:
-            lazy = LazyConfig.load(str(lazy_path))
-        except Exception as e:
-            _logger.warn(f"Could not load configuration from {lazy_path}: {e}")
-            return {}
-
-        lazy_obj = OmegaConf.to_container(lazy, resolve=False)
-        assert isinstance(lazy_obj, dict)
-        return T.cast(dict[str, T.Any], lazy_obj)
-
-    def _start_experiment_trackers(self, *, restart: bool = True) -> None:
-        """
-        Initialize the experiment trackers, e.g. WandB, TensorBoard.
-
-        Parameters
-        ----------
-        model : nn.Module
-            The model to be watched by the loggers. Only applicable to some loggers (e.g. WandB)
-        restart : bool, optional
-            Whether to restart the loggers, by default True. Can be set to False to continue logging to the same
-            trackers, e.g. when running an inference loop during training.
-
-        Notes
-        -----
-        This should be called at the beginning of training  and inference.
+        Get the training loader for the given stage.
         """
 
-        from unipercept.integrations import wandb_integration
+        if stage is None:
+            stage = self._state.stage
 
-        if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status and not restart:
-            _logger.debug("Trackers already started, skipping setup")
-            return
-        else:
-            self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED
-
-        _logger.debug("Setting up experiment trackers")
-
-        # Session name is organised in /group_part1/group_part2/.../session_name
-        session_name_parts = self._params.session_name.split("/")
-        if len(session_name_parts) > 1:
-            session_group = "-".join(session_name_parts[:-1])
-        else:
-            session_group = "ungrouped"
-
-        # Determine the job type from the status
-        if self.status & EngineStatus.IS_TRAINING_RUN:
-            job_type = "train"
-        elif self.status & EngineStatus.IS_EVALUATION_RUN:
-            job_type = "eval"
-        elif self.status & EngineStatus.IS_PREDICTION_RUN:
-            job_type = "pred"
-        else:
-            job_type = "misc"
-
-        session_id = f"{self._params.project_name}-{self._params.session_name}-{job_type}".replace("/", "-")
-
-        # Set up tracker-specific parameters
-        specific_kwargs = {}
-        specific_kwargs["wandb"] = {
-            "name": wandb_integration.sanitize(self._params.session_name.replace("/", " ")),
-            "job_type": job_type,
-            "group": session_group,
-            "notes": self._params.notes,
-            "tags": [f"stage_{self._state.stage}"] + list(self._params.tags),
-            "id": wandb_integration.sanitize(session_id),
-            "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
-        }
-
-        # Accelerate handles the experiment trackers for us
-        self._xlr.init_trackers(
-            session_id,
-            config=self._get_config_object(),
-            init_kwargs=specific_kwargs,
+        # Divide batch size over the amount of processes
+        assert self._params.train_batch_size % self._xlr.num_processes == 0, (
+            f"Training batch size {self._params.train_batch_size} must be divisible over the amount of "
+            f"processes {self._xlr.num_processes}."
         )
-        self._edge(Event.ON_TRACKERS_SETUP, session_id=session_id)
-        self._xlr.wait_for_everyone()
+        loader_factory = self._loaders[self._stages[stage]]
+        loader = loader_factory(self._params.train_batch_size // self._xlr.num_processes)
 
-    def _train_loop(
+        # Infer the number of steps/updates per epoch
+        steps_per_epoch = len(loader) // self._xlr.num_processes
+        updates_per_epoch = math.ceil(steps_per_epoch / self._params.gradient_accumulation_steps)
+
+        _logger.debug(
+            (
+                "Loader contains %d batches (%d processes, %d steps per epoch, %d accumulation steps, "
+                "%d steps per optimization)"
+            ),
+            len(loader),
+            self._xlr.num_processes,
+            steps_per_epoch,
+            self._params.gradient_accumulation_steps,
+            updates_per_epoch,
+        )
+
+        return loader, steps_per_epoch, updates_per_epoch
+
+    def run_training_step(self, model: nn.Module, inputs: InputType) -> TensorDict:
+        """
+        A single training step (forward + backward + update).
+        """
+        model.train()
+        output: TensorDict = model(inputs)
+
+        if "losses" in output.keys():
+            losses: TensorDict = output["losses"]
+        else:
+            losses = output
+
+        loss_tensor = torch.stack([loss for loss in losses.values()])  # type: ignore
+
+        if self._params.train_sum_losses:
+            self._xlr.backward(loss_tensor.sum())
+        else:
+            self._xlr.backward(loss_tensor, gradient=torch.ones_like(loss_tensor))
+
+        losses.detach_()
+        return losses.apply(lambda _l: _l / self._params.gradient_accumulation_steps)
+    
+    def run_training_loop(
         self,
         loader: torch.utils.data.DataLoader,
         model: nn.Module,
@@ -568,7 +500,7 @@ class Engine:
                     self._edge(Event.ON_TRAIN_STEP_BEGIN)
 
                 with self._xlr.accumulate(model):
-                    tr_loss_step = self._training_step(model, inputs)
+                    tr_loss_step = self.run_training_step(model, inputs)
 
                 # Add the losses individually
                 if total_session_steps == 0:
@@ -685,188 +617,36 @@ class Engine:
                 metrics["engine/" + k] = metrics.pop(k)
 
         self._mem_tracker.stop_and_update_metrics("train", metrics)
-        self._training_log(metrics)
+        self._train_log(metrics)
         self._edge(Event.ON_TRAIN_END)
 
         return model
 
-    def _train_handle_signals(
+    def run_inference_step(
         self,
-        tr_loss: TensorDict,
         model: nn.Module,
-        optimizer: torch.optim.Optimizer,
-        *,
-        trial: Trial | None,
-    ) -> None:
+        inputs: TensorDict,
+    ) -> TensorDictBase:
         """
-        Called at the end of every step and epoch to log, save, and evaluate the model.
-        Steps could be skipped depending on the configuration.
+        Perform an evaluation step on `model` using `inputs`.
         """
 
-        # SIGNAL: logging
-        if self._signal.should_log:
-            assert (
-                self._state.step != self._globalstep_last_logged
-            ), "No new logs should be created when nothing changed"
-
-            logs: dict[str, float] = {}
-            logs["optimizer/lr"] = _get_learning_rate(optimizer)
-
-            # all_gather + mean() to get average loss over all processes
-            tr_loss_scalar = {k: gather(l).mean().item() for k, l in tr_loss.items()}
-
-            # reset tr_loss to zero
-            # tr_loss -= tr_loss
-            tr_loss.apply_(lambda _l: _l - _l)
-
-            for k, v in tr_loss_scalar.items():
-                logs["losses/" + k] = round(v / (self._state.step - self._globalstep_last_logged), 4)
-
-            self._globalstep_last_logged = self._state.step
-            # self.store_flops()
-            self._training_log(logs)
-
-        # SIGNAL: save model
-        if self._signal.should_save:
-            _logger.info("Saving state and model at step %d (epoch %d)", self._state.step, self._state.epoch)
-
-            # Save the training state (for recovery on in this environment)
-            try:
-                state_path = self._save_state(None)
-            except Exception as e:
-                state_path = None
-                _logger.error("Failed to save accelerator state: %s", e, stacklevel=2)
-
-            # Save the (unwrapped) model
-            try:
-                model_path = self._save_weights(None, model)
-            except Exception as e:
-                model_path = None
-                _logger.error("Failed to save model: %s", e, stacklevel=2)
-
-            # Report event
-            self._edge(Event.ON_SAVE, model_path=model_path, state_path=state_path)
-
-        # SIGNAL: evaluate model
-        if self._signal.should_evaluate:
-            _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
-
-            self.evaluate(lambda _: model, trial=trial)
-
-    def _training_log(self, logs: dict[str, T.Any]) -> None:
-        """
-        Log `logs` on the various objects watching training.
-
-        Subclass and override this method to inject custom behavior.
-
-        Parameters
-        ----------
-        logs : dict[str, float]
-            The logs to be logged.
-        """
-        logs["engine/epoch"] = round(self._state.epoch, 2)
-        logs["engine/step"] = self._state.step
-        logs["engine/epoch_step"] = self._xlr.step
-        logs["engine/status"] = self.status
-
-        self._edge(Event.ON_LOG, logs=logs)  # NOTE: logs may be updated in-place
-
-        self._state.log_history.append(logs)
-        if len(self._state.log_history) > self._params.logging_history:
-            self._state.log_history.pop(0)
-        self._xlr.log(logs, step=self._state.step)
-
-    def _training_step(self, model: nn.Module, inputs: InputType) -> TensorDict:
-        """
-        A single training step (forward + backward + update).
-        """
-        model.train()
-        output: TensorDict = model(inputs)
-
-        if "losses" in output.keys():
-            losses: TensorDict = output["losses"]
+        outputs: TensorDictBase = model(inputs)
+        if "predictions" in outputs.keys():
+            predictions = outputs["predictions"]
         else:
-            losses = output
+            predictions = outputs
 
-        loss_tensor = torch.stack([loss for loss in losses.values()])  # type: ignore
+        return predictions
 
-        if self._params.train_sum_losses:
-            self._xlr.backward(loss_tensor.sum())
-        else:
-            self._xlr.backward(loss_tensor, gradient=torch.ones_like(loss_tensor))
-
-        losses.detach_()
-        return losses.apply(lambda _l: _l / self._params.gradient_accumulation_steps)
-
-    def _load_weights(self, path: str, model: nn.Module) -> nn.Module:
-        """
-        Load the model checkpoint at the given path.
-
-        Parameters
-        ----------
-        path : str
-            The path to the model checkpoint. Skipped when `None`.
-        model : nn.Module
-            The model to load the checkpoint into.
-
-        Returns
-        -------
-        nn.Module
-            The model with the loaded checkpoint.
-        """
-        from accelerate import load_checkpoint_and_dispatch
-
-        _logger.debug("Loading weights from %s", path)
-        return load_checkpoint_and_dispatch(model, file_io.get_local_path(path))
-
-    def _save_weights(self, path: T.Optional[str], model: nn.Module) -> str:
-        """
-        Save a model, unwrapping it from the accelerator
-
-        Parameters
-        ----------
-        output_dir
-            The directory to save the model checkpoints to.
-        """
-        if path is None:
-            path = os.path.join(self._xlr.project_dir, "models", "step-" + str(self._state.step))
-
-        if check_main_process():
-            os.makedirs(path, exist_ok=True)
-            model = self._xlr.unwrap_model(model)
-            self._xlr.save_model(model, save_directory=path, safe_serialization=True)
-
-        return path
-
-    def _load_state(self, path: T.Optional[str]) -> None:
-        """
-        Load the engine state from the given path, if no path is given, the last checkpoint is used.
-        """
-        if path is not None:
-            _logger.debug("Loading engine state at %s", path)
-            path = file_io.get_local_path(path)
-        elif self._recover_path is not None:
-            _logger.debug("Loading engine state from recovery path: %s", path)
-            path = file_io.get_local_path(self._recover_path)
-        else:
-            auto_dir = os.path.join(self._xlr.project_dir, "checkpoints")
-            if not file_io.isdir(auto_dir) or len(file_io.ls(auto_dir)) == 0:
-                _logger.debug("No engine state path given and no automatic checkpoints found.")
-                return
-            else:
-                _logger.debug("No engine state path given. Defaulting to last automatic checkpoint in %s", auto_dir)
-        self._xlr.load_state(path)  # type: ignore
-
-    def _save_state(self, path: T.Optional[str]) -> str:
-        """
-        Save the engine state for recovery/resume. Sometimes called a 'checkpoint'.
-        """
-        if path is not None:
-            path = file_io.get_local_path(path)
-        return self._xlr.save_state(path)  # type: ignore
-
+    @status.assert_status(~(EngineStatus.IS_TRAINING_RUN | EngineStatus.IS_EVALUATION_RUN))
+    @status(EngineStatus.IS_PREDICTION_RUN)
+    @torch.no_grad()
+    def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
+        raise NotImplementedError("TODO: Implement prediction")
+    
     @torch.inference_mode()
-    def _inference_loop(
+    def run_inference_loop(
         self,
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
@@ -912,19 +692,6 @@ class Engine:
             _logger.info(f"Model is already prepared for evaluation: {model.__class__.__name__}")
 
         model = self._xlr.unwrap_model(model, keep_fp32_wrapper=False)
-
-        # If not in training status, apply the proper datatype
-        if not (self.status & EngineStatus.IS_TRAINING_RUN):
-            match self._params.inference_precision:
-                case InferencePrecision.FULL_FP16:
-                    model = model.to(dtype=torch.float16, device=self._xlr.device)
-                case InferencePrecision.FULL_BF16:
-                    model = model.to(dtype=torch.bfloat16, device=self._xlr.device)
-                case InferencePrecision.DEFAULT:
-                    pass
-                case _:
-                    raise ValueError(f"Invalid inference precision: {self._params.inference_precision}")
-
         model.eval()
 
         # Global start time
@@ -957,7 +724,7 @@ class Engine:
 
                 # Prediction step - i.e. run the model in inference mode
                 with profile(timings, "model"):
-                    outputs = self._inference_step(model, inputs)
+                    outputs = self.run_inference_step(model, inputs)
 
                 # Prepare for evaluation
                 with profile(timings, "update"):
@@ -1031,6 +798,265 @@ class Engine:
 
         return metrics, samples_processed
 
+
+    ############
+    # Privates #
+    ############
+
+    def _seed(self) -> None:
+        """
+        Seed the random number generators.
+        """
+        set_seed(self._params.seed, fully_deterministic=self._params.full_determinism)
+
+    def _edge(self, event: Event, **kwargs) -> None:
+        """
+        Called internally on every event.
+        """
+        self._signal = self._delegate(event, self._params, self._state, self._signal, **kwargs)
+
+    def _get_config_object(self) -> dict[str, T.Any]:
+        """
+        Attempt to locate the configuration YAML file for the current project.
+        If that does not exist, return None. If it does exist, return the configuration object.
+        """
+        from unipercept.config import LazyConfig
+
+        lazy_path = self.root_path / "config.yaml"
+        if not lazy_path.exists():
+            raise RuntimeError(f"Could not find configuration file at {lazy_path}")
+
+        try:
+            lazy = LazyConfig.load(str(lazy_path))
+        except Exception as e:
+            _logger.warn(f"Could not load configuration from {lazy_path}: {e}")
+            return {}
+
+        lazy_obj = OmegaConf.to_container(lazy, resolve=False)
+        assert isinstance(lazy_obj, dict)
+        return T.cast(dict[str, T.Any], lazy_obj)
+
+    def _start_experiment_trackers(self, *, restart: bool = True) -> None:
+        """
+        Initialize the experiment trackers, e.g. WandB, TensorBoard.
+
+        Parameters
+        ----------
+        model : nn.Module
+            The model to be watched by the loggers. Only applicable to some loggers (e.g. WandB)
+        restart : bool, optional
+            Whether to restart the loggers, by default True. Can be set to False to continue logging to the same
+            trackers, e.g. when running an inference loop during training.
+
+        Notes
+        -----
+        This should be called at the beginning of training  and inference.
+        """
+
+        from unipercept.integrations import wandb_integration
+
+        if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status and not restart:
+            _logger.debug("Trackers already started, skipping setup")
+            return
+        else:
+            self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED
+
+        _logger.debug("Setting up experiment trackers")
+
+        # Session name is organised in /group_part1/group_part2/.../session_name
+        session_name_parts = self._params.session_name.split("/")
+        if len(session_name_parts) > 1:
+            session_group = "-".join(session_name_parts[:-1])
+        else:
+            session_group = "ungrouped"
+
+        # Determine the job type from the status
+        if self.status & EngineStatus.IS_TRAINING_RUN:
+            job_type = "train"
+        elif self.status & EngineStatus.IS_EVALUATION_RUN:
+            job_type = "eval"
+        elif self.status & EngineStatus.IS_PREDICTION_RUN:
+            job_type = "pred"
+        else:
+            job_type = "misc"
+
+        session_id = f"{self._params.project_name}-{self._params.session_name}-{job_type}".replace("/", "-")
+
+        # Set up tracker-specific parameters
+        specific_kwargs = {}
+        specific_kwargs["wandb"] = {
+            "name": wandb_integration.sanitize(self._params.session_name.replace("/", " ")),
+            "job_type": job_type,
+            "group": session_group,
+            "notes": self._params.notes,
+            "tags": [f"stage_{self._state.stage}"] + list(self._params.tags),
+            "id": wandb_integration.sanitize(session_id),
+            "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
+        }
+
+        # Accelerate handles the experiment trackers for us
+        self._xlr.init_trackers(
+            session_id,
+            config=self._get_config_object(),
+            init_kwargs=specific_kwargs,
+        )
+        self._edge(Event.ON_TRACKERS_SETUP, session_id=session_id)
+        self._xlr.wait_for_everyone()
+
+
+    def _train_handle_signals(
+        self,
+        tr_loss: TensorDict,
+        model: nn.Module,
+        optimizer: torch.optim.Optimizer,
+        *,
+        trial: Trial | None,
+    ) -> None:
+        """
+        Called at the end of every step and epoch to log, save, and evaluate the model.
+        Steps could be skipped depending on the configuration.
+        """
+
+        # SIGNAL: logging
+        if self._signal.should_log:
+            assert (
+                self._state.step != self._globalstep_last_logged
+            ), "No new logs should be created when nothing changed"
+
+            logs: dict[str, float] = {}
+            logs["optimizer/lr"] = _get_learning_rate(optimizer)
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = {k: gather(l).mean().item() for k, l in tr_loss.items()}
+
+            # reset tr_loss to zero
+            # tr_loss -= tr_loss
+            tr_loss.apply_(lambda _l: _l - _l)
+
+            for k, v in tr_loss_scalar.items():
+                logs["losses/" + k] = round(v / (self._state.step - self._globalstep_last_logged), 4)
+
+            self._globalstep_last_logged = self._state.step
+            # self.store_flops()
+            self._train_log(logs)
+
+        # SIGNAL: save model
+        if self._signal.should_save:
+            _logger.info("Saving state and model at step %d (epoch %d)", self._state.step, self._state.epoch)
+
+            # Save the training state (for recovery on in this environment)
+            try:
+                state_path = self._save_state(None)
+            except Exception as e:
+                state_path = None
+                _logger.error("Failed to save accelerator state: %s", e, stacklevel=2)
+
+            # Save the (unwrapped) model
+            try:
+                model_path = self._save_weights(None, model)
+            except Exception as e:
+                model_path = None
+                _logger.error("Failed to save model: %s", e, stacklevel=2)
+
+            # Report event
+            self._edge(Event.ON_SAVE, model_path=model_path, state_path=state_path)
+
+        # SIGNAL: evaluate model
+        if self._signal.should_evaluate:
+            _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
+
+            self.run_evaluation(lambda _: model, trial=trial)
+
+    def _train_log(self, logs: dict[str, T.Any]) -> None:
+        """
+        Log `logs` on the various objects watching training.
+
+        Subclass and override this method to inject custom behavior.
+
+        Parameters
+        ----------
+        logs : dict[str, float]
+            The logs to be logged.
+        """
+        logs["engine/epoch"] = round(self._state.epoch, 2)
+        logs["engine/step"] = self._state.step
+        logs["engine/epoch_step"] = self._xlr.step
+        logs["engine/status"] = self.status
+
+        self._edge(Event.ON_LOG, logs=logs)  # NOTE: logs may be updated in-place
+
+        self._state.log_history.append(logs)
+        if len(self._state.log_history) > self._params.logging_history:
+            self._state.log_history.pop(0)
+        self._xlr.log(logs, step=self._state.step)
+
+    def _load_weights(self, path: str, model: nn.Module) -> nn.Module:
+        """
+        Load the model checkpoint at the given path.
+
+        Parameters
+        ----------
+        path : str
+            The path to the model checkpoint. Skipped when `None`.
+        model : nn.Module
+            The model to load the checkpoint into.
+
+        Returns
+        -------
+        nn.Module
+            The model with the loaded checkpoint.
+        """
+        from accelerate import load_checkpoint_and_dispatch
+
+        _logger.debug("Loading weights from %s", path)
+        return load_checkpoint_and_dispatch(model, file_io.get_local_path(path))
+
+    def _save_weights(self, path: T.Optional[str], model: nn.Module) -> str:
+        """
+        Save a model, unwrapping it from the accelerator
+
+        Parameters
+        ----------
+        output_dir
+            The directory to save the model checkpoints to.
+        """
+        if path is None:
+            path = os.path.join(self._xlr.project_dir, "models", "step-" + str(self._state.step))
+
+        if check_main_process():
+            os.makedirs(path, exist_ok=True)
+            model = self._xlr.unwrap_model(model)
+            self._xlr.save_model(model, save_directory=path, safe_serialization=True)
+
+        return path
+
+    def _load_state(self, path: T.Optional[str]) -> None:
+        """
+        Load the engine state from the given path, if no path is given, the last checkpoint is used.
+        """
+        if path is not None:
+            _logger.debug("Loading engine state at %s", path)
+            path = file_io.get_local_path(path)
+        elif self._recover_path is not None:
+            _logger.debug("Loading engine state from recovery path: %s", path)
+            path = file_io.get_local_path(self._recover_path)
+        else:
+            auto_dir = os.path.join(self._xlr.project_dir, "checkpoints")
+            if not file_io.isdir(auto_dir) or len(file_io.ls(auto_dir)) == 0:
+                _logger.debug("No engine state path given and no automatic checkpoints found.")
+                return
+            else:
+                _logger.debug("No engine state path given. Defaulting to last automatic checkpoint in %s", auto_dir)
+        self._xlr.load_state(path)  # type: ignore
+
+    def _save_state(self, path: T.Optional[str]) -> str:
+        """
+        Save the engine state for recovery/resume. Sometimes called a 'checkpoint'.
+        """
+        if path is not None:
+            path = file_io.get_local_path(path)
+        return self._xlr.save_state(path)  # type: ignore
+
     def _store_visualizations(self, visuals: dict[str, pil_image.Image], prefix: str) -> None:
         """
         Store visualizations that are provided as a mapping of (key) -> (PIL image).
@@ -1049,23 +1075,6 @@ class Engine:
             wandb_run = self._xlr.get_tracker("wandb")
             if wandb_run is not None:
                 wandb_run.log({f"{prefix}/{key}": wandb.Image(img)}, step=self._state.step)
-
-    def _inference_step(
-        self,
-        model: nn.Module,
-        inputs: TensorDict,
-    ) -> TensorDictBase:
-        """
-        Perform an evaluation step on `model` using `inputs`.
-        """
-
-        outputs: TensorDictBase = model(inputs)
-        if "predictions" in outputs.keys():
-            predictions = outputs["predictions"]
-        else:
-            predictions = outputs
-
-        return predictions
 
     def _default_setup(self):
         """

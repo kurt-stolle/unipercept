@@ -13,7 +13,7 @@ import torch.types
 import torch.nn
 import typing_extensions as TX
 
-from unicore import file_io
+from unipercept import file_io
 
 if T.TYPE_CHECKING:
     from unipercept.engine import EngineParams

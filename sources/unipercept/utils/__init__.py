@@ -2,7 +2,7 @@
 A collection of reusable utilities for UniPercept
 """
 
-from unicore.utils.module import lazy_module_factory
+from unipercept.utils.module import lazy_module_factory
 
 __all__ = [
     "abbreviate",

@@ -8,13 +8,15 @@ import abc
 import os
 import typing as T
 from dataclasses import field
+from sklearn import tree
 
 import torch
 import torch.nn as nn
 import typing_extensions as TX
+from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
 from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
-from unicore import file_io
-from unicore.utils.tensorclass import Tensorclass
+from unipercept import file_io
+from unipercept.utils.tensorclass import Tensorclass
 
 from unipercept.data.tensors import DepthMap, Image, OpticalFlow, PanopticMap
 from unipercept.log import get_logger
@@ -322,3 +324,126 @@ class ModelFactory:
             _logger.info("No model weights checkpoint path provided, skipping recovery")
 
         return model
+
+
+class ModelAdapter(nn.Module):
+    """
+    A model may take rich input/output format (e.g. dict or custom classes),
+    but `torch.jit.trace` requires tuple of tensors as input/output.
+    This adapter flattens input/output format of a model so it becomes traceable.
+
+    Notes
+    -----
+    This implementation is based on the Detectron2 ``TracingAdapter`` class. We use a custom implementation because
+    Detectron2's implementation is not compatible with PyTree-based flattening.
+    """
+
+    flattened_inputs: T.Tuple[torch.Tensor, ...]
+    inputs_schema: TreeSpec | None
+    outputs_schema: TreeSpec | None
+
+    def __init__(
+        self,
+        model: nn.Module,
+        inputs,
+        inference_func: T.Optional[T.Callable] = None,
+        allow_non_tensor: bool = False,
+    ):
+        """
+        Parameters
+        ----------
+
+        model
+            An nn.Module
+        inputs
+            An input argument or a tuple of input arguments used to call model.
+            After flattening, it has to only consist of tensors.
+        inference_func
+            A callable that takes (model, *inputs), calls the
+            model with inputs, and return outputs. By default it
+            is ``lambda model, *inputs: model(*inputs)``. Can be override
+            if you need to call the model differently.
+        allow_non_tensor
+            Allow inputs/outputs to contain non-tensor objects.
+            This option will filter out non-tensor objects to make the
+            model traceable, but ``inputs_schema``/``outputs_schema`` cannot be
+            used anymore because inputs/outputs cannot be rebuilt from pure tensors.
+            This is useful when you're only interested in the single trace of
+            execution (e.g. for flop count), but not interested in
+            generalizing the traced graph to new inputs.
+        """
+
+        super().__init__()
+
+        if isinstance(model, (nn.parallel.distributed.DistributedDataParallel, nn.DataParallel)):
+            model = model.module
+        self.model = model
+        if not isinstance(inputs, tuple):
+            inputs = (inputs,)
+        self.inputs = inputs
+        self.allow_non_tensor = allow_non_tensor
+        if inference_func is None:
+            inference_func = lambda model, *inputs: model(*inputs)  # noqa
+        self.inference_func = inference_func
+        inputs_flat, inputs_spec = tree_flatten(inputs)
+
+        if not all(isinstance(x, torch.Tensor) for x in inputs_flat):
+            if self.allow_non_tensor:
+                inputs_flat = [x for x in inputs_flat if isinstance(x, torch.Tensor)]
+                inputs_spec = None
+            else:
+                for input in inputs_flat:
+                    if isinstance(input, torch.Tensor):
+                        continue
+                    raise ValueError("Inputs for tracing must only contain tensors. " f"Got a {type(input)} instead.")
+
+        self.flattened_inputs = tuple(inputs_flat)  # type: ignore
+        self.inputs_schema = inputs_spec
+
+    @TX.override
+    def forward(self, *args: torch.Tensor):
+        with torch.inference_mode():
+            if self.inputs_schema is not None:
+                inputs_orig_format = tree_unflatten(list(args), self.inputs_schema)
+            else:
+                if args != self.flattened_inputs:
+                    raise ValueError(
+                        "TracingAdapter does not contain valid inputs_schema."
+                        " So it cannot generalize to other inputs and must be"
+                        " traced with `.flattened_inputs`."
+                    )
+                inputs_orig_format = self.inputs
+
+            outputs = self.inference_func(self.model, *inputs_orig_format)
+            flattened_outputs, schema = tree_flatten(outputs)
+
+            flattened_output_tensors = tuple([x for x in flattened_outputs if isinstance(x, torch.Tensor)])
+            if len(flattened_output_tensors) < len(flattened_outputs):
+                if self.allow_non_tensor:
+                    flattened_outputs = flattened_output_tensors
+                    self.outputs_schema = None
+                else:
+                    raise ValueError("Model cannot be traced because some model outputs " "cannot flatten to tensors.")
+            else:
+                if self.outputs_schema is None:
+                    self.outputs_schema = schema
+                else:
+                    assert self.outputs_schema == schema, (
+                        "Model should always return outputs with the same " "structure so it can be traced!"
+                    )
+            return flattened_outputs
+
+    def _create_wrapper(self, traced_model):
+        """
+        Return a function that has an input/output interface the same as the
+        original model, but it calls the given traced model under the hood.
+        """
+
+        def forward(*args):
+            assert self.outputs_schema is not None
+
+            flattened_inputs, _ = tree_flatten(args)
+            flattened_outputs = traced_model(*flattened_inputs)
+            return tree_unflatten(flattened_outputs, self.outputs_schema)
+
+        return forward

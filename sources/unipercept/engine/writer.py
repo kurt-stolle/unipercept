@@ -12,7 +12,7 @@ import torch
 import torch.types
 import typing_extensions as TX
 from tensordict import PersistentTensorDict, TensorDictBase
-from unicore import file_io
+from unipercept import file_io
 
 from unipercept.log import get_logger
 from unipercept.state import check_main_process, gather_tensordict, on_main_process

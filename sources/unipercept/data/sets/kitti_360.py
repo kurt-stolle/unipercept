@@ -11,7 +11,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 from unicore import catalog, datapipes, file_io
-from unicore.utils.formatter import formatter
+from unipercept.utils.formatter import formatter
 
 from ..types import (
     CaptureRecord,

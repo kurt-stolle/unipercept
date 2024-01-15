@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch.distributed as dist
 from typing_extensions import deprecated
-from unicore import file_io
+from unipercept import file_io
 
 from unipercept.state import check_distributed
 from unipercept.utils.time import TimestampFormat, get_timestamp

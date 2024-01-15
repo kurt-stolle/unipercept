@@ -22,7 +22,7 @@ import torchvision.transforms.v2 as tvt2
 import torchvision.transforms.v2.functional
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
-from unicore.utils.pickle import as_picklable
+from unipercept.utils.pickle import as_picklable
 
 from unipercept.log import get_logger
 

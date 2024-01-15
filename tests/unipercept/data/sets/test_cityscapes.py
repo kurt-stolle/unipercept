@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from numpy.ma.core import get_data
 from unicore import file_io
-from unicore.utils.dataset import Dataset
+from unipercept.utils.dataset import Dataset
 
 from unipercept import get_dataset
 from unipercept.data import collect

@@ -14,8 +14,8 @@ from typing import Iterable, Literal, Mapping, NamedTuple, Sequence
 
 from typing_extensions import override
 from unicore import datapipes, file_io
-from unicore.utils.dataserial import serializable
-from unicore.utils.formatter import formatter
+from unipercept.utils.dataserial import serializable
+from unipercept.utils.formatter import formatter
 
 from ._base import RGB, PerceptionDataset, SClass, SType, info_factory
 

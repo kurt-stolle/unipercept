@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unicore.utils.module import lazy_module_factory
+from unipercept.utils.module import lazy_module_factory
 
 from ._config import *
 from ._helpers import *

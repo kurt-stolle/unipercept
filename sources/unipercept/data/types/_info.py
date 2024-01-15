@@ -6,7 +6,7 @@ import typing as T
 from pathlib import Path
 from typing import Any, TypeAlias
 
-from unicore.utils.frozendict import frozendict
+from unipercept.utils.frozendict import frozendict
 
 __all__ = [
     "HW",

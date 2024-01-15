@@ -11,14 +11,14 @@ slurm-*
 log.txt
 
 # Symlinked defaults
-scratch/
-output/
-outputs/
-datasets/
-data/
-log/
-logs/
-cache/
+./scratch/
+./output/
+./outputs/
+./datasets/
+./data/
+./log/
+./logs/
+./cache/
 
 # Documentation
 docs/build/

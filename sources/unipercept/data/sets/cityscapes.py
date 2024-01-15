@@ -13,7 +13,8 @@ from datetime import datetime
 from typing import Iterable, Literal, Mapping, NamedTuple, Sequence
 
 from typing_extensions import override
-from unicore import datapipes, file_io
+from unipercept import file_io
+from unipercept.data.pipes import UniCoreFileLister
 from unipercept.utils.dataserial import serializable
 from unipercept.utils.formatter import formatter
 
@@ -210,9 +211,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         sources_map: dict[FileID, up.data.types.CaptureSources] = {}
 
         # Create mapping of ID -> dt.CaptureSources
-        for id, file_path in map(
-            FileID.attach_id, datapipes.UniCoreFileLister(self.path_image, masks="*.png", recursive=True)
-        ):
+        for id, file_path in map(FileID.attach_id, UniCoreFileLister(self.path_image, masks="*.png", recursive=True)):
             partial_sources: up.data.types.CaptureSources = {
                 "image": {
                     "path": file_path,
@@ -225,9 +224,9 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
 
         sources_dict = {}
         if file_io.isdir(self.path_panoptic):
-            sources_dict["panoptic"] = datapipes.UniCoreFileLister(self.path_panoptic, masks="*.png", recursive=True)
+            sources_dict["panoptic"] = UniCoreFileLister(self.path_panoptic, masks="*.png", recursive=True)
         if file_io.isdir(self.path_depth):
-            sources_dict["depth"] = datapipes.UniCoreFileLister(self.path_depth, masks="*.png", recursive=True)
+            sources_dict["depth"] = UniCoreFileLister(self.path_depth, masks="*.png", recursive=True)
 
         for source_key, files in sources_dict.items():
             for id, file_path in map(FileID.attach_id, files):

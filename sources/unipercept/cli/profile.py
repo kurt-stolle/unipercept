@@ -15,18 +15,61 @@ import torch.autograd.profiler
 import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
-from unipercept import file_io
 
-import unipercept as up
+from unipercept import file_io
+from unipercept.data import DataConfig
+from unipercept.engine import Engine
 from unipercept.config import templates
 from unipercept.log import get_logger
 from unipercept.utils.time import get_timestamp
 from unipercept.engine import Engine
+from unipercept import create_engine, create_model, create_dataset
+from unipercept.model import ModelAdapter
 
 from ._command import command
 
+
+@command(help="trian a model", description=__doc__)
+@command.with_config
+def profile(subparser: argparse.ArgumentParser):
+    subparser.add_argument("--loader", "-l", type=str, default="train", help="loader to use for profiling")
+    subparser.add_argument("--iterations", "-i", type=int, default=3, help="number of iterations to profile")
+    subparser.add_argument(
+        "--sort-by",
+        type=str,
+        default="self_cpu_memory_usage",
+        help="sort by this column when showing output in console",
+    )
+    subparser.add_argument(
+        "--memory",
+        action="store_true",
+        help="profile using CUDA memory manager, emitting a snapshot.",
+        default=False,
+    )
+    subparser.add_argument(
+        "--flops",
+        action="store_true",
+        help="profile FLOPs using methodology proposed by FAIR's `fvcore` package.",
+        default=False,
+    )
+    subparser.add_argument(
+        "--trace",
+        action="store_true",
+        help="profile using torch profiler, emitting a Chrome trace",
+        default=False,
+    )
+    subparser.add_argument("--weights", "-w", default=None, type=str)
+
+    mode = subparser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--training", "-T", action="store_true", help="profile training")
+    mode.add_argument("--inference", "-I", action="store_true", help="profile inference")
+
+    subparser.add_argument("path", nargs="*", type=str)
+
+    return main
+
 _logger = get_logger(__name__)
-_config_t: T.TypeAlias = templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]
+_config_t: T.TypeAlias = templates.LazyConfigFile[DataConfig, Engine, nn.Module]
 
 
 def _find_session_path(config: _config_t) -> file_io.Path:
@@ -44,13 +87,11 @@ def _find_session_path(config: _config_t) -> file_io.Path:
     return path
 
 
-def _analyse_flops(model: nn.Module, loader: torch.utils.data.DataLoader, *, device: str, precision: str) -> None:
+def _analyse_flops(model: nn.Module, loader: torch.utils.data.DataLoader) -> None:
     from fvcore.nn import FlopCountAnalysis
 
     inputs = next(iter(loader))
-
-    model.eval()
-    model_adapter = up.model.ModelAdapter(model, inputs, allow_non_tensor=True)
+    model_adapter = ModelAdapter(model, inputs, allow_non_tensor=True)
 
     flops = FlopCountAnalysis(model_adapter, inputs=model_adapter.flattened_inputs)
 
@@ -71,7 +112,10 @@ def _analyse_memory(
         data = next(loader_iter)
         handler(model, data)
 
-    torch.cuda.memory._dump_snapshot(str(path_export / "cuda_snapshot.pkl"))
+    path_snapshot = path_export / "cuda_snapshot.pkl"
+    torch.cuda.memory._dump_snapshot(str(path_snapshot))
+
+    _logger.info("Upload the snapshot to https://pytorch.org/memory_viz using local path: %s", path_snapshot)
 
 
 def _analyse_trace(
@@ -117,66 +161,33 @@ def main(args):
 
     _logger.info("Saving results to %s", path_export)
 
-    engine = up.create_engine(config)
-    model = up.create_model(config, state=args.weights)
+    engine = create_engine(config)
+    model = create_model(config, state=args.weights)
 
     if args.training:
         handler = engine.run_training_step
+        model.train()
+        torch.inference_mode(True)
     elif args.inference:
         handler = engine.run_inference_step
+        model.eval()
+        torch.inference_mode(False)
     else:
         _logger.error("Unknown mode; provide either the `--training` or `--inference` flag")
         exit(1)
 
     _logger.info("Preparing dataset")
-    loader info = up.create_dataset(config, variant=args.loader, batch_size=1)
+    loader, info = create_dataset(config, variant=args.loader, batch_size=1)
 
     if not any([args.flops, args.memory, args.trace]):
         _logger.info("No profiling method specified; exiting")
         exit(0)
     if args.flops:
-        _analyse_flops(model, loader, handler)
+        _analyse_flops(model, loader)
     if args.memory:
         _analyse_memory(model, loader, handler, iterations=args.iterations, path_export=path_export)
     if args.trace:
         _analyse_trace(model, loader, handler, iterations=args.iterations, path_export=path_export)
-
-
-@command(help="trian a model", description=__doc__)
-@command.with_config
-def profile(subparser: argparse.ArgumentParser):
-    subparser.add_argument("--loader", "-l", type=str, default="train", help="loader to use for profiling")
-    subparser.add_argument("--iterations", "-i", type=int, default=3, help="number of iterations to profile")
-    subparser.add_argument(
-        "--sort-by",
-        type=str,
-        default="self_cpu_memory_usage",
-        help="sort by this column when showing output in console",
-    )
-    subparser.add_argument(
-        "--memory",
-        action="store_true",
-        help="profile using CUDA memory manager, emitting a snapshot.",
-        default=False,
-    )
-    subparser.add_argument(
-        "--flops",
-        action="store_true",
-        help="profile FLOPs using methodology proposed by FAIR's `fvcore` package.",
-        default=False,
-    )
-    subparser.add_argument(
-        "--trace",
-        action="store_true",
-        help="profile using torch profiler, emitting a Chrome trace",
-        default=False,
-    )
-
-    mode = subparser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--training", "-T", action="store_true", help="profile training")
-    mode.add_argument("--inference", "-I", action="store_true", help="profile inference")
-
-    return main
 
 
 if __name__ == "__main__":

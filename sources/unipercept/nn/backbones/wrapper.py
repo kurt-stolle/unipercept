@@ -51,17 +51,13 @@ class WrapperBase(Backbone, metaclass=abc.ABCMeta):
         dimension_order: str | DimensionOrder,
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225],
-        jit_script: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
         self.dimension_order = DimensionOrder(dimension_order)
         self.normalize = Normalizer(mean, std)
-
-        if jit_script:
-            self.normalize = torch.jit.script(self.normalize)
-
+    
     @override
     def forward(self, images: torch.Tensor) -> TensorDictBase:
         """
@@ -72,10 +68,8 @@ class WrapperBase(Backbone, metaclass=abc.ABCMeta):
         images : torch.Tensor
             The input data, which is a tensor of shape (B, 3, H, W).
         """
-        assert images.ndim == 4 and images.shape[1] == 3, f"Input must be of shape (B, 3, H, W), got {images.shape}"
-
-        if images.dtype == torch.uint8:
-            images = images.float() / 255.0
+        # if images.dtype == torch.uint8:
+        #     images = images.float() / 255.0
         images = self.normalize(images)
 
         features = self.forward_extract(images)

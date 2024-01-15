@@ -4,12 +4,11 @@ Mapillary Vistas dataset
 
 from __future__ import annotations
 
-import functools
 import typing as T
 from datetime import datetime
 
 from typing_extensions import override
-from unicore import file_io
+from unipercept import file_io
 
 from ..types import (
     CaptureRecord,

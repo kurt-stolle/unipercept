@@ -4,12 +4,11 @@ WildDash dataset.
 
 from __future__ import annotations
 
-import functools
 import json
 import typing as T
 from datetime import datetime
 
-from unicore import file_io
+from unipercept import file_io
 
 from ._base import PerceptionDataset, info_factory
 

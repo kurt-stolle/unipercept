@@ -8,7 +8,7 @@ from torchdata.datapipes import functional_datapipe
 from torchdata.datapipes.iter import IoPathFileLister, IoPathFileOpener, IoPathSaver, IterDataPipe
 from typing_extensions import override
 
-from unicore import file_io
+from unipercept import file_io
 
 __all__ = ["UniCoreFileLister", "UniCoreFileOpener", "UniCoreSaver"]
 

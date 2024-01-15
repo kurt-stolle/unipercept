@@ -87,7 +87,7 @@ def get_session_name(config_path: str | Path | PathLike, *, relative_to="configs
         if len(variant) > 1:
             parts.append(variant[1])
         parts.insert(0, variant[0])
-        parts.insert(0, stamp)
+        parts.append(stamp)
 
         return "/".join(parts)
 

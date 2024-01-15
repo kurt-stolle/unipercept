@@ -1,7 +1,6 @@
 """Implements interpolation layers."""
-from __future__ import annotations
 
-import typing as T
+import typing_extensions as TX
 
 import torch
 import torch.nn as nn
@@ -11,11 +10,11 @@ class Interpolate2d(nn.Module):
     r"""
     Wraps :func:`torch.nn.functional.interpolate` as a module.
     """
-    name: T.Final[str]
-    size: T.Final[int | tuple[int, int] | None]
-    scale_factor: T.Final[float | tuple[float, float] | None]
-    mode: T.Final[str]
-    align_corners: T.Final[bool | None]
+    name: torch.jit.Final[str]
+    size: torch.jit.Final[int | tuple[int, int] | None]
+    scale_factor: torch.jit.Final[float | tuple[float, float] | None]
+    mode: torch.jit.Final[str]
+    align_corners: torch.jit.Final[bool | None]
 
     def __init__(
         self,
@@ -37,6 +36,7 @@ class Interpolate2d(nn.Module):
         self.mode = mode
         self.align_corners = None if mode == "nearest" else align_corners
 
+    @TX.override
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return nn.functional.interpolate(
             input,

@@ -415,7 +415,7 @@ class EngineParams:
 
     def __setup_root(self, **kwds) -> None:
         root = self.root.format(project_name=self.project_name, session_name=self.session_name)
-        root = unicore.file_io.get_local_path(root)
+        root = unipercept.file_io.get_local_path(root)
         self.root = root
 
     def __setup_interactive(self, **kwds) -> None:

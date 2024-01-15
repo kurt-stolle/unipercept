@@ -1,5 +1,5 @@
 """
-Implements tests for `unicore.utils.pickleable`.
+Implements tests for `unipercept.utils.pickleable`.
 """
 
 import pickle

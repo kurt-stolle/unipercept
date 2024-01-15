@@ -4,7 +4,7 @@ from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 import torch
 from typing_extensions import override
 
-from unicore import file_io
+from unipercept import file_io
 
 __all__ = ["LazyPickleCache"]
 

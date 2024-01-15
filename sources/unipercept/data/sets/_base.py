@@ -10,7 +10,7 @@ import typing as T
 
 import torch
 import typing_extensions as TX
-from unipercept.catalog import DataManager
+from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
 from unipercept.utils.frozendict import frozendict
 from unipercept.utils.tensorclass import Tensorclass

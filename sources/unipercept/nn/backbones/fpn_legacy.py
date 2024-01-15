@@ -414,7 +414,7 @@ class FeaturePyramidNetwork(nn.Module):
         self.feature_info = {f"fpn_{i+1}": info for i, info in enumerate(info_list[-num_levels::])}
 
     @override
-    def forward(self, features: TensorDictBase) -> TensorDictBase:
+    def forward(self, features: T.Dict[str, torch.Tensor]) -> T.Dict[str, torch.Tensor]:
         inputs = [features[key] for key in self.in_features]
 
         # Add extra levels (if needed)
@@ -426,8 +426,9 @@ class FeaturePyramidNetwork(nn.Module):
         inputs = self.cell(inputs)
 
         # Result
+        features = {}
         for i, input in enumerate(inputs):
-            features.set(f"fpn_{i+1}", input, inplace=not self.training)
+            features[f"fpn_{i+1}"] = input
 
         return features
 

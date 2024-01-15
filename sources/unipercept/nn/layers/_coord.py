@@ -15,6 +15,11 @@ __all__ = ["CoordCat2d"]
 class CoordCat2d(nn.Module):
     """Layer that concatenates a 2D coordinate grid to the input tensor."""
 
+
+    gamma: torch.jit.Final[float]
+    groups: torch.jit.Final[int]
+    cat_channels: torch.jit.Final[int]
+
     def __init__(self, groups: int = 1, gamma=1.0):
         super().__init__()
         self.gamma = gamma
@@ -26,7 +31,8 @@ class CoordCat2d(nn.Module):
     @override
     def forward(self, t: Tensor) -> Tensor:
         # Split the tensor into groups
-        t_split = torch.split(t, t.shape[1] // self.groups, dim=1)
+        split_size: int = int(t.size(1)) // self.groups
+        t_split = t.split(split_size, dim=1)
 
         # Add the grid to each group
         grid_x, grid_y = _make_grid(self.gamma, t.shape, t.device)

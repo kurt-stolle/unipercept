@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from numpy.ma.core import get_data
-from unicore import file_io
+from unipercept import file_io
 from unipercept.utils.dataset import Dataset
 
 from unipercept import get_dataset

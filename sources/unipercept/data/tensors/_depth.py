@@ -7,7 +7,7 @@ import safetensors.torch as safetensors
 import torch
 from torch.types import Device
 from torchvision.tv_tensors import Mask
-from unicore import file_io
+from unipercept import file_io
 
 from unipercept.data.tensors.helpers import get_kwd, read_pixels
 from unipercept.data.tensors.registry import pixel_maps

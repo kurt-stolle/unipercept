@@ -21,7 +21,6 @@ import torch.utils.data
 from typing_extensions import override
 
 from unipercept import file_io
-from unipercept.datapipes import LazyPickleCache
 from unipercept.utils.distributed import is_main_process, wait_for_sync
 from unipercept.utils.frozendict import frozendict
 
@@ -137,6 +136,8 @@ class Dataset(T.Generic[_T_MFST, _T_QITEM, _T_DITEM, _T_DINFO], metaclass=Datase
         Manifest attribute: represents the results of discovering a dataset's files on the filesystem, e.g.
         a list of what files are in the dataset, and where they are located.
         """
+        from unipercept.data.pipes import LazyPickleCache  # TODO: nasty dependency
+
         if self._manifest is None:
             # The manifest should be stored until the cache path provided by the environment
             file_name = base64.b64encode(repr(self).encode(), "+-".encode()).decode()

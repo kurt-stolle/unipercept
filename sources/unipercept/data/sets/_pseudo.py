@@ -4,11 +4,9 @@ import functools
 
 import safetensors.torch as safetensors
 import torch
-import torch.nn as nn
 import torch.utils.data
 from PIL import Image
-from tqdm import tqdm
-from unicore import file_io
+from unipercept import file_io
 
 __all__ = ["PseudoGenerator"]
 

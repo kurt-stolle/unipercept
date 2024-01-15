@@ -10,7 +10,7 @@ from PIL import Image as pil_image
 from torchvision.io import ImageReadMode
 from torchvision.transforms.v2.functional import to_dtype, to_image
 from typing_extensions import deprecated
-from unicore import file_io
+from unipercept import file_io
 
 if T.TYPE_CHECKING:
     import unipercept as up

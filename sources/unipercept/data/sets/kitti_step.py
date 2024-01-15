@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import typing as T
 
-from unicore import catalog, file_io
+from unipercept import file_io
 from unipercept.utils.image import size as get_image_size
 
 from ._base import RGB, PerceptionDataset, SClass, SType, info_factory

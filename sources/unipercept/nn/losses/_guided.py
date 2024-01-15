@@ -32,19 +32,19 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
 
     @override
     def forward(self, seg_feat: torch.Tensor, dep_true: torch.Tensor):
-        assert dep_true.ndim == 4, f"{dep_true.shape}"
-        assert dep_true.shape[1] == 1, f"{dep_true.shape}"
-        assert seg_feat.ndim == 4, f"{seg_feat.shape}"
-        assert seg_feat.shape[-2:] == dep_true.shape[-2:], f"{seg_feat.shape}, {dep_true.shape}"
+        # assert dep_true.ndim == 4, f"{dep_true.shape}"
+        # assert dep_true.shape[1] == 1, f"{dep_true.shape}"
+        # assert seg_feat.ndim == 4, f"{seg_feat.shape}"
+        # assert seg_feat.shape[-2:] == dep_true.shape[-2:], f"{seg_feat.shape}, {dep_true.shape}"
 
         # Get patches
         loss, mask = depth_guided_segmentation_loss(seg_feat, dep_true, self.eps, self.tau, self.patch_size)
 
-        if not mask.any():
-            return seg_feat.mean() * 0.0
+        # if not mask.any():
+        #     return seg_feat.mean() * 0.0
 
         # Average the loss over patch dimensions, then over spatial dimensions
-        loss = loss[mask].mean()
+        loss = torch.masked_select(loss, mask)
 
         return loss * self.scale
 
@@ -76,8 +76,7 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         loss = torch.masked_select(loss, mask)  # N x C x P'
 
         # Calculate overall loss
-        total_loss = torch.sum(loss) / max(loss.shape[0], 1)
-        return total_loss * self.scale
+        return loss.mean() * self.scale
 
 
 class PGSLoss(ScaledLossMixin, nn.Module):

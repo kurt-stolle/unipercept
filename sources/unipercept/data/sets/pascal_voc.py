@@ -5,18 +5,14 @@ See: https://pytorch.org/vision/0.10/_modules/torchvision/datasets/voc.html#VOCS
 """
 from __future__ import annotations
 
-import functools
-import logging
 import typing as T
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Mapping, Sequence
+from typing import Literal, Mapping
 
-import torch
-import torch.nn as nn
 from tqdm import tqdm
 from typing_extensions import override
-from unicore import catalog, file_io
+from unipercept import file_io
 
 from unipercept.log import get_logger
 from unipercept.render import colormap

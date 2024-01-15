@@ -391,7 +391,7 @@ class Engine:
 
         losses.detach_()
         return losses.apply(lambda _l: _l / self._params.gradient_accumulation_steps)
-    
+
     def run_training_loop(
         self,
         loader: torch.utils.data.DataLoader,
@@ -644,7 +644,7 @@ class Engine:
     @torch.no_grad()
     def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
         raise NotImplementedError("TODO: Implement prediction")
-    
+
     @torch.inference_mode()
     def run_inference_loop(
         self,
@@ -798,7 +798,6 @@ class Engine:
 
         return metrics, samples_processed
 
-
     ############
     # Privates #
     ############
@@ -863,10 +862,10 @@ class Engine:
 
         _logger.debug("Setting up experiment trackers")
 
-        # Session name is organised in /group_part1/group_part2/.../session_name
+        # Session name is organised in /group_part1/group_part2/.../timestampsession_name
         session_name_parts = self._params.session_name.split("/")
-        if len(session_name_parts) > 1:
-            session_group = "-".join(session_name_parts[:-1])
+        if len(session_name_parts) > 1:  # NOTE: first part is some timestamp/uniqueid
+            session_group = "-".join(session_name_parts[-1:])
         else:
             session_group = "ungrouped"
 
@@ -880,7 +879,7 @@ class Engine:
         else:
             job_type = "misc"
 
-        session_id = f"{self._params.project_name}-{self._params.session_name}-{job_type}".replace("/", "-")
+        session_id = f"{self._params.session_name}-{job_type}".replace("/", "-")
 
         # Set up tracker-specific parameters
         specific_kwargs = {}
@@ -896,13 +895,12 @@ class Engine:
 
         # Accelerate handles the experiment trackers for us
         self._xlr.init_trackers(
-            session_id,
+            self._params.project_name,
             config=self._get_config_object(),
             init_kwargs=specific_kwargs,
         )
         self._edge(Event.ON_TRACKERS_SETUP, session_id=session_id)
         self._xlr.wait_for_everyone()
-
 
     def _train_handle_signals(
         self,

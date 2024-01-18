@@ -5,12 +5,12 @@ The `Engine` class is the main class to handle training and evaluation of any ki
 from __future__ import annotations
 
 import enum as E
-import functools
 import gc
 import math
 import multiprocessing
 import operator
 import os
+import re
 import shutil
 import time
 import typing as T
@@ -32,6 +32,11 @@ from typing_extensions import override
 
 import unipercept.integrations.slurm_integration
 from unipercept import file_io
+from unipercept.engine._optimizer import OptimizerFactory
+from unipercept.engine._params import EngineParams
+from unipercept.engine._scheduler import SchedulerFactory
+from unipercept.engine._trial import Trial
+from unipercept.engine._types import DataLoaderFactory, ModelFactory
 from unipercept.engine.accelerate import Accelerator
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
@@ -43,12 +48,6 @@ from unipercept.utils.seed import set_seed
 from unipercept.utils.status import StatusDescriptor
 from unipercept.utils.tensorclass import Tensorclass
 from unipercept.utils.time import ProfileAccumulator, profile
-
-from ._optimizer import OptimizerFactory
-from ._params import EngineParams, InferencePrecision
-from ._scheduler import SchedulerFactory
-from ._trial import Trial
-from ._types import DataLoaderFactory, ModelFactory
 
 torch._dynamo.config.suppress_errors = True
 
@@ -1018,13 +1017,23 @@ class Engine:
         output_dir
             The directory to save the model checkpoints to.
         """
+
         if path is None:
-            path = os.path.join(self._xlr.project_dir, "models", "step-" + str(self._state.step))
+            path_models = os.path.join(self._xlr.project_dir, "models")
+            path = os.path.join(path_models, "step_" + str(self._state.step))
+        else:
+            path_models = None
 
         if check_main_process():
             os.makedirs(path, exist_ok=True)
+
             model = self._xlr.unwrap_model(model)
+
             self._xlr.save_model(model, save_directory=path, safe_serialization=True)
+
+            if path_models is not None:
+                # Cleanup old checkpoints only when using automatic naming
+                _cleanup_generated_items(path_models, self._params.save_total_limit or 1)
 
         return path
 
@@ -1168,6 +1177,69 @@ def _build_speed_metrics(
         steps_per_second = step_amount / delta_time
         result[f"{prefix}/steps_per_second"] = round(steps_per_second, 3)
     return result
+
+
+_RE_NUMERIC_SUFFIX = re.compile(r"(\d+)$")
+
+
+def _sort_children_by_suffix(path: file_io.Path | str) -> T.Iterable[str]:
+    """
+    Sort the children of a path by the numeric suffix.
+
+    Parameters
+    ----------
+    path
+        A path to some directory, containing children with numeric suffixes, i.e. item-1, item2, it3, etc.
+
+    Yields
+    ------
+    str
+        The path to the child.
+    """
+    items = file_io.ls(str(path))
+    items = map(lambda p: (p, _RE_NUMERIC_SUFFIX.search(p)), items)
+    items = T.cast(list[tuple[str, re.Match]], filter(lambda p: p[1] is not None, items))
+    items = sorted(items, key=lambda p: int(p[1].group(1)))
+
+    for item, _ in items:
+        item_full = file_io.join(path, item)
+        yield item_full
+
+
+def _cleanup_generated_items(path: file_io.Path | str, max_items: int) -> None:
+    """
+    Given some path, list all child items and sort by the suffix number, then remove all items except the last.
+
+    E.g. for items:
+    - otherkey-200
+    - item-1
+    - item-600
+    - last-800
+    - item-123
+
+    For ``max_items=3`` we would keep the last three items: ``otherkey-200``, ``item-600``, and ``last-800``.
+
+
+    Parameters
+    ----------
+    path
+        Path to some directory.
+    max_items
+        Amount of items to keep.
+    """
+
+    items = list(_sort_children_by_suffix(path))
+
+    if len(items) <= max_items:
+        return
+
+    for child, _ in items[:-max_items]:
+        if file_io.isdir(child):
+            local_path = file_io.get_local_path(child)
+            shutil.rmtree(local_path, ignore_errors=False)
+        else:
+            assert file_io.exists(child), f"Expected {child} to exist"
+            file_io.rm(child)
 
 
 def _enforce_prefix(metrics: dict[str, T.Any], prefix: str, sep: str = "/") -> None:

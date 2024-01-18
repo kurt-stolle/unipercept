@@ -5,9 +5,9 @@ Implements a path manager for UniCore using IoPath.
 from __future__ import annotations
 
 import functools
+import os
 import typing as T
 
-import typing_extensions as TX
 from iopath.common.file_io import (
     HTTPURLHandler,
     OneDrivePathHandler,
@@ -37,6 +37,30 @@ class Path(IoPath, manager=_manager):
     """
     See ``IoPath``.
     """
+
+
+#############
+# Utilities #
+#############
+
+
+def join(base: str | Path, *other: str | Path) -> str:
+    """
+    Joins paths using the path manager.
+
+    Parameters
+    ----------
+    *paths : str
+        The paths to join.
+
+    Returns
+    -------
+    str
+        The joined path.
+
+    """
+    base = str(base)
+    return os.path.join(base, *map(str, other))
 
 
 #################

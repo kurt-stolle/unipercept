@@ -10,7 +10,6 @@ import warnings
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
-import PIL
 import PIL.Image as pil_image
 import torch
 import torchvision.transforms.functional as F
@@ -101,9 +100,9 @@ def plot_predictions(
     /,
     info: Metadata,
     height=4,
-    image_options: MissingValue["SKIP"] | T.Optional[dict[str, T.Any]] = None,
-    segmentation_options: T.Optional[dict[str, T.Any]] = None,
-    depth_options: T.Optional[dict[str, T.Any]] = None,
+    image_options: MissingValue["SKIP"] | dict[str, T.Any] | None = None,
+    segmentation_options: dict[str, T.Any] | MissingValue["SKIP"] | None = None,
+    depth_options: dict[str, T.Any] | MissingValue["SKIP"] | None = None,
 ) -> T.Any:
     """
     Plots the given input data.
@@ -115,8 +114,12 @@ def plot_predictions(
         pass
 
     img = inputs.captures.images[:, 0, :, :, :]  # batch (=1) x pairs (=1) x C (=3) x H (=1024) x W (=2048)
-    seg = predictions.get("segmentations")  # batch (=1) x H (=1024) x W (=2048)
-    dep = predictions.get("depths")  # batch (=1) x H (=1024) x W (=2048))
+    seg = predictions.get("segmentations", None)  # batch (=1) x H (=1024) x W (=2048)
+    if seg is None:
+        segmentation_options = SKIP
+    dep = predictions.get("depths", None)  # batch (=1) x H (=1024) x W (=2048))
+    if dep is None:
+        depth_options = SKIP
 
     nrows = predictions.batch_size[0]
     ncols = 3  # image, segmentation, depth
@@ -140,7 +143,8 @@ def plot_predictions(
         if segmentation_options is None:
             segmentation_options = {}
         if segmentation_options not in SKIP:
-            segmentation_options.setdefault("depth_map", dep[i] / dep[i].max())
+            if dep is not None:
+                segmentation_options.setdefault("depth_map", dep[i] / dep[i].max())
             draw_image_segmentation(seg[i], info, ax=axs[i, 1], **segmentation_options)
 
         if depth_options is None:

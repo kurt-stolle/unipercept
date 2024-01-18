@@ -45,7 +45,7 @@ __all__ = [
 _logger = get_logger(__name__)
 
 
-_KEY_REMOTE_PATH = "_remote_path_"  # Key used to store the path used to initialize the config through the API
+_KEY_CHECKPOINT = "_model_weights_"  # Key used to store the path used to initialize the config through the API
 
 
 ##########################
@@ -71,7 +71,7 @@ def _read_config_wandb(path: str) -> DictConfig:
     run = wandb_api.run(run_name)
 
     config = DictConfig(run.config)
-    config[_KEY_REMOTE_PATH] = path
+    config[_KEY_CHECKPOINT] = path
 
     return config
 
@@ -117,6 +117,7 @@ def read_config(config: ConfigParam) -> DictConfig:
         A DictConfig object.
     """
     from .config import LazyConfig
+    from .engine._engine import _sort_children_by_suffix
 
     if isinstance(config, str) and config.startswith(WANDB_RUN_PREFIX):
         return _read_config_wandb(config)
@@ -127,11 +128,21 @@ def read_config(config: ConfigParam) -> DictConfig:
         config_path = file_io.Path(config).resolve().expanduser()
         if not config_path.is_file():
             raise FileNotFoundError(f"Could not find configuration file at {config_path}")
-        if not config_path.suffix in (".py", ".yaml"):
+        if config_path.suffix not in (".py", ".yaml"):
             raise ValueError(f"Configuration file must be a .py or .yaml file, got {config_path}")
         obj = LazyConfig.load(str(config_path))
         if not isinstance(obj, DictConfig):
             raise TypeError(f"Expected a DictConfig, got {obj}")
+
+        # Check if the config has a latest checkpoint
+        models_path = config_path.parent / "outputs" / "models"
+        if models_path.is_dir():
+            step_dirs = list(_sort_children_by_suffix(models_path))
+            if len(step_dirs) > 0:
+                latest_step = file_io.Path(step_dirs[-1])
+                latest_step = latest_step / "model.safetensors"
+                if latest_step.is_file():
+                    obj[_KEY_CHECKPOINT] = latest_step.as_posix()
         return obj
     elif isinstance(config, DictConfig):
         return config
@@ -289,25 +300,25 @@ def create_model(
 
     if state is not None:
         load_checkpoint(state, model)
-    elif _KEY_REMOTE_PATH in config:
+    elif _KEY_CHECKPOINT in config:
         _logger.info(
             "Loading remote checkpoint matching configuration read path",
         )
-        load_checkpoint(config[_KEY_REMOTE_PATH], model)
+        load_checkpoint(config[_KEY_CHECKPOINT], model)
 
     return model.eval().to(device)
 
 
 @T.overload
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str], batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam, variant: T.Optional[str] = None, batch_size: int = 1, return_loader: bool = True
 ) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
     ...
 
 
 @T.overload
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str], batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam, variant: T.Optional[str] = None, batch_size: int = 1, return_loader: bool = True
 ) -> tuple[T.Iterator[InputData], Metadata]:
     ...
 

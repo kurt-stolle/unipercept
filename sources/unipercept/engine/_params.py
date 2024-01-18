@@ -11,11 +11,7 @@ from typing_extensions import override
 import unipercept.file_io
 from unipercept.engine.debug import DebugMode
 from unipercept.log import LOG_LEVELS, get_logger
-from unipercept.state import (
-    check_main_process,
-    get_process_index,
-    local_main_process_first,
-)
+from unipercept.state import check_main_process
 from unipercept.utils.time import get_timestamp
 
 __all__ = ["EngineParams", "InferencePrecision"]
@@ -344,7 +340,7 @@ class EngineParams:
             raise ValueError(f"Invalid value for `save_steps` or `save_epochs`: {epochs}.")
 
     save_total_limit: T.Optional[int] = D.field(
-        default=10,
+        default=4,
         metadata={
             "help": (
                 "If a value is passed, will limit the total amount of checkpoints. Deletes the older checkpoints in"
@@ -469,25 +465,3 @@ class EngineParams:
             return check_main_process(local=True)
         else:
             return check_main_process(local=False)
-
-    # def get_process_log_level(self):
-    #     """
-    #     Returns the log level to be used depending on whether this process is the main process of node 0, main process
-    #     of node non-0, or a non-main process.
-
-    #     For the main process the log level defaults to the logging level set (`logging.WARNING` if you didn't do
-    #     anything) unless overridden by `log_level` argument.
-
-    #     For the replica processes the log level defaults to `logging.WARNING` unless overridden by `log_level_replica`
-    #     argument.
-
-    #     The choice between the main and replica process settings is made according to the return value of `should_log`.
-    #     """
-
-    #     # convert to int
-    #     log_level = LOG_LEVELS.get(self.log_level, -1)
-    #     log_level_replica = LOG_LEVELS.get(self.log_level_replica, -1)
-
-    #     log_level_main_node = logging.get_verbosity() if log_level == -1 else log_level
-    #     log_level_replica_node = logging.get_verbosity() if log_level_replica == -1 else log_level_replica
-    #     return log_level_main_node if self.should_log else log_level_replica_node

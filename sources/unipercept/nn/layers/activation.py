@@ -1,7 +1,7 @@
-import torch.nn as nn
-import torch
-
 import typing as T
+
+import torch
+import torch.nn as nn
 
 from unipercept.utils.inspect import locate_object
 

@@ -1,7 +1,7 @@
 import pytest
 from torchdata.datapipes.iter import IterableWrapper
 
-from unipercept.datapipes.join import LeftIndexJoin
+from unipercept.data.pipes.join import LeftIndexJoin
 
 
 def test_left_join_pipe():

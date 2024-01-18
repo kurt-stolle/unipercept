@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import torch.nn as nn
-import torch
-import typing_extensions as TX
-import fvcore.nn.weight_init
 import typing as T
+
+import fvcore.nn.weight_init
+import torch
+import torch.nn as nn
+import typing_extensions as TX
+
 from .utils import NormActivationMixin, PaddingMixin
 
 __all__ = ["Conv2d", "Standard2d", "PadConv2d", "Separable2d"]

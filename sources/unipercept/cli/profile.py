@@ -4,27 +4,22 @@ Model profiling entry point.
 from __future__ import annotations
 
 import argparse
+import enum as E
 import time
 import typing as T
 from pprint import pformat
 
 import torch
-import enum as E
 import torch.autograd
 import torch.autograd.profiler
 import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from unipercept import file_io
-from unipercept.data import DataConfig
-from unipercept.engine import Engine
-from unipercept.config import templates
+from unipercept import create_dataset, create_engine, create_model, file_io
 from unipercept.log import get_logger
-from unipercept.utils.time import get_timestamp
-from unipercept.engine import Engine
-from unipercept import create_engine, create_model, create_dataset
 from unipercept.model import ModelAdapter
+from unipercept.utils.time import get_timestamp
 
 from ._command import command
 
@@ -68,11 +63,11 @@ def profile(subparser: argparse.ArgumentParser):
 
     return main
 
+
 _logger = get_logger(__name__)
-_config_t: T.TypeAlias = templates.LazyConfigFile[DataConfig, Engine, nn.Module]
 
 
-def _find_session_path(config: _config_t) -> file_io.Path:
+def _find_session_path(config: T.Any) -> file_io.Path:
     """
     Find the path to the session file.
     """
@@ -156,13 +151,14 @@ def _analyse_trace(
 
 
 def main(args):
-    config: _config_t = args.config
+    config: T.Any = args.config
     path_export = _find_session_path(config)
 
     _logger.info("Saving results to %s", path_export)
 
     engine = create_engine(config)
     model = create_model(config, state=args.weights)
+    model.to(engine.device)
 
     if args.training:
         handler = engine.run_training_step

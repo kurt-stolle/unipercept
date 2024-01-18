@@ -24,8 +24,8 @@ import zipfile
 
 from tqdm import tqdm
 from typing_extensions import override
-from unipercept import file_io
 
+from unipercept import file_io
 from unipercept.utils.time import get_timestamp
 
 from ..types import (

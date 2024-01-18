@@ -2,7 +2,11 @@ from dataclasses import dataclass
 
 import pytest
 
-from unipercept.utils.dataserial import SerializeRegistry, serializable, serializable_base
+from unipercept.utils.dataserial import (
+    SerializeRegistry,
+    serializable,
+    serializable_base,
+)
 
 
 @pytest.mark.parametrize("kw_only", [True, False])

@@ -12,8 +12,8 @@ from typing import Literal, Mapping
 
 from tqdm import tqdm
 from typing_extensions import override
-from unipercept import file_io
 
+from unipercept import file_io
 from unipercept.log import get_logger
 from unipercept.render import colormap
 

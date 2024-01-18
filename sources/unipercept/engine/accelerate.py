@@ -4,13 +4,13 @@ Integration with the ``accelerate`` package.
 
 from __future__ import annotations
 
+import typing as T
+
 import accelerate
 import accelerate.utils
-
-import typing as T
 import torch
-import torch.types
 import torch.nn
+import torch.types
 import typing_extensions as TX
 
 from unipercept import file_io
@@ -42,10 +42,7 @@ class Accelerator(accelerate.Accelerator):
             The accelerator object.
         """
         from accelerate.accelerator import ProjectConfiguration
-        from accelerate.utils import (
-            DistributedDataParallelKwargs,
-            TorchDynamoPlugin,
-        )
+        from accelerate.utils import DistributedDataParallelKwargs, TorchDynamoPlugin
 
         root = file_io.Path(params.root).resolve()
 

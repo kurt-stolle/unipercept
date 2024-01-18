@@ -4,6 +4,7 @@ from typing import Optional
 
 import torch
 from torch import Tensor
+
 from unipercept.utils.tensorclass import Tensorclass
 
 from .transform import Rotate, Transform3d, TransformType, Translate

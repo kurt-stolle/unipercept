@@ -11,11 +11,8 @@ import torch
 import torch.nn as nn
 from typing_extensions import override
 
-
-from unipercept.nn.layers.norm import NormSpec, get_norm
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
-
-
+from unipercept.nn.layers.norm import NormSpec, get_norm
 from unipercept.utils.abbreviate import short_name
 from unipercept.utils.function import to_2tuple
 

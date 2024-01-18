@@ -7,6 +7,7 @@ import safetensors.torch as safetensors
 import torch
 from torchvision.tv_tensors import Mask as _Mask
 from typing_extensions import override
+
 from unipercept import file_io
 
 from .registry import pixel_maps

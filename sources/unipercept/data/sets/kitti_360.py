@@ -10,6 +10,7 @@ import typing as T
 from pathlib import Path
 
 from tqdm import tqdm
+
 from unipercept import file_io
 from unipercept.utils.formatter import formatter
 

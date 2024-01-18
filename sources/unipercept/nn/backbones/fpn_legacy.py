@@ -14,9 +14,10 @@ from typing_extensions import override
 
 import unipercept.nn.layers as _ML
 from unipercept.log import get_logger
-from unipercept.nn.layers.norm import NormSpec, get_norm
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
 from unipercept.nn.layers.conv import Conv2d as ConvModule
+from unipercept.nn.layers.norm import NormSpec, get_norm
+
 from ._base import Backbone, BackboneFeatureInfo, BackboneFeatures
 
 __all__ = [

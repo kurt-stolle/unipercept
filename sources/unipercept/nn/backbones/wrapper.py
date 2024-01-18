@@ -57,7 +57,7 @@ class WrapperBase(Backbone, metaclass=abc.ABCMeta):
 
         self.dimension_order = DimensionOrder(dimension_order)
         self.normalize = Normalizer(mean, std)
-    
+
     @override
     def forward(self, images: torch.Tensor) -> TensorDictBase:
         """

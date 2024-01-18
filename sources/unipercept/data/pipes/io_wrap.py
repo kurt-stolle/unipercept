@@ -5,7 +5,12 @@ from typing import Any, Callable, Iterator, Sequence
 
 from torch.utils.data.datapipes.utils.common import match_masks
 from torchdata.datapipes import functional_datapipe
-from torchdata.datapipes.iter import IoPathFileLister, IoPathFileOpener, IoPathSaver, IterDataPipe
+from torchdata.datapipes.iter import (
+    IoPathFileLister,
+    IoPathFileOpener,
+    IoPathSaver,
+    IterDataPipe,
+)
 from typing_extensions import override
 
 from unipercept import file_io

@@ -7,7 +7,6 @@ from __future__ import annotations
 import functools
 import typing as T
 
-
 __all__ = ["Registry"]  # , "WeakLazyRegistry"]
 
 _T = T.TypeVar("_T", bound=T.Any)

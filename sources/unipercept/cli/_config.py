@@ -8,9 +8,9 @@ import typing as T
 
 from bullet import Bullet, Input
 from typing_extensions import override
-from unipercept import file_io
 
 import unipercept as up
+from unipercept import file_io
 
 __all__ = ["add_config_args"]
 

@@ -13,12 +13,11 @@
         "--profile=black"
     ],
     "isort.importStrategy": "fromEnvironment",
-    // "editor.formatOnSave": true,
+    "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
-        // "source.organizeImports": true,
-        // "source.fixAll": true
+        "source.organizeImports": "explicit",
+        "source.fixAll": "explicit"
     },
-    "profile"
     "files.exclude": {
         "**/coverage": true,
         "**/__pycache__": true,

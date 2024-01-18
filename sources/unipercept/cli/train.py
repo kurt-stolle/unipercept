@@ -7,14 +7,15 @@ import typing as T
 
 import torch
 import torch.nn as nn
-from unipercept import file_io
+from omegaconf import DictConfig
 
 import unipercept as up
+from unipercept import file_io
 
 from ._command import command
 
 _logger = up.log.get_logger(__name__)
-_config_t: T.TypeAlias = up.config.templates.LazyConfigFile[up.data.DataConfig, up.engine.Engine, nn.Module]
+_config_t: T.TypeAlias = DictConfig
 
 
 @command(help="trian a model", description=__doc__)
@@ -126,7 +127,9 @@ def main(args):
         results = engine.run_evaluation(model_factory, weights=args.weights)
         _logger.info("Evaluation results: \n%s", up.log.create_table(results, format="long"))
     else:
-        engine.run_training(model_factory, trial=None, stage=args.stage if args.stage >= 0 else None, weights=args.weights)
+        engine.run_training(
+            model_factory, trial=None, stage=args.stage if args.stage >= 0 else None, weights=args.weights
+        )
 
 
 if __name__ == "__main__":

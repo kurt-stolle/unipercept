@@ -8,7 +8,13 @@ import functools
 import typing as T
 
 import typing_extensions as TX
-from iopath.common.file_io import HTTPURLHandler, OneDrivePathHandler, PathHandler, PathManager, PathManagerFactory
+from iopath.common.file_io import (
+    HTTPURLHandler,
+    OneDrivePathHandler,
+    PathHandler,
+    PathManager,
+    PathManagerFactory,
+)
 
 from unipercept.utils.iopath_environ import EnvironPathHandler
 from unipercept.utils.iopath_path import IoPath

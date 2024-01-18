@@ -80,7 +80,7 @@ class TimmBackbone(WrapperBase):
         super().__init__(dimension_order=dims, feature_info={k: v for k, v in zip(keys, info)}, **kwargs)
 
         self.ext = extractor
-    
+
     @override
     def forward_extract(self, images: torch.Tensor) -> OrderedDict[str, torch.Tensor]:
         output_nodes = OrderedDict()

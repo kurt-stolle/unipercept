@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Generic, Hashable, Iterable, Iterator, Mapping, Optional, TypeVar, cast, overload
+from typing import (
+    Any,
+    Generic,
+    Hashable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Optional,
+    TypeVar,
+    cast,
+    overload,
+)
 
 from typing_extensions import Self, override
 

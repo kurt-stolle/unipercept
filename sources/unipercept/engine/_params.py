@@ -6,9 +6,9 @@ import logging
 import typing as T
 import warnings
 
-import unipercept.file_io
 from typing_extensions import override
 
+import unipercept.file_io
 from unipercept.engine.debug import DebugMode
 from unipercept.log import LOG_LEVELS, get_logger
 from unipercept.state import (

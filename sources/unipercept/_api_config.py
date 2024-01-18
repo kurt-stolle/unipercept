@@ -12,8 +12,8 @@ import torch.nn as nn
 import torch.utils.data
 from omegaconf import DictConfig
 from PIL import Image as pil_image
-from unipercept import file_io
 
+from unipercept import file_io
 from unipercept.log import get_logger
 from unipercept.model import ModelFactory
 
@@ -91,7 +91,7 @@ def _read_model_wandb(path: str) -> str:
     wandb_api = wandb.Api()
     run = wandb_api.run(run_name)
 
-    model_artifact_name = f"{run.entity}/{run.project}/model-{run.name}:latest/model.safetensors"
+    model_artifact_name = f"{run.entity}/{run.project}/{run.id}-model:latest/model.safetensors"
 
     return file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
 

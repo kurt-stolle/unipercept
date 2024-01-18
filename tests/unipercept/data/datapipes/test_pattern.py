@@ -1,7 +1,7 @@
 import pytest
 from torchdata.datapipes import iter
 
-from unipercept.datapipes.pattern import MatchMode, PatternFilter, PatternMatcher
+from unipercept.data.pipes.pattern import MatchMode, PatternFilter, PatternMatcher
 
 
 @pytest.mark.parametrize(

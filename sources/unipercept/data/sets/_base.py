@@ -10,13 +10,13 @@ import typing as T
 
 import torch
 import typing_extensions as TX
+
+from unipercept.data.tensors import PanopticMap
+from unipercept.utils.camera import build_calibration_matrix
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
 from unipercept.utils.frozendict import frozendict
 from unipercept.utils.tensorclass import Tensorclass
-
-from unipercept.data.tensors import PanopticMap
-from unipercept.utils.camera import build_calibration_matrix
 
 if T.TYPE_CHECKING:
     from unipercept.data.collect import ExtractIndividualFrames
@@ -184,14 +184,14 @@ class Metadata:
         Returns a mapping of dataset IDs to embedded IDs for object classes.
         """
         return self.thing_offsets
-    
+
     @property
     def stuff_o2e(self) -> T.Dict[int, int]:
         """
         Returns a mapping of dataset IDs to embedded IDs for semantic classes.
         """
         return self.stuff_offsets
-    
+
     @functools.cached_property
     def thing_e2o(self) -> T.Dict[int, int]:
         """
@@ -216,7 +216,7 @@ class Metadata:
             for sem_id, sem_cls in self.semantic_classes.items()
             if sem_cls.depth_fixed is not None
         }
-    
+
     # -------------- #
     # Thing specific #
     # -------------- #
@@ -227,7 +227,6 @@ class Metadata:
         Returns the IDs of all object classes, i.e. those that can be is_thingly detected.
         """
         return frozenset(self.thing_offsets.keys())
-
 
     object_ids = thing_ids
 
@@ -245,11 +244,10 @@ class Metadata:
         Returns the class specification of all is_thingly detectable object classes.
         """
         return tuple(self.semantic_classes[sem_id] for sem_id in self.thing_ids)
-    
+
     # -------------- #
     # Stuff specific #
     # -------------- #
-
 
     @functools.cached_property
     def stuff_ids(self) -> frozenset[int]:
@@ -279,7 +277,6 @@ class Metadata:
         segmentation mode.
         """
         return tuple(self.semantic_classes[sem_id] for sem_id in self.stuff_ids)
-
 
     # ---------------- #
     # General metadata #
@@ -473,7 +470,7 @@ def info_factory(
         else:
             stuff_offsets[sem_id] = len(stuff_offsets)
 
-    # Add a special thing class to the segmentation, which is used to mask out thing classes while detecting stuff 
+    # Add a special thing class to the segmentation, which is used to mask out thing classes while detecting stuff
     # classes
     if stuff_mode == StuffMode.WITH_THING:
         for sem_id in tuple(stuff_offsets.keys()):

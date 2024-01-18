@@ -82,6 +82,7 @@ def __patch_accelerate_operations():
 
     def is_tensordict_like(data: T.Any) -> bool:
         from tensordict import TensorDictBase
+
         from unipercept.utils.tensorclass import Tensorclass
 
         return isinstance(data, (TensorDictBase, Tensorclass))

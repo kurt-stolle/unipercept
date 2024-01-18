@@ -3,11 +3,10 @@ from pathlib import Path
 
 import pytest
 from numpy.ma.core import get_data
-from unipercept import file_io
-from unipercept.utils.dataset import Dataset
 
-from unipercept import get_dataset
+from unipercept import file_io, get_dataset
 from unipercept.data import collect
+from unipercept.utils.dataset import Dataset
 
 SAMPLE_IDS = [
     "aachen_000000_000019",

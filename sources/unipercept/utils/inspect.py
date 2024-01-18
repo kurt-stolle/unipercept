@@ -1,11 +1,10 @@
-import typing as T
 import importlib
-import types
 import inspect
 import os
-import sys
-
 import pydoc
+import sys
+import types
+import typing as T
 
 
 def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:

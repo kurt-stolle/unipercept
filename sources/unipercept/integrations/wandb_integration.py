@@ -16,9 +16,8 @@ import typing as T
 import torch.nn as nn
 import typing_extensions as TX
 import wandb
-from unipercept import file_io
 
-from unipercept import read_config
+from unipercept import file_io, read_config
 from unipercept.engine import EngineParams
 from unipercept.engine.callbacks import CallbackDispatcher, Signal, State
 from unipercept.log import get_logger
@@ -163,7 +162,7 @@ class WandBCallback(CallbackDispatcher):
         if self.upload_config:
             config_path = file_io.Path(params.root) / "config.yaml"
             assert config_path.is_file(), f"Config file {config_path} does not exist!"
-            self.run.log_artifact(config_path, type=ArtifactType.CONFIG.value, name=f"config-{self.run.id}")
+            self.run.log_artifact(config_path, type=ArtifactType.CONFIG.value, name=f"{self.run.id}-config")
 
     @TX.override
     @skip_no_run
@@ -207,8 +206,8 @@ class WandBCallback(CallbackDispatcher):
     def _log_model(self, model_path: str):
         try:
             _logger.info(f"Logging model to WandB run {self.run.name}")
-            name = f"model-{self.run.name}"
-            self.run.log_model(model_path, name=f"model-{self.run.name}")
+            name = f"{self.run.id}-model"
+            self.run.log_model(model_path, name=f"{self.run.id}-model")
 
             artifact = wandb.Api().artifact(
                 f"{self.run.entity}/{self.run.project_name()}/{name}:latest", type=ArtifactType.MODEL.value
@@ -221,7 +220,7 @@ class WandBCallback(CallbackDispatcher):
         try:
             _logger.info(f"Logging engine state to WandB: {self.run.name}")
             state_artifact = wandb.Artifact(
-                name=f"state-{self.run.name}",
+                name=f"{self.run.id}-state",
                 type=ArtifactType.STATE.value,
             )
             state_artifact.add_dir(state_path)
@@ -234,7 +233,7 @@ class WandBCallback(CallbackDispatcher):
 
             artifact_historic_delete(artifact, self.state_history)
         except Exception as err:
-            _logger.warning(f"Failed to log model to WandB self.run {self.run.name}: {err}")
+            _logger.warning(f"Failed to log state to WandB self.run {self.run.name}: {err}")
 
     def _log_profiling(self, key: str, timings: ProfileAccumulator):
         run = wandb.run
@@ -246,7 +245,7 @@ class WandBCallback(CallbackDispatcher):
             _logger.info("Logging evaluation outcomes to WandB")
             artifact = self.run.log_artifact(
                 results_path,
-                name=f"inference-{self.run.name}",
+                name=f"{self.run.name}-inference",
                 type=ArtifactType.INFERENCE.value,
             )
             artifact.wait()

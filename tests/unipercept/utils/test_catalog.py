@@ -1,6 +1,6 @@
 import pytest
 
-from unipercept.catalog import DataManager
+from unipercept.utils.catalog import DataManager
 
 
 @pytest.fixture

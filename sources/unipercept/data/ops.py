@@ -22,9 +22,9 @@ import torchvision.transforms.v2 as tvt2
 import torchvision.transforms.v2.functional
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
-from unipercept.utils.pickle import as_picklable
 
 from unipercept.log import get_logger
+from unipercept.utils.pickle import as_picklable
 
 from .tensors import BoundingBoxes, BoundingBoxFormat, DepthMap, PanopticMap
 
@@ -137,10 +137,10 @@ class GuidedRandomCrop(Op):
         *,
         min_unique_classes: int = 2,
         min_unique_instances: int = 1,
-        min_instance_area: float = 1e-3,
+        min_instance_area: float = 1e-2,
         min_valid_area: float = 0.70,
-        max_iterations: int = 10,
-        step_factor: int = 2,
+        max_iterations: int = 40,
+        step_factor: int = 4,
         verbose=False,
     ) -> None:
         """

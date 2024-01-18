@@ -5,11 +5,12 @@ Trace command. This command is used to profile a model using FX tracing.
 from __future__ import annotations
 
 import argparse
+
 import torch.fx
+
 from unipercept import create_model
 
 from ._command import command
-
 
 
 def main(args):
@@ -33,7 +34,7 @@ def main(args):
     print("Running symbolic tracing on ", submodule)
 
     gm = torch.fx.symbolic_trace(submodule)
-    
+
     gm.print_readable()
 
     gm.graph.print_tabular()

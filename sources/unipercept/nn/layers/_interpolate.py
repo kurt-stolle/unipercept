@@ -1,9 +1,8 @@
 """Implements interpolation layers."""
 
-import typing_extensions as TX
-
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 
 
 class Interpolate2d(nn.Module):

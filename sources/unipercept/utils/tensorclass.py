@@ -5,18 +5,19 @@ the provided decorator `@tensorclass`.
 This is useful when you want typing to work properly, and is more explicit.
 """
 
+import dataclasses as D
 import types
 import typing as T
-import typing_extensions as TX
-import dataclasses as D
-import torch.utils._pytree as pytree
-from tensordict import TensorDict, TensorDictBase, tensorclass
-from typing_extensions import override
 
 import torch
 import torch.distributed
 import torch.types
-from tensordict.tensordict import IndexType as IndexType, NestedKey as NestedKey
+import torch.utils._pytree as pytree
+import typing_extensions as TX
+from tensordict import TensorDict, TensorDictBase, tensorclass
+from tensordict.tensordict import IndexType as IndexType
+from tensordict.tensordict import NestedKey as NestedKey
+from typing_extensions import override
 
 __all__ = ["Tensorclass", "TensorDict", "TensorDictBase"]
 _CompatibleType: T.TypeAlias = torch.Tensor

@@ -2,14 +2,6 @@
 
 from __future__ import annotations
 
-from unipercept.utils.module import lazy_module_factory
-
-from ._config import *
+from . import collect, io, ops, sets, tensors, types
 from ._helpers import *
 from ._loader import *
-from ._sampler import *
-
-__all__ = []
-__getattr__, __dir__ = lazy_module_factory(__name__, ["collect", "io", "ops", "tensors", "types", "sets"])
-
-del lazy_module_factory

@@ -15,7 +15,6 @@ __all__ = ["CoordCat2d"]
 class CoordCat2d(nn.Module):
     """Layer that concatenates a 2D coordinate grid to the input tensor."""
 
-
     gamma: torch.jit.Final[float]
     groups: torch.jit.Final[int]
     cat_channels: torch.jit.Final[int]

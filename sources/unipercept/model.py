@@ -8,18 +8,18 @@ import abc
 import os
 import typing as T
 from dataclasses import field
-from sklearn import tree
 
 import torch
 import torch.nn as nn
 import typing_extensions as TX
-from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
+from sklearn import tree
 from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
-from unipercept import file_io
-from unipercept.utils.tensorclass import Tensorclass
+from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
 
+from unipercept import file_io
 from unipercept.data.tensors import DepthMap, Image, OpticalFlow, PanopticMap
 from unipercept.log import get_logger
+from unipercept.utils.tensorclass import Tensorclass
 
 _logger = get_logger(__name__)
 

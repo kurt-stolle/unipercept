@@ -4,7 +4,7 @@ Implements the main Engine class
 
 from __future__ import annotations
 
-from . import callbacks, debug, memory, writer, accelerate
+from . import accelerate, callbacks, debug, memory, writer
 from ._engine import *
 from ._optimizer import *
 from ._params import *

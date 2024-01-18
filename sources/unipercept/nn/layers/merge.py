@@ -39,7 +39,7 @@ class SemanticMerge(nn.Module):
         in_features: T.Mapping[str, BackboneFeatureInfo],
         common_stride: int,
         out_channels: int,
-        norm: NormSpec  = GroupNorm32,
+        norm: NormSpec = GroupNorm32,
         weight_method: WeightMethod | str = WeightMethod.SUM,
         squeeze_excite: bool = False,
     ):

@@ -864,7 +864,7 @@ class Engine:
         # Session name is organised in /group_part1/group_part2/.../timestampsession_name
         session_name_parts = self._params.session_name.split("/")
         if len(session_name_parts) > 1:  # NOTE: first part is some timestamp/uniqueid
-            session_group = "-".join(session_name_parts[-1:])
+            session_group = session_name_parts[0]
         else:
             session_group = "ungrouped"
 

@@ -6,13 +6,12 @@ import torch
 import torch.nn as nn
 from typing_extensions import override
 
-from unipercept.utils.mask import masks_to_boxes
-
-from .functional import (
+from unipercept.nn.losses.functional import (
     relative_absolute_squared_error,
     scale_invariant_logarithmic_error,
 )
-from .mixins import ScaledLossMixin, StableLossMixin
+from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
+from unipercept.utils.mask import masks_to_boxes
 
 __all__ = [
     "DepthLoss",
@@ -29,7 +28,7 @@ __all__ = [
 class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     weights: torch.Tensor
 
-    def __init__(self, *, weight_sile=2.0, weight_are=1.0, weight_sre=1.0, **kwargs):
+    def __init__(self, *, weight_sile=4.0, weight_are=1.0, weight_sre=1.0, **kwargs):
         super().__init__(**kwargs)
 
         self.register_buffer(

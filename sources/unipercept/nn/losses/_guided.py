@@ -6,12 +6,14 @@ import typing as T
 
 import torch
 import torch.nn as nn
-from einops import rearrange, reduce
 from torch import nn
 from typing_extensions import override
 
-from .functional import depth_guided_segmentation_loss, segmentation_guided_triplet_loss
-from .mixins import ScaledLossMixin, StableLossMixin
+from unipercept.nn.losses.functional import (
+    depth_guided_segmentation_loss,
+    segmentation_guided_triplet_loss,
+)
+from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
 
 __all__ = ["DGPLoss", "PGTLoss", "PGSLoss"]
 
@@ -44,7 +46,7 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         #     return seg_feat.mean() * 0.0
 
         # Average the loss over patch dimensions, then over spatial dimensions
-        loss = torch.masked_select(loss, mask)
+        loss = torch.masked_select(loss, mask).mean()
 
         return loss * self.scale
 

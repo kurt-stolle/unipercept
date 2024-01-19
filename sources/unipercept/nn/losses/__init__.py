@@ -11,4 +11,3 @@ from ._focal import *
 from ._guided import *
 from ._image import *
 from ._panoptic import *
-from ._weighted import *

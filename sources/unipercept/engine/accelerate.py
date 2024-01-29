@@ -16,7 +16,7 @@ import typing_extensions as TX
 from unipercept import file_io
 
 if T.TYPE_CHECKING:
-    from unipercept.engine import EngineParams
+    from unipercept.engine import EngineParams, EngineStage
 
 __all__ = ["Accelerator"]
 
@@ -27,7 +27,7 @@ class Accelerator(accelerate.Accelerator):
     """
 
     @classmethod
-    def from_engine_params(cls, params: EngineParams) -> T.Self:
+    def from_engine_params(cls, params: EngineParams, root: file_io.Path) -> T.Self:
         """
         Builds the Accelerator object.
 
@@ -43,8 +43,6 @@ class Accelerator(accelerate.Accelerator):
         """
         from accelerate.accelerator import ProjectConfiguration
         from accelerate.utils import DistributedDataParallelKwargs, TorchDynamoPlugin
-
-        root = file_io.Path(params.root).resolve()
 
         project_dir = root / "outputs"
         logging_dir = root / "logs"
@@ -71,11 +69,11 @@ class Accelerator(accelerate.Accelerator):
             step_scheduler_with_optimizer=False,
             log_with=list(params.trackers),
             dispatch_batches=False,
-            gradient_accumulation_steps=params.gradient_accumulation_steps,
+            gradient_accumulation_steps=1,
             split_batches=False,
             device_placement=True,
-            mixed_precision="bf16",
-            dynamo_backend=None,
+            # mixed_precision=None,
+            # dynamo_backend=None,
         )
         acc.state.dynamo_plugin = TorchDynamoPlugin(
             # backend=DynamoBackend.INDUCTOR,

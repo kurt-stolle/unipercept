@@ -28,7 +28,7 @@ class SchedulerFactory:
 
     def __init__(
         self,
-        scd=SchedType.POLY,
+        scd: str | SchedType = SchedType.POLY,
         **kwargs,
     ):
         if isinstance(scd, type) and issubclass(scd, Scheduler):
@@ -56,7 +56,7 @@ def create_scheduler(
     decay_rate: float = 0.1,
     min_lr: float = 0,
     warmup_lr: float = 1e-5,
-    warmup_epochs: int | float = 0,
+    warmup_epochs: int | float = 1,
     warmup_prefix: bool = False,
     noise: float | T.Sequence[float] | None = None,
     noise_pct: float = 0.67,

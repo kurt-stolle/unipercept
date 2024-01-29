@@ -35,7 +35,7 @@ def read_info(dl: up.data.DataConfig | T.Any, entry="train") -> up.data.sets.Met
     TypeError
         If the dataset class has no `read_info` method.
     """
-    from unipercept.config._lazy import locate
+    from unipercept._lazy import locate
 
     cls = locate(dl.loaders[entry].dataset._target_)  # type: ignore
 

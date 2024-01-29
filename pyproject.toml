@@ -13,14 +13,14 @@ keywords = [
     "deep learning",
     "object detection",
     "instance segmentation",
-    "semantic segmentation"
+    "semantic segmentation",
 ]
 authors = [{ name = "Kurt Stolle", email = "k.h.w.stolle@gmail.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: Implementation :: CPython"
+    "Programming Language :: Python :: Implementation :: CPython",
 ]
 dependencies = [
     "evaluators >= 1.0.1",
@@ -66,8 +66,15 @@ exclude = ["tests"]
 namespaces = false
 
 [project.optional-dependencies]
-notebooks = ["jupyterlab", "ipywidgets", "ipykernel", "ipython-autotime", "matplotlib", "seaborn"]
-docs = ["sphinx", "sphinx-rtd-theme"]
+notebooks = [
+    "jupyterlab",
+    "ipywidgets",
+    "ipykernel",
+    "ipython-autotime",
+    "matplotlib",
+    "seaborn",
+]
+docs = ["sphinx", "sphinx-rtd-theme", "numpydoc"]
 tests = [
     "hypothesis",
     "bandit[toml]",
@@ -77,8 +84,25 @@ tests = [
     "flake8-bugbear",
     "flake8-docstrings",
     "flake8-formatter_junit_xml",
+    "flake8-import-conventions",
+    "flake8-unused-arguments",
+    "flake8-comprehensions",
+    "flake8-errmsg",
+    "flake8-logging-format",
+    "flake8-pie",
+    "flake8-pyi",
+    "flake8-pytest-style",
+    "flake8-return",
+    "flake8-2020",
+    "flake8-executable",
+    "flake8-simplify",
+    "flake8-black",
     "flake8-pyproject",
     "pre-commit",
+    "pygrep",
+    "isort",
+    "pandas-vet",
+    "refurb",
     "pylint",
     "pylint_junit",
     "pytest",
@@ -97,6 +121,8 @@ tests = [
     "pyre-check",
     "pydocstringformatter",
     "pyrefact",
+    "pyflakes",
+    "mccabe",
 ]
 
 [tool.pydocstringformatter]
@@ -134,9 +160,49 @@ branch = true
 fail_under = 100
 
 [tool.flake8]
+docstring-convention = "numpy"
 max-complexity = 50
 max-line-length = 120
-select = "F,E,W,B,B901,B902,B903"
+extend-select = [
+    "F",    # flake8
+    "B",    # flake8-bugbear
+    "B901", # 
+    "B902", # 
+    "B903", #
+    "BLK",  # flake8-black
+    "C",    # mccabe
+    "I",    # isort
+    "ARG",  # flake8-unused-arguments
+    "C4",   # flake8-comprehensions
+    "EM",   # flake8-errmsg
+    "ICN",  # flake8-import-conventions
+    "G",    # flake8-logging-format
+    "PGH",  # pygrep-hooks
+    "PIE",  # flake8-pie
+    "PL",   # pylint
+    "PT",   # flake8-pytest-style
+    "PTH",  # flake8-use-pathlib
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print
+    "UP",   # pyupgrade
+    "YTT",  # flake8-2020
+    "EXE",  # flake8-executable
+    "NPY",  # NumPy specific rules
+    "PD",   # pandas-vet
+    "FURB", # refurb
+    "PYI",  # flake8-pyi
+]
+
+extend-ignore = [
+    # "E203", # whitespace before ':'
+    # "E501", # line too long
+    # "E722", # do not use bare 'except'
+    # "W503", # line break before binary operator
+    "B001", # assert used
+    "D200", # One-line docstring should fit on one line with quotes
+]
+select = "F,E,W,B,D,B901,B902,B903"
 exclude = [
     ".eggs",
     ".git",
@@ -148,14 +214,13 @@ exclude = [
     "pywin32",
     "tests",
     "swagger_client",
-    "*.pyi",
+    # "*.pyi",
 ]
-extend-ignore = ["E203"]
-ignore = ["E722", "B001", "W503", "E203"]
 per-file-ignores = """
     __init__.py: F401, F403
     __init__.pyi: F401, F403
-    conftest.py: F401, F403, E402
+    tests/**: T20
+    tests/**/conftest.py: F401, F403, E402
 """
 
 [tool.pyright]
@@ -194,7 +259,7 @@ ignore_init_module_imports = true
 expand_star_imports = true
 
 [tool.pytest.ini_options]
-addopts = "-m 'not integration' -m 'not gpu' --benchmark-disable"
+addopts = "--doctest-modules -m 'not integration' -m 'not gpu' --benchmark-disable"
 pythonpath = ["sources"]
 testpaths = "tests"
 junit_family = "xunit2"
@@ -337,6 +402,7 @@ overgeneral-exceptions = ["BaseException", "Exception"]
 
 [tool.isort]
 profile = "black"
+required-imports = ["from __future__ import annotations"]
 
 [tool.mypy]
 python_version = "3.11"

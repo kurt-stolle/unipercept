@@ -4,6 +4,12 @@ Lazy configuration system, inspired by and based on Detectron2 and Hydra.
 
 from __future__ import annotations
 
+import enum
+import os
+import typing as T
+from distutils.util import strtobool
+
+
 import ast
 import builtins
 import collections.abc as abc
@@ -14,8 +20,8 @@ import typing as T
 import uuid
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import is_dataclass
 from typing import Any, List
+import dataclasses as D
 
 import omegaconf
 import yaml
@@ -24,10 +30,17 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.utils.inspect import generate_path, locate_object
+from unipercept.utils.ulid import ULID
+
+if T.TYPE_CHECKING:
+    from unipercept.engine import Engine
+    from unipercept.model import ModelBase
 
 __all__ = [
     "LazyCall",
-    "LazyConfig",
+    "load_config",
+    "save_config",
+    "apply_overrides",
     "call",
     "bind",
     "LazyObject",
@@ -43,9 +56,91 @@ __all__ = [
     "make_set",
     "make_tuple",
     "make_list",
-    "LazyConfig",
+    "get_env",
 ]
 
+
+####################
+# Environment vars #
+####################
+
+_R = T.TypeVar("_R", int, str, bool)
+
+
+class EnvFilter(enum.StrEnum):
+    STRING = enum.auto()
+    TRUTHY = enum.auto()
+    FALSY = enum.auto()
+    POSITIVE = enum.auto()
+    NEGATIVE = enum.auto()
+    NONNEGATIVE = enum.auto()
+    NONPOSITIVE = enum.auto()
+
+    @staticmethod
+    def apply(f: EnvFilter | str, v: T.Any, /) -> bool:
+        if v is None:
+            return False
+        match EnvFilter(f):
+            case EnvFilter.STRING:
+                assert isinstance(v, str)
+                v = v.lower()
+                return v != ""
+            case EnvFilter.TRUTHY:
+                return bool(v)
+            case EnvFilter.FALSY:
+                return not bool(v)
+            case EnvFilter.POSITIVE:
+                return v > 0
+            case EnvFilter.NEGATIVE:
+                return v < 0
+            case EnvFilter.NONNEGATIVE:
+                return v >= 0
+            case EnvFilter.NONPOSITIVE:
+                return v <= 0
+            case _:
+                msg = f"Invalid filter: {f!r}"
+                raise ValueError(msg)
+
+
+@T.overload
+def get_env(__type: type[_R], /, *keys: str, default: _R, filter: EnvFilter = EnvFilter.TRUTHY) -> _R:
+    ...
+
+
+@T.overload
+def get_env(
+    __type: type[_R], /, *keys: str, default: _R | None = None, filter: EnvFilter = EnvFilter.TRUTHY
+) -> _R | None:
+    ...
+
+
+def get_env(
+    __type: type[_R], /, *keys: str, default: _R | None = None, filter: EnvFilter = EnvFilter.TRUTHY
+) -> _R | None:
+    """
+    Read an environment variable. If the variable is not set, return the default value.
+
+    If no default is given, an error is raised if the variable is not set.
+    """
+    for k in keys:
+        v = os.getenv(k)
+        if v is None:
+            continue
+        if __type is bool:
+            v = bool(strtobool(v))
+        else:
+            v = __type(v)
+        if not EnvFilter.apply(filter, v):
+            continue
+        break
+    else:
+        v = default
+    return T.cast(_R, v)
+
+
+######################
+# Lazy configuration #
+######################
 
 # Some global constants for lazy configuration
 _TARGET_KEY: T.Final = "_target_"
@@ -74,7 +169,7 @@ class LazyCall:
         self._target = target
 
     def __call__(self, **kwargs):
-        if is_dataclass(self._target):
+        if D.is_dataclass(self._target):
             # omegaconf object cannot hold dataclass type
             # https://github.com/omry/omegaconf/issues/784
             target = generate_path(self._target)
@@ -195,164 +290,178 @@ def _patch_import():
     builtins.__import__ = import_default
 
 
-class LazyConfig:
+def _filepath_to_name(path: str) -> str | None:
     """
-    Provide methods to save, load, and overrides an omegaconf config object
-    which may contain definition of lazily-constructed objects.
+    Convert a file path to a module name.
     """
 
-    @staticmethod
-    def load(path: str, keys: T.Iterable[str] | None = None):
-        """
-        Load a config file.
+    configs_root = file_io.Path("//configs")
+    if file_io.Path(path).is_relative_to(configs_root):
+        # If the file is under "//configs", then we can use the relative path to generate a name
+        name = file_io.Path(path).relative_to(configs_root).as_posix()
+        name = name.replace("./", "")
+        name = name.replace("//", "/")
+    else:
+        # Otherwise, we use the absolute path and find the name using the filename without suffix
+        name = os.path.splitext(os.path.basename(path))[0]
 
-        Parameters
-        ----------
-        path
-            The path to the config file.
-        keys
-            The keys to load from the config file. If not specified, all keys will be loaded.
+    if name in {"__init__", "defaults", "unknown", "config", "configs"}:
+        return None
+    else:
+        return name
 
-        Returns
-        -------
-        DictConfig
-            A lazy configuration object.
-        """
-        has_keys = keys is not None
-        path = path.replace("/./", "/")  # redundant
-        ext = os.path.splitext(path)[1]
-        match ext.lower():
-            case ".py":
-                _validate_syntax(path)
 
-                with _patch_import():
-                    # Record the filename
-                    module_namespace = {
-                        "__file__": path,
-                        "__package__": _generate_packagename(path),
-                    }
-                    with file_io.open(path) as f:
-                        content = f.read()
-                    # Compile first with filename to:
-                    # 1. make filename appears in stacktrace
-                    # 2. make load_rel able to find its parent's (possibly remote) location
-                    exec(compile(content, path, "exec"), module_namespace)
+def load_config(path: str) -> DictConfig:
+    """
+    Load a config file.
 
-                ret = module_namespace
-            case ".yaml":
+    Parameters
+    ----------
+    path
+        The path to the config file. The file extension must be either ".py" or ".yaml".
+
+    Raises
+    ------
+    ValueError
+        If the file extension is not supported.
+    FileNotFoundError
+        If the file does not exist.
+
+    """
+    path = file_io.get_local_path(path)
+    ext = os.path.splitext(path)[1]
+    match ext.lower():
+        case ".py":
+            _validate_syntax(path)
+
+            with _patch_import():
+                # Record the filename
+                nsp = {
+                    "__file__": path,
+                    "__package__": _generate_packagename(path),
+                }
                 with file_io.open(path) as f:
-                    obj = yaml.unsafe_load(f)
-                ret = OmegaConf.create(obj, flags=_OMEGA_DICT_FLAGS)
-            case _:
-                raise ValueError(f"Unsupported file extension {ext}!")
+                    content = f.read()
+                # Compile first with filename to:
+                # 1. make filename appears in stacktrace
+                # 2. make load_rel able to find its parent's (possibly remote) location
+                exec(compile(content, path, "exec"), nsp)
 
-        if has_keys:
-            return tuple(_as_omegadict(ret[a]) for a in keys)
-        else:
-            if path.endswith(".py"):
-                # when not specified, only load those that are config objects
-                ret = DictConfig(
-                    {
-                        name: _as_omegadict(value)
-                        for name, value in ret.items()
-                        if isinstance(value, (DictConfig, ListConfig, dict)) and not name.startswith("_")
-                    },
-                    flags=_OMEGA_DICT_FLAGS,
-                )
-            return ret
-
-    @staticmethod
-    def save(cfg, path: str):
-        """
-        Save a config object to a yaml file.
-
-        Parameters
-        ----------
-        cfg
-            An omegaconf config object.
-        filename
-            The file name to save the config file.
-
-        Notes
-        -----
-        When the config dictionary contains complex objects (e.g. lambda), it cannot be saved to yaml.
-        In that case, an error will be printed and the config will be saved to a pkl file instead.
-        """
-        try:
-            cfg = deepcopy(cfg)
-        except Exception:
-            pass
-        else:
-            # if it's deep-copyable, then...
-            def _replace_type_by_name(x):
-                if "_target_" in x and callable(x._target_):
-                    try:
-                        x._target_ = generate_path(x._target_)
-                    except AttributeError:
-                        pass
-
-            # not necessary, but makes yaml looks nicer
-            _apply_recursive(cfg, _replace_type_by_name)
-
-        try:
-            dict = OmegaConf.to_container(
-                cfg,
-                # Do not resolve interpolation when saving, i.e. do not turn ${a} into
-                # actual values when saving.
-                resolve=False,
-                # Save structures (dataclasses) in a format that can be instantiated later.
-                # Without this option, the type information of the dataclass will be erased.
-                structured_config_mode=SCMode.INSTANTIATE,
+            export = nsp.get(
+                "__all__",
+                (
+                    k
+                    for k, v in nsp.items()
+                    if not k.startswith("_")
+                    and (isinstance(v, (dict, list, DictConfig, ListConfig, int, float, str, bool)) or v is None)
+                ),
             )
-            dumped = yaml.dump(dict, default_flow_style=None, allow_unicode=True)
-            with file_io.open(path, "w") as f:
-                f.write(dumped)
+            obj: dict[str, T.Any] = {k: v for k, v in nsp.items() if k in export}
+            obj.setdefault("name", _filepath_to_name(path))
 
-            _ = yaml.unsafe_load(dumped)  # test that it is loadable
-        except Exception as err:
-            raise SyntaxError(f"Config file {path} cannot be saved to yaml!") from err
+        case ".yaml":
+            with file_io.open(path) as f:
+                obj = yaml.unsafe_load(f)
+            obj.setdefault("name", "unknown")
+        case _:
+            msg = "Unsupported file extension %s!"
+            raise ValueError(msg, ext)
 
-    @staticmethod
-    def apply_overrides(cfg, overrides: List[str]):
-        """
-        In-place override contents of cfg.
+    return _as_omegadict(obj)
 
-        Parameters
-        ----------
-        cfg
-            An omegaconf config object
-        overrides
-            List of strings in the format of "a=b" to override configs.
-            See: https://hydra.cc/docs/next/advanced/override_grammar/basic/
 
-        Returns
-        -------
-        DictConfig
-            Lazy configuration object
-        """
-        from hydra.core.override_parser.overrides_parser import OverridesParser
+def save_config(cfg, path: str):
+    """
+    Save a config object to a yaml file.
 
-        def safe_update(cfg, key, value):
-            parts = key.split(".")
-            for idx in range(1, len(parts)):
-                prefix = ".".join(parts[:idx])
-                v = OmegaConf.select(cfg, prefix, default=None)
-                if v is None:
-                    break
-                if not OmegaConf.is_config(v):
-                    raise KeyError(
-                        f"Trying to update key {key}, but {prefix} " f"is not a config, but has type {type(v)}."
-                    )
-            OmegaConf.update(cfg, key, value, merge=True)
+    Parameters
+    ----------
+    cfg
+        An omegaconf config object.
+    filename
+        The file name to save the config file.
 
-        for o in OverridesParser.create().parse_overrides(overrides):
-            key = o.key_or_group
-            value = o.value()
-            if o.is_delete():
-                raise NotImplementedError("deletion is not yet a supported override")
-            safe_update(cfg, key, value)
+    Notes
+    -----
+    When the config dictionary contains complex objects (e.g. lambda), it cannot be saved to yaml.
+    In that case, an error will be printed and the config will be saved to a pkl file instead.
+    """
+    if not isinstance(cfg, DictConfig):
+        cfg = _as_omegadict(D.asdict(cfg) if D.is_dataclass(cfg) else cfg)
 
-        return cfg
+    try:
+        cfg = deepcopy(cfg)
+    except Exception:
+        pass
+    else:
+        # if it's deep-copyable, then...
+        def _replace_type_by_name(x):
+            if "_target_" in x and callable(x._target_):
+                try:
+                    x._target_ = generate_path(x._target_)
+                except AttributeError:
+                    pass
+
+        # not necessary, but makes yaml looks nicer
+        _apply_recursive(cfg, _replace_type_by_name)
+
+    try:
+        dict = OmegaConf.to_container(
+            cfg,
+            # Do not resolve interpolation when saving, i.e. do not turn ${a} into
+            # actual values when saving.
+            resolve=False,
+            # Save structures (dataclasses) in a format that can be instantiated later.
+            # Without this option, the type information of the dataclass will be erased.
+            structured_config_mode=SCMode.INSTANTIATE,
+        )
+        dumped = yaml.dump(dict, default_flow_style=None, allow_unicode=True)
+        with file_io.open(path, "w") as f:
+            f.write(dumped)
+
+        _ = yaml.unsafe_load(dumped)  # test that it is loadable
+    except Exception as err:
+        raise SyntaxError(f"Config file {path} cannot be saved to yaml!") from err
+
+
+def apply_overrides(cfg, overrides: List[str]):
+    """
+    In-place override contents of cfg.
+
+    Parameters
+    ----------
+    cfg
+        An omegaconf config object
+    overrides
+        List of strings in the format of "a=b" to override configs.
+        See: https://hydra.cc/docs/next/advanced/override_grammar/basic/
+
+    Returns
+    -------
+    DictConfig
+        Lazy configuration object
+    """
+    from hydra.core.override_parser.overrides_parser import OverridesParser
+
+    def safe_update(cfg, key, value):
+        parts = key.split(".")
+        for idx in range(1, len(parts)):
+            prefix = ".".join(parts[:idx])
+            v = OmegaConf.select(cfg, prefix, default=None)
+            if v is None:
+                break
+            if not OmegaConf.is_config(v):
+                raise KeyError(f"Trying to update key {key}, but {prefix} " f"is not a config, but has type {type(v)}.")
+        OmegaConf.update(cfg, key, value, merge=True)
+
+    for o in OverridesParser.create().parse_overrides(overrides):
+        key = o.key_or_group
+        value = o.value()
+        if o.is_delete():
+            raise NotImplementedError("deletion is not yet a supported override")
+        safe_update(cfg, key, value)
+
+    return cfg
 
 
 # HACK: This is a workaround for a bug in OmegaConf, where lazily called objects are incompatible with the structured
@@ -398,7 +507,7 @@ class _LazyCall(T.Generic[_P, _L]):
         self._target = target
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> DictConfig:
-        if is_dataclass(self._target):
+        if D.is_dataclass(self._target):
             # omegaconf object cannot hold dataclass type
             # https://github.com/omry/omegaconf/issues/784
             target = generate_path(self._target)
@@ -476,7 +585,7 @@ def instantiate(cfg: T.Any, /) -> T.Any:
 
     # If input is a DictConfig backed by dataclasses (i.e. omegaconf's structured config),
     # instantiate it to the actual dataclass.
-    if isinstance(cfg, omegaconf.DictConfig) and dataclasses.is_dataclass(cfg._metadata.object_type):
+    if isinstance(cfg, omegaconf.DictConfig) and D.is_dataclass(cfg._metadata.object_type):
         return omegaconf.OmegaConf.to_object(cfg)
 
     if isinstance(cfg, T.Mapping) and "_target_" in cfg:
@@ -493,14 +602,15 @@ def instantiate(cfg: T.Any, /) -> T.Any:
         else:
             try:
                 cls_name = cls.__module__ + "." + cls.__qualname__
-            except Exception:
+            except Exception:  # noqa: B902, PIE786
                 # target could be anything, so the above could fail
                 cls_name = str(cls)
         assert callable(cls), f"_target_ {cls} does not define a callable object"
         try:
             return cls(**cfg)
         except TypeError as err:
-            raise TypeError(f"Error instantiating {cls_name} with arguments {cfg}!") from err
+            msg = f"Error instantiating {cls_name} with arguments {cfg}!"
+            raise TypeError(msg) from err
 
     if isinstance(cfg, (dict, omegaconf.DictConfig)):
         return {k: instantiate(v) for k, v in cfg.items()}  # type: ignore
@@ -508,7 +618,8 @@ def instantiate(cfg: T.Any, /) -> T.Any:
     if callable(cfg):
         return cfg
 
-    raise ValueError(f"Cannot instantiate {cfg}, type {type(cfg)}!")
+    err = f"Cannot instantiate {cfg}, type {type(cfg)}!"
+    raise ValueError(err)
 
 
 def make_dict(**kwargs) -> dict[str, T.Any]:
@@ -528,7 +639,10 @@ class ConfigTuple(tuple):
     pass
 
 
-def make_tuple(items) -> tuple[T.Any, ...]:
+_T = T.TypeVar("_T", bound=tuple, covariant=True)
+
+
+def make_tuple(items) -> _T:
     items = omegaconf.OmegaConf.to_object(items) if isinstance(items, omegaconf.ListConfig) else items
     return ConfigTuple(i for i in items)  # type: ignore
 

@@ -6,13 +6,11 @@ import os
 import typing as T
 
 import torch
-import torch.nn as nn
 from omegaconf import DictConfig
 
 import unipercept as up
-from unipercept import file_io
-
-from ._command import command
+import unipercept.file_io as file_io
+from unipercept.cli._command import command
 
 _logger = up.log.get_logger(__name__)
 _config_t: T.TypeAlias = DictConfig
@@ -31,6 +29,7 @@ def train(p: argparse.ArgumentParser):
         action="store_true",
         help="optimizes the configuration for model debugging",
     )
+    p.add_argument("--resume", "-R", action="store_true", help="continue training from the last checkpoint")
 
     # Mode (training/evaluation/...)
     p_mode = p.add_mutually_exclusive_group(required=False)
@@ -100,25 +99,27 @@ def setup(args) -> _config_t:
 def main(args):
     lazy_config: _config_t = setup(args)
 
-    # Before creating the engine across processes, check if the config file exists and recover the engine if it does.
-    lazy_engine = lazy_config.engine
-    lazy_engine.params = up.config.instantiate(lazy_engine.params)
-    config_path = file_io.Path(lazy_engine.params.root) / "config.yaml"
-    do_recover = config_path.exists()
-
     up.state.barrier()  # Ensure the config file is not created before all processes validate its existence
 
     engine: up.engine.Engine = up.config.instantiate(lazy_config.engine)
 
-    if do_recover:
-        _logger.info(
-            "A serialized config YAML file exists at %s. Recovering engine at latest checkpoint.",
-            config_path,
-        )
-        engine.recover()
-    elif up.state.check_main_process:
-        _logger.info("Storing serialized config to YAML file %s", engine.root_path)
-        up.config.LazyConfig.save(lazy_config, str(config_path))
+    if args.resume:
+        if not args.config_path.endswith(".yaml"):
+            msg = "Cannot resume training without a YAML config file"
+            raise ValueError(msg)
+        resume_dir = args.config_path.parent
+        if not (resume_dir / "outputs").exists():
+            msg = "Cannot resume training from a directory without outputs"
+            raise ValueError(msg)
+        if not (resume_dir / "logs").exists():
+            msg = "Cannot resume training from a directory without logs"
+            raise ValueError(msg)
+
+        engine.session_dir = resume_dir
+
+    if up.state.check_main_process():
+        _logger.info("Storing serialized config to YAML file %s", engine.config_path)
+        up.config.save_config(lazy_config, str(engine.config_path))
 
     # Setup dataloaders
     model_factory = up.model.ModelFactory(lazy_config.model)

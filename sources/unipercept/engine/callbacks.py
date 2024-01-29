@@ -9,8 +9,6 @@ import typing as T
 from pprint import pformat
 
 import numpy as np
-import torch
-import torch.nn as nn
 import typing_extensions as TX
 from tqdm.auto import tqdm
 
@@ -48,6 +46,9 @@ class State:
 
     # Training stage index
     stage: int = 0
+
+    # Accumulation steps in current session
+    gradient_accumulation: int = 1
 
     # Materialized step values
     train_steps: int = 0

@@ -15,7 +15,8 @@ import torch.nn as nn
 import typing_extensions as TX
 import wandb
 
-from unipercept import file_io
+from unipercept import file_io, read_config
+from unipercept.config import get_env
 from unipercept.engine import EngineParams
 from unipercept.engine.callbacks import CallbackDispatcher, Signal, State
 from unipercept.log import get_logger
@@ -108,9 +109,13 @@ class WandBCallback(CallbackDispatcher):
     Extended integration with Weights & Biases.
     """
 
-    watch_model: WandBWatchMode | None | str = None
+    watch_model: WandBWatchMode | None | str = D.field(
+        default_factory=lambda: get_env(
+            str, "UNIPERCEPT_WANDB_WATCH_ENABLED", default=WandBWatchMode.ALL.value
+        )
+    )
     watch_steps: int | None = D.field(
-        default=None,
+        default_factory=lambda: get_env(int, "UNIPERCEPT_WANDB_WATCH_INTERVAL"),
         metadata={
             "help": (
                 "Interval passed to W&B model watcher. "
@@ -118,14 +123,24 @@ class WandBCallback(CallbackDispatcher):
             )
         },
     )
-    upload_config: bool = True
-    upload_code: bool = True
+    upload_config: bool = D.field(
+        default_factory=lambda: get_env(
+            bool, "UNIPERCEPT_WANDB_UPLOAD_CONFIG", default=True
+        )
+    )
+    upload_code: bool = D.field(
+        default_factory=lambda: get_env(
+            bool, "UNIPERCEPT_WANDB_UPLOAD_CODE", default=True
+        )
+    )
     model_history: int = 1
     state_history: int = 1
     inference_history: int = 0
     tabulate_inference_timings: bool = False
 
-    _session_id: str | None = D.field(default=None, init=False)  # set when tracking begins
+    _session_id: str | None = D.field(
+        default=None, init=False
+    )  # set when tracking begins
 
     @property
     def session_id(self) -> str:
@@ -148,23 +163,46 @@ class WandBCallback(CallbackDispatcher):
     @TX.override
     @skip_no_run
     @on_main_process()
-    def on_trackers_setup(self, params: EngineParams, state: State, control: Signal, *, session_id: str, **kwargs):
+    def on_trackers_setup(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        session_id: str,
+        config_path: str,
+        **kwargs,
+    ):
         self._session_id = session_id
 
         _logger.info("Tracking current experiment to WandB run %s", self.run.name)
 
         if self.upload_code:
-            self.run.log_code("./sources", include_fn=lambda path, root: path.endswith(".py"))
+            self.run.log_code(
+                "./sources", include_fn=lambda path, root: path.endswith(".py")
+            )
         if self.upload_config:
-            config_path = file_io.Path(params.root) / "config.yaml"
-            assert config_path.is_file(), f"Config file {config_path} does not exist!"
-            self.run.log_artifact(config_path, type=ArtifactType.CONFIG.value, name=f"{self.run.id}-config")
+            assert file_io.isfile(
+                config_path
+            ), f"Config file {config_path} does not exist!"
+            self.run.log_artifact(
+                config_path,
+                type=ArtifactType.CONFIG.value,
+                name=f"{self.run.id}-config",
+            )
 
     @TX.override
     @skip_no_run
     @on_main_process()
     def on_save(
-        self, params: EngineParams, state: State, control: Signal, *, model_path: str, state_path: str, **kwargs
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        model_path: str,
+        state_path: str,
+        **kwargs,
     ):
         if self.model_history > 0:
             self._log_model(model_path)
@@ -191,12 +229,23 @@ class WandBCallback(CallbackDispatcher):
 
     @TX.override
     @skip_no_run
-    def on_train_begin(self, params: EngineParams, state: State, control: Signal, *, model: nn.Module, **kwargs):
+    def on_train_begin(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        model: nn.Module,
+        **kwargs,
+    ):
         if self.watch_model is not None:
             self.run.watch(
                 model,
-                log=self.watch_model.value,
-                log_freq=self.watch_steps if self.watch_steps is not None else params.logging_steps,
+                log=WandBWatchMode(self.watch_model).value,
+                log_freq=self.watch_steps
+                if self.watch_steps is not None
+                else params.logging_steps,
+                log_graph=True,
             )
 
     def _log_model(self, model_path: str):
@@ -206,7 +255,8 @@ class WandBCallback(CallbackDispatcher):
             self.run.log_model(model_path, name=f"{self.run.id}-model")
 
             artifact = wandb.Api().artifact(
-                f"{self.run.entity}/{self.run.project_name()}/{name}:latest", type=ArtifactType.MODEL.value
+                f"{self.run.entity}/{self.run.project_name()}/{name}:latest",
+                type=ArtifactType.MODEL.value,
             )
             artifact_historic_delete(artifact, self.model_history)
         except Exception as err:
@@ -229,7 +279,9 @@ class WandBCallback(CallbackDispatcher):
 
             artifact_historic_delete(artifact, self.state_history)
         except Exception as err:
-            _logger.warning(f"Failed to log state to WandB self.run {self.run.name}: {err}")
+            _logger.warning(
+                f"Failed to log state to WandB self.run {self.run.name}: {err}"
+            )
 
     def _log_profiling(self, key: str, timings: ProfileAccumulator):
         run = wandb.run
@@ -248,7 +300,9 @@ class WandBCallback(CallbackDispatcher):
 
             artifact_historic_delete(artifact, self.inference_history)
         except Exception as err:
-            _logger.warning(f"Failed to log inference to WandB run {self.run.name}: {err}")
+            _logger.warning(
+                f"Failed to log inference to WandB run {self.run.name}: {err}"
+            )
 
 
 #######################

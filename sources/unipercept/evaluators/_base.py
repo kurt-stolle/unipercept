@@ -62,4 +62,4 @@ class Evaluator(metaclass=abc.ABCMeta):
 
     def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
         tab_fmt = tab.to_markdown(index=False)
-        _logger.info(f"%s:\n%s", msg, tab_fmt)
+        _logger.info("%s:\n%s", msg, tab_fmt)

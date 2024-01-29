@@ -19,10 +19,10 @@ from tensordict import TensorDictBase
 from tqdm import tqdm
 from typing_extensions import override
 
-from ..data.tensors import PanopticMap
-from ..log import get_logger
-from . import helpers as H
-from ._base import Evaluator, PlotMode
+from unipercept.data.tensors import PanopticMap
+from unipercept.evaluators import helpers as H
+from unipercept.evaluators._base import Evaluator, PlotMode
+from unipercept.log import get_logger
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
@@ -119,7 +119,7 @@ class PanopticEvaluator(PanopticWriter):
     Computes PQ metrics for panoptic segmentation tasks.
     """
 
-    show_progress: bool = False
+    show_progress: bool = True
     show_summary: bool = True
     show_details: bool = False
     report_details: bool = False

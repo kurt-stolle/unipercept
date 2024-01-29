@@ -4,21 +4,26 @@ import dataclasses as D
 import enum as E
 import logging
 import typing as T
-import warnings
 
 from typing_extensions import override
 
-import unipercept.file_io
+from unipercept.data import DataLoaderFactory
+from unipercept.engine._optimizer import OptimizerFactory
+from unipercept.engine._scheduler import SchedulerFactory
 from unipercept.engine.debug import DebugMode
 from unipercept.log import LOG_LEVELS, get_logger
 from unipercept.state import check_main_process
-from unipercept.utils.time import get_timestamp
 
-__all__ = ["EngineParams", "InferencePrecision"]
+__all__ = ["EngineParams", "EngineStage", "InferencePrecision"]
 
 _logger = get_logger(__name__)
 
 _T = T.TypeVar("_T")
+
+if T.TYPE_CHECKING:
+    _IntervalType: T.TypeAlias = T.Literal["steps", "epochs"]
+else:
+    _IntervalType = str
 
 
 _DEFAULT_EXPERIMENT_TRACKERS: set[str] = {"tensorboard"}
@@ -34,30 +39,53 @@ class InferencePrecision(E.StrEnum):
     FULL_BF16 = E.auto()
 
 
-@D.dataclass(slots=True, unsafe_hash=True, match_args=False, kw_only=True, weakref_slot=True)
+@D.dataclass(frozen=True, slots=True)
+class EngineStage:
+    """
+    Defines a stage in the training process.
+    """
+
+    dataloader: str | DataLoaderFactory  # key in dataloaders dict or a factory function
+    batch_size: int
+    optimizer: OptimizerFactory
+    scheduler: SchedulerFactory
+    iterations: tuple[int, T.Literal["steps", "epochs"]] = D.field(default=(1, "epochs"), metadata={})
+    gradient_accumulation: int = 1
+
+    def get_steps(self, steps_per_epoch: int) -> int:
+        amount, unit = self.iterations
+
+        if unit == "steps":
+            return amount
+        elif unit == "epochs":
+            return amount * steps_per_epoch
+        else:
+            raise ValueError(f"Unknown unit {unit}")
+
+    def get_epochs(self, steps_per_epoch: int) -> int:
+        amount, unit = self.iterations
+
+        if unit == "steps":
+            return amount // steps_per_epoch
+        elif unit == "epochs":
+            return amount
+        else:
+            raise ValueError(f"Unknown unit {unit}")
+
+
+@D.dataclass(match_args=False, kw_only=True)
 class EngineParams:
     """
     Defines the (hyper)parameters of the engine.
     """
 
-    project_name: str
-    session_name: str = D.field(default_factory=get_timestamp)
-    root: str = "//output/{project_name}/{session_name}"
-
+    project_name: str = D.field(default="default", metadata={"help": "Name of the project."})
     notes: str = D.field(default="", metadata={"help": "Notes to use for the experiment."})
     tags: T.Sequence[str] = D.field(default_factory=list, metadata={"help": "Tags to use for the experiment."})
 
-    train_batch_size: int = 8
-    infer_batch_size: int = 1
     full_determinism: bool = False
     seed: int = 42
-
-    gradient_accumulation_steps: int = D.field(
-        default=1,
-        metadata={"help": "Number of updates steps to accumulate before performing a backward/update pass."},
-    )
-
-    max_grad_norm: float = D.field(default=5.0, metadata={"help": "Max gradient norm."})
+    max_grad_norm: float = D.field(default=15.0, metadata={"help": "Max gradient norm."})
 
     # Memory tracker
     memory_tracker: bool = D.field(default=False, metadata={"help": "Whether to track memory usage."})
@@ -90,66 +118,11 @@ class EngineParams:
         default=False, metadata={"help": "Whether to sum the losses instead of directly passing them to backward."}
     )
 
-    train_steps: int | None = D.field(
-        default=None,
-        metadata={
-            "help": "If > 0: set total number of training steps to perform. Mutually exclusive with `train_epochs`."
-        },
-    )
-    train_epochs: int | None = D.field(
-        default=None,
-        metadata={
-            "help": "If > 0: set total number of training epochs to perform. Mutually exclusive with `train_steps`."
-        },
-    )
-
-    def get_train_steps(self, steps_per_epoch: int) -> int:
-        if (self.train_steps is not None) and (self.train_epochs is not None):
-            raise ValueError("Only one of `train_steps` and `train_epochs` can be set.")
-        elif self.train_steps is not None:
-            return self.train_steps
-        elif self.train_epochs is not None:
-            return self.train_epochs * steps_per_epoch
-        else:
-            raise ValueError("Either `train_steps` or `train_epochs` must be greater than zero.")
-
-    def get_train_epochs(self, steps_per_epoch: int) -> int:
-        if (self.train_steps is not None) and (self.train_epochs is not None):
-            raise ValueError(
-                f"Only one of `train_steps` and `train_epochs` can be set. Got {self.train_steps=} and {self.train_epochs=}."
-            )
-        elif self.train_epochs is not None:
-            return self.train_epochs
-        elif self.train_steps is not None:
-            epochs = self.train_steps // steps_per_epoch
-            _logger.debug(f"Converted {self.train_steps} steps to {epochs} epochs.")
-            return epochs
-        else:
-            raise ValueError("Either `train_steps` or `train_epochs` must be greater than zero.")
-
     ########################################
     # Evaluation
     ########################################
 
-    eval_steps: T.Optional[float | int] = D.field(
-        default=None,
-        metadata={
-            "help": (
-                "Run an evaluation every X steps. Should be an integer or a float in range `[0,1)`."
-                "If smaller than 1, will be interpreted as ratio of total training steps."
-                "Mutually exclusive with `eval_epochs`."
-            )
-        },
-    )
-    eval_epochs: T.Optional[float | int] = D.field(
-        default=None,
-        metadata={
-            "help": (
-                "Run an evaluation every X epochs. Should be an integer or a float in range `[0,1)`. "
-                "Mutually exclusive with `eval_steps`."
-            )
-        },
-    )
+    eval_interval: tuple[int, _IntervalType] = D.field(default=(1, "epochs"), metadata={})
     eval_write_visuals: bool = D.field(
         default=False,
         metadata={
@@ -167,54 +140,15 @@ class EngineParams:
         as the ratio to the training steps (e.g., 0.1 means 10% of the total training steps).
         """
 
-        if (self.eval_steps is not None) and (self.eval_epochs is not None):
-            raise ValueError("Only one of `eval_steps` and `eval_epochs` can be set.")
-        elif self.eval_steps is not None:
-            steps = self.eval_steps
-        elif self.eval_epochs is not None:
-            steps = self.eval_epochs * steps_per_epoch
-        else:
-            raise ValueError("Either `eval_steps` or `eval_epochs` must be greater than zero.")
-
-        if steps == 0:
+        amount, unit = self.eval_interval
+        if amount <= 0:
             return None
-        elif steps <= 1:
-            return int(steps * self.get_train_steps(steps_per_epoch))
-        elif isinstance(steps, int) or steps.is_integer():
-            return int(steps)
+        if unit == "steps":
+            return amount
+        elif unit == "epochs":
+            return amount * steps_per_epoch
         else:
-            raise ValueError(f"Invalid value for `eval_steps` or `eval_epochs`: {steps}.")
-
-    def get_eval_interval_epochs(self, steps_per_epoch: int) -> int | None:
-        """
-        Get the number of evaluation epochs to perform. If the amount of epochs is less than 1, it is interpreted
-        and the ratio to the training epochs (e.g., 0.1 means 10% of the total training epochs).
-        """
-
-        # TODO: Remove this feature - translating steps to epochs may cause information loss
-        warnings.warn(
-            "`get_eval_interval_epochs` is deprecated and will be removed in a future version. Use `get_save_interval_steps` instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        if (self.eval_steps is not None) and (self.eval_epochs is not None):
-            raise ValueError("Only one of `eval_steps` and `eval_epochs` can be set.")
-        elif self.eval_epochs is not None:
-            epochs = self.eval_epochs
-        elif self.eval_steps is not None:
-            epochs = self.eval_steps // steps_per_epoch
-        else:
-            raise ValueError("Either `eval_steps` or `eval_epochs` must be greater than zero.")
-
-        if epochs == 0:
-            return None
-        elif epochs <= 1:
-            return int(epochs * self.get_train_epochs(steps_per_epoch))
-        elif isinstance(epochs, int) or epochs.is_integer():
-            return int(epochs)
-        else:
-            raise ValueError(f"Invalid value for `eval_steps` or `eval_epochs`: {epochs}.")
+            raise ValueError(f"Invalid evaluation interval unit: {unit}")
 
     eval_accumulation_steps: T.Optional[int] = D.field(
         default=None,
@@ -263,26 +197,7 @@ class EngineParams:
     # Saving
     #################################################
 
-    save_steps: float | None | int = D.field(
-        default=None,
-        metadata={
-            "help": (
-                "Save checkpoint every X updates steps. Should be an integer or a float in range `[0,1)`."
-                "If smaller than 1, will be interpreted as ratio of total training steps."
-                "Mutually exclusive with `save_epochs`."
-            )
-        },
-    )
-    save_epochs: float | None | int = D.field(
-        default=None,
-        metadata={
-            "help": (
-                "Save checkpoint every X epochs. Should be an integer or a float in range `[0,1)`. "
-                "If smaller than 1, will be interpreted as ratio of total training steps. "
-                "Mutually exclusive with `save_steps`."
-            )
-        },
-    )
+    save_interval: tuple[int, T.Literal["steps", "epochs"]] = D.field(default=(1, "epochs"), metadata={})
 
     def get_save_interval_steps(self, steps_per_epoch: int) -> int | None:
         """
@@ -290,54 +205,15 @@ class EngineParams:
         as the ratio to the training steps (e.g., 0.1 means 10% of the total training steps).
         """
 
-        if (self.save_steps is not None) and (self.save_epochs is not None):
-            raise ValueError("Only one of `save_steps` and `save_epochs` can be set.")
-        elif self.save_steps is not None:
-            steps = self.save_steps
-        elif self.save_epochs is not None:
-            steps = self.save_epochs * steps_per_epoch
-        else:
-            raise ValueError("Either `save_steps` or `save_epochs` must be greater than zero.")
-
-        if steps == 0:
+        amount, unit = self.save_interval
+        if amount <= 0:
             return None
-        elif steps <= 1:
-            return int(steps * self.get_train_steps(steps_per_epoch))
-        elif isinstance(steps, int) or steps.is_integer():
-            return int(steps)
+        if unit == "steps":
+            return amount
+        elif unit == "epochs":
+            return amount * steps_per_epoch
         else:
-            raise ValueError(f"Invalid value for `save_steps` or `save_epochs`: {steps}.")
-
-    def get_save_interval_epochs(self, steps_per_epoch: int) -> int | None:
-        """
-        Get the number of save epochs to perform. If the amount of epochs is less than 1, it is interpreted
-        and the ratio to the training epochs (e.g., 0.1 means 10% of the total training epochs).
-        """
-
-        # TODO: Remove this feature - translating steps to epochs may cause information loss
-        warnings.warn(
-            "`get_save_interval_epochs` is deprecated and will be removed in a future version. Use `get_save_interval_steps` instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        if (self.save_steps is not None) and (self.save_epochs is not None):
-            raise ValueError("Only one of `save_steps` and `save_epochs` can be set.")
-        elif self.save_epochs is not None:
-            epochs = self.save_epochs
-        elif self.save_steps is not None:
-            epochs = self.save_steps // steps_per_epoch
-        else:
-            raise ValueError("Either `save_steps` or `save_epochs` must be greater than zero.")
-
-        if epochs == 0:
-            return None
-        elif epochs <= 1:
-            return int(epochs * self.get_train_epochs(steps_per_epoch))
-        elif isinstance(epochs, int) or epochs.is_integer():
-            return int(epochs)
-        else:
-            raise ValueError(f"Invalid value for `save_steps` or `save_epochs`: {epochs}.")
+            raise ValueError(f"Invalid save interval unit: {unit}")
 
     save_total_limit: T.Optional[int] = D.field(
         default=4,
@@ -409,11 +285,6 @@ class EngineParams:
     # Post-initialization defaults and sanitization
     ###############################################
 
-    def __setup_root(self, **kwds) -> None:
-        root = self.root.format(project_name=self.project_name, session_name=self.session_name)
-        root = unipercept.file_io.get_local_path(root)
-        self.root = root
-
     def __setup_interactive(self, **kwds) -> None:
         if self.interactive is None:
             interactive = _logger.getEffectiveLevel() > logging.WARN
@@ -422,7 +293,6 @@ class EngineParams:
         self.interactive = interactive
 
     def __post_init__(self, **init_vars):
-        self.__setup_root(**init_vars)
         self.__setup_interactive(**init_vars)
 
     ################################################
@@ -438,7 +308,7 @@ class EngineParams:
 
     @override
     def __repr__(self):
-        return f"Config({self.project_name=}, {self.session_name=})"
+        return f"Config({self.project_name=}, {self.config_name=})"
 
     @override
     def __str__(self):

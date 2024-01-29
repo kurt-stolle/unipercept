@@ -4,6 +4,7 @@ This file defines some basic API methods for working with UniPercept models, dat
 from __future__ import annotations
 
 import os
+import re
 import typing as T
 
 import numpy as np
@@ -15,9 +16,11 @@ from PIL import Image as pil_image
 
 from unipercept import file_io
 from unipercept.log import get_logger
+from unipercept.config import load_config, save_config
 from unipercept.model import ModelFactory
 
 from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX, read_run as _read_run_wandb
+
 if T.TYPE_CHECKING:
     import torch.types
 
@@ -33,6 +36,7 @@ if T.TYPE_CHECKING:
 
 __all__ = [
     "read_config",
+    "read_run",
     "load_checkpoint",
     "create_engine",
     "create_model",
@@ -72,16 +76,58 @@ def _read_model_wandb(path: str) -> str:
     """
 
     run = _read_run_wandb(path)
+    import wandb
+    from wandb.sdk.wandb_run import Run
+
+    assert path.startswith(WANDB_RUN_PREFIX)
+
+    _logger.info("Reading W&B model checkpoint from %s", path)
+
+    run_name = path[len(WANDB_RUN_PREFIX) :]
+    wandb_api = wandb.Api()
+    run: Run = wandb_api.run(run_name)
+
     model_artifact_name = f"{run.entity}/{run.project}/{run.id}-model:latest/model.safetensors"
 
     _logger.info("Downloading model artifact %s", model_artifact_name)
+    local_path = file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
 
-    return file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
+    return local_path
 
 
 ##########################
 # READING CONFIGURATIONS #
 ##########################
+
+
+def read_run(path: str) -> tuple[DictConfig, Engine, ModelFactory]:
+    """
+    Read the run from a configuration file, directory or remote.
+
+    Parameters
+    ----------
+    path
+        Path to a configuration or remote location.
+
+    Returns
+    -------
+    config
+        The configuration object.
+    engine
+        The engine object.
+    model_factory
+        The model factory object.
+    """
+
+    if file_io.isdir(path):
+        path = file_io.join(path, "config.yaml")
+        if not file_io.isfile(path):
+            raise FileNotFoundError(f"Could not find configuration file at {path}")
+    config = read_config(path)
+    engine = create_engine(config)
+    model = create_model_factory(config, state=config.get(_KEY_CHECKPOINT, None))
+
+    return config, engine, model
 
 
 def read_config(config: ConfigParam) -> DictConfig:
@@ -99,7 +145,6 @@ def read_config(config: ConfigParam) -> DictConfig:
     config
         A DictConfig object.
     """
-    from .config import LazyConfig
     from .engine._engine import _sort_children_by_suffix
 
     if isinstance(config, str) and config.startswith(WANDB_RUN_PREFIX):
@@ -113,12 +158,12 @@ def read_config(config: ConfigParam) -> DictConfig:
             raise FileNotFoundError(f"Could not find configuration file at {config_path}")
         if config_path.suffix not in (".py", ".yaml"):
             raise ValueError(f"Configuration file must be a .py or .yaml file, got {config_path}")
-        obj = LazyConfig.load(str(config_path))
+        obj = load_config(str(config_path))
         if not isinstance(obj, DictConfig):
             raise TypeError(f"Expected a DictConfig, got {obj}")
 
         # Check if the config has a latest checkpoint
-        models_path = config_path.parent / "outputs" / "models"
+        models_path = config_path.parent / "outputs" / "checkpoints"
         if models_path.is_dir():
             step_dirs = list(_sort_children_by_suffix(models_path))
             if len(step_dirs) > 0:
@@ -294,20 +339,20 @@ def create_model(
 
 @T.overload
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str] = None, batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam, variant: T.Optional[str | re.Pattern] = None, batch_size: int = 1, return_loader: bool = True
 ) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
     ...
 
 
 @T.overload
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str] = None, batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam, variant: T.Optional[str | re.Pattern] = None, batch_size: int = 1, return_loader: bool = True
 ) -> tuple[T.Iterator[InputData], Metadata]:
     ...
 
 
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str] = None, batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam, variant: T.Optional[str | re.Pattern] = None, batch_size: int = 1, return_loader: bool = True
 ) -> tuple[T.Iterator[InputData] | torch.utils.data.DataLoader[InputData], Metadata]:
     """
     Create an iterator of a dataloader as specified in a configuration file.
@@ -317,7 +362,9 @@ def create_dataset(
     config
         The configuration file to use.
     variant
-        The variant of the dataset to use. Defaults to `test`.
+        The variant of the dataset to use. Will be compiled to a regular expression.
+        If ``None``, then the default test dataset will be used, which is found via
+        the pattern ``.+/val$``. Defaults to ``None``.
     batch_size
         The batch size to use. Defaults to 1.
     return_loader
@@ -337,13 +384,28 @@ def create_dataset(
 
     loaders = dict(config.engine.loaders)
 
-    if variant is None:
-        keys = list(loaders.keys())
-        variant = keys[-1]
-    elif variant not in loaders:
-        raise KeyError(f"Variant {variant} not found in data configuration, available variants are {loaders.keys()}")
+    if isinstance(variant, str) and variant in loaders:
+        # Lookup by direct key
+        _logger.info("Found dataset loader %s via key", variant)
+        key = variant
+    else:
+        # Search in keys
+        if variant is None:
+            variant = re.compile(r".+/val$")
+        elif isinstance(variant, str):
+            variant = re.compile(variant)
+        elif not isinstance(variant, re.Pattern):
+            raise TypeError(f"Expected a string or a regular expression, got {type(variant)}")
 
-    datafactory = instantiate(loaders[variant])
+        # Find the first key that matches the pattern
+        key_list = list(loaders.keys())
+        key = next((k for k in key_list if variant.match(k)), None)
+        if key is None:
+            raise ValueError(f"Could not find a dataset matching {variant.pattern!r} in {key_list}")
+        else:
+            _logger.info("Found dataset loader %s matching %s, available are: %s", key, variant.pattern, key_list)
+
+    datafactory = instantiate(loaders[key])
     dataloader = datafactory(batch_size)
     if return_loader:
         return dataloader, datafactory.dataset.info

@@ -42,13 +42,21 @@ class EnvironPathHandler(PathHandler):
     '/datasets/foo/bar.txt'
     """
 
-    def __init__(self, prefix: str, env: str, default: str | None = None):
-        value = os.getenv(env)
-        if value is None or len(value) == 0 or value[0] == "-":
+    def __init__(self, prefix: str, *env: str, default: str | None = None):
+        for env_key in env:
+            value = os.getenv(env_key)
+            if value is None or len(value) == 0 or value[0] == "-":
+                continue
+            else:
+                break
+        else:
             if default is None:
-                raise ValueError(f"Environment variable {env} not defined!")
-            warnings.warn(f"Environment variable {env} not defined, using default {default!r}.", stacklevel=2)
-            value = default
+                msg = f"environment variable {env[0]!r} not defined!"
+                raise ValueError(msg)
+            else:
+                msg = f"environment variable {env[0]!r} not defined! Using default: {default!r}"
+                warnings.warn(msg, stacklevel=2)
+                value = default
 
         value = os.path.expanduser(value)
         value = os.path.realpath(value)

@@ -71,10 +71,18 @@ for h in (
     OneDrivePathHandler(),
     HTTPURLHandler(),
     WandBArtifactHandler(),
-    EnvironPathHandler("//datasets/", "UNICORE_DATASETS", "./datasets"),
-    EnvironPathHandler("//cache/", "UNICORE_CACHE", "~/.torch/unicore/cache"),
-    EnvironPathHandler("//output/", "UNICORE_OUTPUT", "./output"),
-    EnvironPathHandler("//scratch/", "UNICORE_SCRATCH", "./scratch"),
+    EnvironPathHandler(
+        "//datasets/",
+        "UNIPERCEPT_DATASETS",
+        "UNICORE_DATASETS",
+        "DETECTRON2_DATASETS",
+        "D2_DATASETS",
+        default="./datasets",
+    ),
+    EnvironPathHandler("//cache/", "UP_CACHE", "UNIPERCEPT_CACHE", "UNICORE_CACHE", default="~/.torch/unicore/cache"),
+    EnvironPathHandler("//output/", "UP_OUTPUT", "UNIPERCEPT_OUTPUT", "UNICORE_OUTPUT", default="./output"),
+    EnvironPathHandler("//configs/", "UP_CONFIGS", "UNIPERCEPT_CONFIGS", default="./configs"),
+    EnvironPathHandler("//scratch/", "UP_SCRATCH", "UNIPERCEPT_SCRATCH", "UNICORE_SCRATCH", default="./scratch"),
 ):
     _manager.register_handler(h, allow_override=False)
 _exports: frozenset[str] = frozenset(fn_name for fn_name in dir(_manager) if not fn_name.startswith("_"))

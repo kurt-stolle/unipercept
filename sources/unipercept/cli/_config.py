@@ -45,7 +45,7 @@ class ConfigLoad(argparse.Action):
 
         name, *overrides = values
 
-        cfg = up.config.LazyConfig.load(name)
+        cfg = up.config.load_config(name)
         cfg = self.apply_overrides(cfg, overrides)
 
         setattr(namespace, self.dest, cfg)
@@ -56,7 +56,7 @@ class ConfigLoad(argparse.Action):
         return values
 
     @staticmethod
-    def interactive_select(configs_root=up.config.CONFIG_ROOT) -> str:
+    def interactive_select(configs_root="//configs/") -> str:
         print("No configuration file specified (--config <path> [config.key=value ...]).")
 
         # Prompt 1: Where to look for configurations?
@@ -71,11 +71,12 @@ class ConfigLoad(argparse.Action):
 
         match choice:
             case ConfigSource.TEMPLATES:
-                configs_root = file_io.Path(up.config.CONFIG_ROOT)
+                configs_root = file_io.Path("//configs/")
             case ConfigSource.CHECKPOINTS:
                 configs_root = file_io.Path("//output/")
             case _:
-                raise ValueError(f"Invalid choice: {action}")
+                msg = f"Invalid choice: {action}"
+                raise ValueError(msg)
 
         configs_root = configs_root.expanduser().resolve()
         config_candidates = configs_root.glob("**/*")

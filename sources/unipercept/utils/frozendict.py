@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing as T
 from copy import deepcopy
 from typing import (
     Any,
@@ -14,6 +15,7 @@ from typing import (
     overload,
 )
 
+import typing_extensions as TX
 from typing_extensions import Self, override
 
 from unipercept.utils.descriptors import objectmagic
@@ -73,10 +75,14 @@ class frozendict(dict, Mapping[_K, _V], Generic[_K, _V]):
     def __new__(cls, map_it: None, /, **kwargs: _V) -> frozendict[str, _V]:
         ...
 
-    def __new__(cls, map_it: Iterable[tuple[_K, _V]] | dict[_K, _V] | None = None, /, **kwargs):
+    def __new__(
+        cls, map_it: Iterable[tuple[_K, _V]] | dict[_K, _V] | None = None, /, **kwargs
+    ):
         if map_it is not None:
             if bool(kwargs):
-                raise TypeError("frozendict() takes no keyword arguments when a single positional argument is given.")
+                raise TypeError(
+                    "frozendict() takes no keyword arguments when a single positional argument is given."
+                )
 
             if map_it.__class__ == frozendict and cls == frozendict:
                 return map_it

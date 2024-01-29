@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import copy
+import typing as T
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, NamedTuple
 
 import anytree
 import pandas as pd
+import typing_extensions as TX
 
 
 def _get_argparser():
@@ -21,7 +25,9 @@ def _is_root(parent: str) -> bool:
     """
     Returns `TRUE` if the parent label indicates that the current label is a root, i.e. when it is blank or `NA`.
     """
-    return parent is None or parent is pd.NA or not parent or str(parent).lower() == "nan"
+    return (
+        parent is None or parent is pd.NA or not parent or str(parent).lower() == "nan"
+    )
 
 
 def _find_roots(labels: dict[str, str]) -> tuple[set[str], dict[str, str]]:

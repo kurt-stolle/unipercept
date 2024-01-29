@@ -1,14 +1,20 @@
+from __future__ import annotations
+
+import typing as T
 from os import R_OK
 
 import pytest
 import torch
+import typing_extensions as TX
 
 center_cases = [
     # Fully occupied mask, center in middle
     (torch.full((1, 5, 3), True, dtype=torch.bool), [(1, 2)]),
     # Middle pixel only, center in middle
     (
-        torch.tensor([[i == 1 and j == 1 for i in range(3)] for j in range(3)], dtype=torch.bool).unsqueeze_(0),
+        torch.tensor(
+            [[i == 1 and j == 1 for i in range(3)] for j in range(3)], dtype=torch.bool
+        ).unsqueeze_(0),
         [(1, 1)],
     ),
     # Left row only, pixel left-middle
@@ -41,7 +47,12 @@ box_cases = [
     # Fully occupied mask, center in middle
     (torch.full((5, 3), True, dtype=torch.bool), (0, 0, 2, 4)),
     # Middle pixel only, center in middle
-    (torch.tensor([[i == 1 and j == 1 for i in range(3)] for j in range(3)], dtype=torch.bool), (1, 1, 1, 1)),
+    (
+        torch.tensor(
+            [[i == 1 and j == 1 for i in range(3)] for j in range(3)], dtype=torch.bool
+        ),
+        (1, 1, 1, 1),
+    ),
     # Left row only, pixel left-middle
     (torch.arange(3).unsqueeze(0).repeat(3, 1) < 1, (0, 0, 0, 2)),
     # Unbalanced center
@@ -80,7 +91,9 @@ def test_masks_to_boxes_batch():
     print(r)
     assert r.dtype == torch.float
 
-    o_t = torch.nn.utils.rnn.pad_sequence([torch.as_tensor(c[1], dtype=r.dtype) for c in box_cases], batch_first=True)
+    o_t = torch.nn.utils.rnn.pad_sequence(
+        [torch.as_tensor(c[1], dtype=r.dtype) for c in box_cases], batch_first=True
+    )
 
     assert r.shape[-1] == 4
     assert torch.allclose(r, o_t)

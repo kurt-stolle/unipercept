@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import typing as T
+
 import pytest
 import torch.optim
+import typing_extensions as TX
 
 from unipercept.engine._optimizer import OptimizerFactory, OptimPackage, OptimType
 
@@ -15,8 +18,8 @@ def test_optimizer_factory(model, optim_package, optim_type, lr, foreach):
         "lr": lr,
         "foreach": foreach,
     }
-    optim_lazy = OptimizerFactory(optim_type, optim_package, **optim_args)
     try:
+        optim_lazy = OptimizerFactory(optim_type, optim_package, **optim_args)
         optim = optim_lazy(model)
     except ImportError:
         pytest.skip("Optimizer not installed")

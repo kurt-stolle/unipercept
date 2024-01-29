@@ -84,14 +84,25 @@ class WandBArtifactHandler(PathHandler):
         return ["wandb-artifact://"]
 
     @TX.override
-    def _get_local_path(self, path: str, mode: str = "r", force: bool = False, cache_dir: str | None = None, **kwargs):
+    def _get_local_path(
+        self,
+        path: str,
+        mode: str = "r",
+        force: bool = False,
+        cache_dir: str | None = None,
+        **kwargs,
+    ):
         import wandb.errors
 
         self._check_kwargs(kwargs)
 
         assert mode in ("r",), f"Unsupported mode {mode!r}"
 
-        if force or path not in self.cache_map or not os.path.exists(self.cache_map[path]):
+        if (
+            force
+            or path not in self.cache_map
+            or not os.path.exists(self.cache_map[path])
+        ):
             name, file = self._parse_path(path)
 
             try:
@@ -111,7 +122,9 @@ class WandBArtifactHandler(PathHandler):
         return self.cache_map[path]
 
     @TX.override
-    def _open(self, path: str, mode: str = "r", buffering: int = -1, **kwargs: T.Any) -> T.IO[str] | T.IO[bytes]:
+    def _open(
+        self, path: str, mode: str = "r", buffering: int = -1, **kwargs: T.Any
+    ) -> T.IO[str] | T.IO[bytes]:
         """
         Open a remote HTTP path. The resource is first downloaded and cached
         locally.
@@ -130,6 +143,8 @@ class WandBArtifactHandler(PathHandler):
         if mode not in ("r",):
             raise ValueError(f"Unsupported mode {mode!r}")
 
-        assert buffering == -1, f"{self.__class__.__name__} does not support the `buffering` argument"
+        assert (
+            buffering == -1
+        ), f"{self.__class__.__name__} does not support the `buffering` argument"
         local_path = self._get_local_path(path, force=False)
         return open(local_path, mode)

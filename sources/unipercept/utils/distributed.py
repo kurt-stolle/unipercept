@@ -2,10 +2,13 @@
 Wraps PyTorch distributed and adds some extra features
 """
 
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.distributed as D
+import typing_extensions as TX
 
 __all__ = ["is_main_process", "wait_for_sync"]
 
@@ -47,14 +50,24 @@ def wait_for_sync() -> None:
 
 
 def distributed_concat(
-    tensor: T.Tuple[torch.Tensor] | T.List[torch.Tensor] | T.Mapping[str, torch.Tensor] | torch.Tensor,
+    tensor: T.Tuple[torch.Tensor]
+    | T.List[torch.Tensor]
+    | T.Mapping[str, torch.Tensor]
+    | torch.Tensor,
     num_total_examples: T.Optional[int] = None,
 ) -> T.Any:
     try:
         if isinstance(tensor, (tuple, list)):
-            return type(tensor)(distributed_concat(t, num_total_examples) for t in tensor)
+            return type(tensor)(
+                distributed_concat(t, num_total_examples) for t in tensor
+            )
         if isinstance(tensor, T.Mapping):
-            return type(tensor)({k: distributed_concat(t, num_total_examples) for k, t in tensor.items()})
+            return type(tensor)(
+                {
+                    k: distributed_concat(t, num_total_examples)
+                    for k, t in tensor.items()
+                }
+            )
         tensor = torch.atleast_1d(tensor).contiguous()
         output_tensors = [tensor.clone() for _ in range(D.get_world_size())]
         D.all_gather(output_tensors, tensor)

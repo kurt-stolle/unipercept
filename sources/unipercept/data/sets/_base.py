@@ -110,10 +110,14 @@ class CanonicalClass:
     def __post_init__(self):
         if self.parent is None:
             if self.name != _CANONICAL_ROOT_NAME:
-                raise ValueError(f"Root category must have name {_CANONICAL_ROOT_NAME}.")
+                raise ValueError(
+                    f"Root category must have name {_CANONICAL_ROOT_NAME}."
+                )
         else:
             if self.name == _CANONICAL_ROOT_NAME:
-                raise ValueError(f"Non-root category must not have name {_CANONICAL_ROOT_NAME}.")
+                raise ValueError(
+                    f"Non-root category must not have name {_CANONICAL_ROOT_NAME}."
+                )
 
     @property
     def is_root(self) -> bool:
@@ -125,8 +129,12 @@ class CanonicalClass:
 # ---------------- #
 
 DatasetID = T.NewType("DatasetID", int)  # The ID as given in the dataset
-OffsetID = T.NewType("OffsetID", int)  # The ID as an index in the list of all valid IDs, unique for all classes
-EmbeddedID = T.NewType("EmbeddedID", int)  # The ID as it is represented internally, not unique for things and stuff
+OffsetID = T.NewType(
+    "OffsetID", int
+)  # The ID as an index in the list of all valid IDs, unique for all classes
+EmbeddedID = T.NewType(
+    "EmbeddedID", int
+)  # The ID as it is represented internally, not unique for things and stuff
 
 
 class StuffMode(E.Enum):
@@ -341,7 +349,9 @@ class Metadata:
     @TX.deprecated("Use `translations_dataset` instead.")
     def thing_translations(self) -> dict[int, int]:
         """Deprecated."""
-        return {k: v for k, v in self.translations_dataset.items() if k in self.thing_ids}
+        return {
+            k: v for k, v in self.translations_dataset.items() if k in self.thing_ids
+        }
 
     @property
     @TX.deprecated("Use `thing_offsets` instead.")
@@ -353,7 +363,9 @@ class Metadata:
     @TX.deprecated("Use `translations_dataset` instead.")
     def stuff_translations(self) -> dict[int, int]:
         """Deprecated."""
-        return {k: v for k, v in self.translations_dataset.items() if k in self.stuff_ids}
+        return {
+            k: v for k, v in self.translations_dataset.items() if k in self.stuff_ids
+        }
 
     @property
     @TX.deprecated("Use `stuff_offsets` instead.")
@@ -493,8 +505,12 @@ def info_factory(
         ignore_label=ignore_label,
         label_divisor=label_divisor,
         stuff_mode=stuff_mode,
-        translations_dataset=frozendict({c["dataset_id"]: c["unified_id"] for c in sem_seq}),
-        translations_semantic=frozendict({c["unified_id"]: c["dataset_id"] for c in sem_seq}),
+        translations_dataset=frozendict(
+            {c["dataset_id"]: c["unified_id"] for c in sem_seq}
+        ),
+        translations_semantic=frozendict(
+            {c["unified_id"]: c["dataset_id"] for c in sem_seq}
+        ),
         stuff_offsets=frozendict(stuff_offsets),
         thing_offsets=frozendict(thing_offsets),
         semantic_classes=frozendict(sem_map),
@@ -513,9 +529,9 @@ class PerceptionDataset(
 ):
     """Baseclass for datasets that are composed of captures and motions."""
 
-    queue_fn: T.Callable[[Manifest], up.data.collect.QueueGeneratorType] = dataclasses.field(
-        default_factory=_individual_frames_queue
-    )
+    queue_fn: T.Callable[
+        [Manifest], up.data.collect.QueueGeneratorType
+    ] = dataclasses.field(default_factory=_individual_frames_queue)
 
     @TX.override
     def __init_subclass__(cls, id: str | None = None, **kwargs):
@@ -531,7 +547,9 @@ class PerceptionDataset(
 
             catalog.register_dataset(id, info=cls._create_info)(cls)  # is a decorator
         elif id is not None:
-            raise ValueError(f"Opinionated: classes starting with '_' should not have an ID, got: {id}")
+            raise ValueError(
+                f"Opinionated: classes starting with '_' should not have an ID, got: {id}"
+            )
 
         cls._data_cache = {}
 
@@ -549,28 +567,42 @@ class PerceptionDataset(
         cap_data = CaptureData(
             times=times,
             images=multi_read(read_image, "image", no_entries="error")(sources),
-            segmentations=multi_read(read_segmentation, "panoptic", no_entries="none")(sources, info),
+            segmentations=multi_read(read_segmentation, "panoptic", no_entries="none")(
+                sources, info
+            ),
             depths=multi_read(read_depth_map, "depth", no_entries="none")(sources),
             batch_size=[num_caps],
         )
 
-        if info.depth_fixed is not None and cap_data.depths is not None and cap_data.segmentations is not None:
+        if (
+            info.depth_fixed is not None
+            and cap_data.depths is not None
+            and cap_data.segmentations is not None
+        ):
             for i in range(num_caps):
-                sem_seg = cap_data.segmentations[i].as_subclass(PanopticMap).get_semantic_map()
+                sem_seg = (
+                    cap_data.segmentations[i]
+                    .as_subclass(PanopticMap)
+                    .get_semantic_map()
+                )
                 for cat, fixed in info.depth_fixed.items():
                     cap_data.depths[i][sem_seg == cat] = fixed * info.depth_max
 
         return cap_data
 
     @classmethod
-    def _load_motion_data(cls, sources: T.Sequence[up.data.types.MotionSources], info: Metadata) -> up.model.MotionData:
+    def _load_motion_data(
+        cls, sources: T.Sequence[up.data.types.MotionSources], info: Metadata
+    ) -> up.model.MotionData:
         raise NotImplementedError(f"{cls.__name__} does not implement motion sources!")
 
     _data_cache: T.ClassVar[dict[str, up.model.InputData]] = {}
 
     @classmethod
     @TX.override
-    def _load_data(cls, key: str, item: QueueItem, info: Metadata) -> up.model.InputData:
+    def _load_data(
+        cls, key: str, item: QueueItem, info: Metadata
+    ) -> up.model.InputData:
         from unipercept.model import CameraModel, InputData
 
         # Check for cache hit, should be a memmaped tensor
@@ -615,7 +647,10 @@ class PerceptionDataset(
             motions=data_mots,
             cameras=data_camera,
             content_boxes=torch.cat(
-                [torch.tensor([0, 0], dtype=torch.int32), data_camera.image_size.to(dtype=torch.int32)]
+                [
+                    torch.tensor([0, 0], dtype=torch.int32),
+                    data_camera.image_size.to(dtype=torch.int32),
+                ]
             ),
             batch_size=[],
         )  # .memmap_()

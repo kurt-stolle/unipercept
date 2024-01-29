@@ -4,6 +4,7 @@ import typing as T
 
 import pytest
 import torch.nn as nn
+import typing_extensions as TX
 
 import unipercept as up
 
@@ -39,9 +40,14 @@ def model_factory() -> T.Callable[..., nn.Module]:
 
 @pytest.fixture(scope="session")
 def loader_factory(dataset) -> up.data.DataLoaderFactory:
-    config = up.data.DataLoaderConfig(batch_size=2, drop_last=False, pin_memory=True, num_workers=4)
+    config = up.data.DataLoaderConfig(
+        batch_size=2, drop_last=False, pin_memory=True, num_workers=4
+    )
     factory = up.data.DataLoaderFactory(
-        dataset=dataset, actions=[], sampler=up.data.SamplerFactory("training"), config=config
+        dataset=dataset,
+        actions=[],
+        sampler=up.data.SamplerFactory("training"),
+        config=config,
     )
 
     return factory

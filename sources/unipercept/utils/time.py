@@ -8,6 +8,7 @@ import typing as T
 from datetime import datetime
 
 import pandas as pd
+import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = ["get_timestamp", "ProfileAccumulator", "profile"]
@@ -105,7 +106,9 @@ class ProfileAccumulator(T.MutableMapping):
         """
         df = self.to_dataframe()
 
-        return df.groupby(self._KEY_NAME)[self._KEY_TIME].agg(["count", "sum", "mean", "std", "min", "max", "median"])
+        return df.groupby(self._KEY_NAME)[self._KEY_TIME].agg(
+            ["count", "sum", "mean", "std", "min", "max", "median"]
+        )
 
     @property
     def means(self):
@@ -125,15 +128,24 @@ class ProfileAccumulator(T.MutableMapping):
 
     @property
     def stds(self):
-        return {k: _compute_if_lengthy(v, statistics.stdev, 0, 1) for k, v in self.data.items()}
+        return {
+            k: _compute_if_lengthy(v, statistics.stdev, 0, 1)
+            for k, v in self.data.items()
+        }
 
     @property
     def medians(self):
-        return {k: _compute_if_lengthy(v, statistics.median, 0, 1) for k, v in self.data.items()}
+        return {
+            k: _compute_if_lengthy(v, statistics.median, 0, 1)
+            for k, v in self.data.items()
+        }
 
     @property
     def variances(self):
-        return {k: _compute_if_lengthy(v, statistics.variance, 0, 1) for k, v in self.data.items()}
+        return {
+            k: _compute_if_lengthy(v, statistics.variance, 0, 1)
+            for k, v in self.data.items()
+        }
 
     @property
     def counts(self):
@@ -166,7 +178,9 @@ _L = T.TypeVar("_L", bound=list)
 _R = T.TypeVar("_R", bound=T.Any)
 
 
-def _compute_if_lengthy(value: _L, fn: T.Callable[[_L], _R], otherwise: _R, min_length: int = 0) -> _R:
+def _compute_if_lengthy(
+    value: _L, fn: T.Callable[[_L], _R], otherwise: _R, min_length: int = 0
+) -> _R:
     if len(value) > min_length:
         return fn(value)
     else:

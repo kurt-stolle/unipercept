@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing as T
 from functools import update_wrapper
 from types import MethodType
 from typing import (
@@ -16,6 +17,7 @@ from typing import (
     overload,
 )
 
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.utils.missing import MissingValue
@@ -56,7 +58,9 @@ class objectmagic(Generic[_T, _P, _R]):
     def __get__(self, obj: _T, *args, **kwargs) -> Callable[Concatenate[_T, _P], _R]:
         ...
 
-    def __get__(self, obj: _T | None, *args, **kwargs) -> Callable[Concatenate[_T, _P], _R] | Callable[_P, _R]:
+    def __get__(
+        self, obj: _T | None, *args, **kwargs
+    ) -> Callable[Concatenate[_T, _P], _R] | Callable[_P, _R]:
         if obj is None:
             return self.fn  # (obj_a, obj_b)
         else:
@@ -114,7 +118,9 @@ class private(Generic[_V]):
     owner: type | None
     name: str | None
 
-    def __init__(self, value: _V | MissingValue = _NA, owner: type[object] | None = None):
+    def __init__(
+        self, value: _V | MissingValue = _NA, owner: type[object] | None = None
+    ):
         self.value = value
         self.owner: type | None = owner
         self.name: str | None = repr(self)

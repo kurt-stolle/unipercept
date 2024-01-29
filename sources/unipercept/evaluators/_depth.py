@@ -8,6 +8,7 @@ import typing as T
 
 import torch
 import torch.types
+import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDict, TensorDictBase
 from typing_extensions import override
@@ -19,7 +20,14 @@ from ._base import Evaluator, PlotMode
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
 
-__all__ = ["DepthEvaluator", "DepthWriter", "DepthMetrics", "PRED_DEPTH", "TRUE_DEPTH", "VALID_DEPTH"]
+__all__ = [
+    "DepthEvaluator",
+    "DepthWriter",
+    "DepthMetrics",
+    "PRED_DEPTH",
+    "TRUE_DEPTH",
+    "VALID_DEPTH",
+]
 
 PRED_DEPTH: T.Final[str] = "pred_depth"
 TRUE_DEPTH: T.Final[str] = "true_depth"
@@ -54,11 +62,17 @@ class DepthWriter(Evaluator):
         return cls(info=info, **kwargs)
 
     @override
-    def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
+    def update(
+        self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
+    ):
         super().update(storage, inputs, outputs)
 
         storage_keys = storage.keys(leaves_only=True, include_nested=True)
-        if TRUE_DEPTH in storage_keys and PRED_DEPTH in storage_keys and VALID_DEPTH in storage_keys:
+        if (
+            TRUE_DEPTH in storage_keys
+            and PRED_DEPTH in storage_keys
+            and VALID_DEPTH in storage_keys
+        ):
             return
 
         pred = outputs.get(self.pred_key, None)
@@ -71,7 +85,9 @@ class DepthWriter(Evaluator):
         else:
             true = true[:, self.true_group_index, ...]
 
-        assert true.ndim == 3, f"Expected 3D tensor for {self.true_key}, got {true.shape=}"
+        assert (
+            true.ndim == 3
+        ), f"Expected 3D tensor for {self.true_key}, got {true.shape=}"
 
         valid = (true > 1e-8).any(-1).any(-1)
 
@@ -94,7 +110,9 @@ class DepthWriter(Evaluator):
         result = super().plot(storage)
         for i in range(self.plot_samples):
             for key in plot_keys:
-                result[f"{key}_{i}"] = draw_image_depth(storage.get_at(key, i).clone().float(), self.info)
+                result[f"{key}_{i}"] = draw_image_depth(
+                    storage.get_at(key, i).clone().float(), self.info
+                )
         return result
 
 
@@ -208,7 +226,12 @@ def _threshold_to_key(t_base: float, n: int) -> str:
 
 
 def _depth_metrics_single(
-    *, pred: torch.Tensor, true: torch.Tensor, t_base: float = 1.25, t_n: T.Iterable[int] = _THRES_DEFAULT, eps=1e-8
+    *,
+    pred: torch.Tensor,
+    true: torch.Tensor,
+    t_base: float = 1.25,
+    t_n: T.Iterable[int] = _THRES_DEFAULT,
+    eps=1e-8,
 ) -> DepthMetrics | None:
     """
     Computation of error metrics between predicted and ground truth depths.
@@ -248,7 +271,10 @@ def _depth_metrics_single(
     max_rel = torch.maximum((true / pred), (pred / true))
 
     # Mean accuracies at different thresholds
-    accuracy = {_threshold_to_key(t_base, n): (max_rel < (t_base**n)).double().mean() for n in t_n}
+    accuracy = {
+        _threshold_to_key(t_base, n): (max_rel < (t_base**n)).double().mean()
+        for n in t_n
+    }
 
     rmse = (true - pred) ** 2
     rmse = torch.sqrt(rmse.mean())

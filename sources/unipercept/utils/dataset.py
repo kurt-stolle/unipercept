@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as NP
 import torch
 import torch.utils.data
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept import file_io
@@ -46,7 +47,14 @@ class DatasetMeta(abc.ABCMeta):
         info = kwds.pop("info", None)
         if info is None:
             # If not provided, then 'get_info' is not inherited but copied.
-            info = next((getattr(base, _CREATE_INFO) for base in bases if hasattr(base, _CREATE_INFO)), empty_info)
+            info = next(
+                (
+                    getattr(base, _CREATE_INFO)
+                    for base in bases
+                    if hasattr(base, _CREATE_INFO)
+                ),
+                empty_info,
+            )
         if callable(info):
             ns[_CREATE_INFO] = as_picklable(info)
         else:
@@ -74,7 +82,11 @@ def empty_info():
     return frozendict()
 
 
-class Dataset(T.Generic[_T_MFST, _T_QITEM, _T_DITEM, _T_DINFO], metaclass=DatasetMeta, extra_slots=("__hash")):
+class Dataset(
+    T.Generic[_T_MFST, _T_QITEM, _T_DITEM, _T_DINFO],
+    metaclass=DatasetMeta,
+    extra_slots=("__hash"),
+):
     """
     Dataset class, which implements three main attributes: manifest, queue, and datapipe.
 
@@ -128,7 +140,9 @@ class Dataset(T.Generic[_T_MFST, _T_QITEM, _T_DITEM, _T_DINFO], metaclass=Datase
         """
         ...
 
-    _manifest: _T_MFST | None = D.field(default=None, hash=False, repr=False, compare=False, init=False)
+    _manifest: _T_MFST | None = D.field(
+        default=None, hash=False, repr=False, compare=False, init=False
+    )
 
     @property
     def manifest(self) -> _T_MFST:
@@ -161,11 +175,13 @@ class Dataset(T.Generic[_T_MFST, _T_QITEM, _T_DITEM, _T_DINFO], metaclass=Datase
     # QUEUE #
     # ----- #
 
-    queue_fn: T.Callable[[_T_MFST], T.Mapping[str, _T_QITEM] | T.Iterable[tuple[str, _T_QITEM]]] | None = D.field(
-        default=None, repr=True, compare=False, kw_only=True
-    )
+    queue_fn: T.Callable[
+        [_T_MFST], T.Mapping[str, _T_QITEM] | T.Iterable[tuple[str, _T_QITEM]]
+    ] | None = D.field(default=None, repr=True, compare=False, kw_only=True)
 
-    _queue: _Dataqueue[_T_QITEM] | None = D.field(default=None, hash=False, repr=False, compare=False, init=False)
+    _queue: _Dataqueue[_T_QITEM] | None = D.field(
+        default=None, hash=False, repr=False, compare=False, init=False
+    )
 
     @property
     def queue(self) -> _Dataqueue[_T_QITEM]:
@@ -185,7 +201,9 @@ class Dataset(T.Generic[_T_MFST, _T_QITEM, _T_DITEM, _T_DINFO], metaclass=Datase
             elif isinstance(qmap, T.Iterable):
                 qmap = {k: v for k, v in qmap}
             else:
-                raise TypeError(f"Queue function must return a mapping or iterable, not {type(qmap)}")
+                raise TypeError(
+                    f"Queue function must return a mapping or iterable, not {type(qmap)}"
+                )
 
             if len(qmap) == 0:
                 raise ValueError("Queue map must not be empty!")
@@ -216,7 +234,9 @@ class Dataset(T.Generic[_T_MFST, _T_QITEM, _T_DITEM, _T_DINFO], metaclass=Datase
         Datapipe attribute: represents the output dataset
         """
         if self._datapipe is None:
-            self._datapipe = _Datapipe(self._load_data, queue=self.queue, info=self.info)
+            self._datapipe = _Datapipe(
+                self._load_data, queue=self.queue, info=self.info
+            )
         return self._datapipe
 
     # --------------- #
@@ -297,7 +317,9 @@ class _Dataqueue(torch.utils.data.Dataset[tuple[str, _T_QITEM]], T.Generic[_T_QI
         return len(self._addrs)
 
 
-class _Datapipe(torch.utils.data.Dataset[tuple[str, _T_DITEM]], T.Generic[_T_DITEM, _T_DINFO]):
+class _Datapipe(
+    torch.utils.data.Dataset[tuple[str, _T_DITEM]], T.Generic[_T_DITEM, _T_DINFO]
+):
     """
     A map-style dataset over loaded data records.
     """

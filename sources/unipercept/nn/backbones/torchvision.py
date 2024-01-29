@@ -1,12 +1,15 @@
 """Implements a feature extraction backbone using Torchvision."""
 
 
+from __future__ import annotations
+
 import typing as T
 import warnings
 from collections import OrderedDict
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from tensordict import TensorDict
 from typing_extensions import override
 
@@ -32,7 +35,12 @@ __all__ = [
 
 _EXTRACTION_NODES: dict[str, tuple[str, ...]] = {
     "^resnet.*": tuple(f"layer{i}" for i in range(1, 5)),
-    "^swin_v2.*": ("features.1.1.add_1", "features.3.1.add_1", "features.5.9.add_1", "features.7.1.add_1"),
+    "^swin_v2.*": (
+        "features.1.1.add_1",
+        "features.3.1.add_1",
+        "features.5.9.add_1",
+        "features.7.1.add_1",
+    ),
 }
 
 
@@ -95,7 +103,11 @@ class TorchvisionBackbone(WrapperBase):
         else:
             assert len(keys) == len(info), f"Expected {len(info)} keys, got {len(keys)}"
 
-        super().__init__(dimension_order=dims, feature_info={k: v for k, v in zip(keys, info)}, **kwargs)
+        super().__init__(
+            dimension_order=dims,
+            feature_info={k: v for k, v in zip(keys, info)},
+            **kwargs,
+        )
 
         self.ext = extractor
 

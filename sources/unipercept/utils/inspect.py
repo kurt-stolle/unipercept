@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib
 import inspect
 import os
@@ -5,6 +7,8 @@ import pydoc
 import sys
 import types
 import typing as T
+
+import typing_extensions as TX
 
 
 def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:
@@ -28,7 +32,9 @@ def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:
     frm = inspect.stack()[2 + frames]
     mod = inspect.getmodule(frm[0])
     if mod is None:
-        raise ModuleNotFoundError(f"Could not find module for {frm.filename}, which was called from {frm.function}")
+        raise ModuleNotFoundError(
+            f"Could not find module for {frm.filename}, which was called from {frm.function}"
+        )
 
     name = mod.__name__
     if left is not None:
@@ -126,14 +132,18 @@ def locate_object(path: str) -> T.Any:
     parts = [part for part in path.split(".")]
     for part in parts:
         if not len(part):
-            raise ValueError(f"Error loading '{path}': invalid dotstring." + "\nRelative imports are not supported.")
+            raise ValueError(
+                f"Error loading '{path}': invalid dotstring."
+                + "\nRelative imports are not supported."
+            )
     assert len(parts) > 0
     part0 = parts[0]
     try:
         obj = importlib.import_module(part0)
     except Exception as exc_import:
         raise ImportError(
-            f"Error loading '{path}':\n{repr(exc_import)}" + f"\nAre you sure that module '{part0}' is installed?"
+            f"Error loading '{path}':\n{repr(exc_import)}"
+            + f"\nAre you sure that module '{part0}' is installed?"
         ) from exc_import
     for m in range(1, len(parts)):
         part = parts[m]
@@ -152,7 +162,9 @@ def locate_object(path: str) -> T.Any:
                         + f"\nAre you sure that '{part}' is importable from module '{parent_dotpath}'?"
                     ) from exc_import
                 except Exception as exc_import:
-                    raise ImportError(f"Error loading '{path}':\n{repr(exc_import)}") from exc_import
+                    raise ImportError(
+                        f"Error loading '{path}':\n{repr(exc_import)}"
+                    ) from exc_import
             raise ImportError(
                 f"Error loading '{path}':\n{repr(exc_attr)}"
                 + f"\nAre you sure that '{part}' is an attribute of '{parent_dotpath}'?"

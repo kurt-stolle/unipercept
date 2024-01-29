@@ -6,6 +6,7 @@ import enum
 import functools
 import typing as T
 
+import typing_extensions as TX
 from timm.scheduler.scheduler import Scheduler
 from torch.optim import Optimizer
 
@@ -38,7 +39,9 @@ class SchedulerFactory:
         else:
             raise TypeError(f"Invalid scheduler type: {type(scd)}")
 
-    def __call__(self, optimizer: Optimizer, epochs: int, updates_per_epoch: int) -> SchedulerAndNum:
+    def __call__(
+        self, optimizer: Optimizer, epochs: int, updates_per_epoch: int
+    ) -> SchedulerAndNum:
         return self._partial(optimizer, epochs, updates_per_epoch)
 
 
@@ -69,7 +72,9 @@ def create_scheduler(
     plateau_mode: str = "max",
     step_on_epochs: bool = False,
 ) -> SchedulerAndNum:
-    assert isinstance(optimizer, Optimizer), f"Invalid optimizer type: {type(optimizer)}"
+    assert isinstance(
+        optimizer, Optimizer
+    ), f"Invalid optimizer type: {type(optimizer)}"
 
     t_initial = epochs
     warmup_t = warmup_epochs
@@ -77,7 +82,9 @@ def create_scheduler(
     cooldown_t = cooldown_epochs
 
     if not step_on_epochs:
-        assert updates_per_epoch > 0, "updates_per_epoch must be set to number of dataloader batches"
+        assert (
+            updates_per_epoch > 0
+        ), "updates_per_epoch must be set to number of dataloader batches"
         t_initial = t_initial * updates_per_epoch
         warmup_t = warmup_t * updates_per_epoch
         decay_t = decay_t * updates_per_epoch

@@ -15,7 +15,7 @@ import torch.nn as nn
 import typing_extensions as TX
 import wandb
 
-from unipercept import file_io, read_config
+from unipercept import file_io
 from unipercept.config import get_env
 from unipercept.engine import EngineParams
 from unipercept.engine.callbacks import CallbackDispatcher, Signal, State

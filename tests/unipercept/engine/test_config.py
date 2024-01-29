@@ -1,4 +1,9 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
+import typing_extensions as TX
 
 from unipercept.engine import EngineParams
 
@@ -7,8 +12,18 @@ from unipercept.engine import EngineParams
     "attr_step, attr_epoch, fn_to_step, fn_to_epoch",
     [
         ("train_steps", "train_epochs", "get_train_steps", "get_train_epochs"),
-        ("eval_steps", "eval_epochs", "get_eval_interval_steps", "get_eval_interval_epochs"),
-        ("save_steps", "save_epochs", "get_save_interval_steps", "get_save_interval_epochs"),
+        (
+            "eval_steps",
+            "eval_epochs",
+            "get_eval_interval_steps",
+            "get_eval_interval_epochs",
+        ),
+        (
+            "save_steps",
+            "save_epochs",
+            "get_save_interval_steps",
+            "get_save_interval_epochs",
+        ),
     ],
 )
 def test_epochs_step(tmp_path, attr_step, attr_epoch, fn_to_step, fn_to_epoch):

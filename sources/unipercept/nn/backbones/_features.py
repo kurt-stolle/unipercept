@@ -3,13 +3,20 @@ Feature extraction utilities for PyTorch models, wraps the extended version prov
 """
 
 
+from __future__ import annotations
+
 import typing as T
 
 import timm.models
 import torch.nn as nn
 import torchvision.models.feature_extraction
+import typing_extensions as TX
 
-__all__ = ["register_notrace_module", "register_notrace_function", "create_feature_extractor"]
+__all__ = [
+    "register_notrace_module",
+    "register_notrace_function",
+    "create_feature_extractor",
+]
 
 # ------------ #
 # Leaf modules #
@@ -56,9 +63,14 @@ def get_notrace_functions():
     return list(_autowrap_functions) + timm.models.get_notrace_functions()
 
 
-def create_feature_extractor(model: nn.Module, return_nodes: T.Union[T.Dict[str, str], T.List[str]]):
+def create_feature_extractor(
+    model: nn.Module, return_nodes: T.Union[T.Dict[str, str], T.List[str]]
+):
     return torchvision.models.feature_extraction.create_feature_extractor(
         model,
         return_nodes,
-        tracer_kwargs={"leaf_modules": get_notrace_modules(), "autowrap_functions": get_notrace_functions()},
+        tracer_kwargs={
+            "leaf_modules": get_notrace_modules(),
+            "autowrap_functions": get_notrace_functions(),
+        },
     )

@@ -5,29 +5,40 @@ import typing as T
 
 import pytest
 import torch
+import typing_extensions as TX
 from tensordict import TensorDict
 
 from unipercept.nn import backbones
 
 LAYER_SCOPE = "function"
 BACKBONES = [
-    *[("timm", name) for name in ("convnextv2_tiny", "resnet50")],  # "swin_tiny_patch4_window7_224"
+    *[
+        ("timm", name) for name in ("convnextv2_tiny", "resnet50")
+    ],  # "swin_tiny_patch4_window7_224"
     *[("torchvision", name) for name in ("swin_v2_s", "resnet50")],  # "convnext_tiny"
 ]
 
 
-@pytest.fixture(params=BACKBONES, scope=LAYER_SCOPE, ids=[f"{src.title()}:{name.title()}" for src, name in BACKBONES])
+@pytest.fixture(
+    params=BACKBONES,
+    scope=LAYER_SCOPE,
+    ids=[f"{src.title()}:{name.title()}" for src, name in BACKBONES],
+)
 def backbone(request):
     bb_src, bb_name = request.param
 
     match bb_src:
         case "timm":
             avail = backbones.timm.list_available(bb_name)
-            assert bb_name in avail, f"{bb_name} not available, did you mean: {avail[0]}?"
+            assert (
+                bb_name in avail
+            ), f"{bb_name} not available, did you mean: {avail[0]}?"
             bb = backbones.timm.TimmBackbone(bb_name, pretrained=True)
         case "torchvision":
             avail = backbones.torchvision.list_available(bb_name)
-            assert bb_name in avail, f"{bb_name} not available, did you mean: {avail[0]}?"
+            assert (
+                bb_name in avail
+            ), f"{bb_name} not available, did you mean: {avail[0]}?"
             bb = backbones.torchvision.TorchvisionBackbone(bb_name, weights=None)
         case _:
             raise ValueError(f"Invalid backbone source: {bb_src}")

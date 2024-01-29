@@ -13,6 +13,7 @@ import numpy as np
 import PIL.Image as pil_image
 import torch
 import torchvision.transforms.functional as F
+import typing_extensions as TX
 from tensordict import TensorDict, TensorDictBase
 
 if T.TYPE_CHECKING:
@@ -54,7 +55,10 @@ def plot_input_data(
     import matplotlib.pyplot as plt
 
     if len(data.batch_size) > 0:
-        warnings.warn("Received batched input data, plotting only the first element!", stacklevel=2)
+        warnings.warn(
+            "Received batched input data, plotting only the first element!",
+            stacklevel=2,
+        )
         data = data[0]
 
     caps = data.captures
@@ -63,7 +67,12 @@ def plot_input_data(
     figsize = (3 * height * caps.images.shape[-2] / caps.images.shape[-1], height)
 
     fig, axs = plt.subplots(
-        nrows, ncols, figsize=(ncols * figsize[0], nrows * figsize[1]), sharex=True, sharey=True, squeeze=False
+        nrows,
+        ncols,
+        figsize=(ncols * figsize[0], nrows * figsize[1]),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
     )
 
     for i, lbl in enumerate(("Image", "Segmentation", "Depth")):
@@ -83,7 +92,9 @@ def plot_input_data(
             segmentation_options = {}
         if segmentation_options not in SKIP:
             segmentation_options.setdefault("depth_map", cap.depths / cap.depths.max())
-            draw_image_segmentation(cap.segmentations, info, ax=axs[i, 1], **segmentation_options)
+            draw_image_segmentation(
+                cap.segmentations, info, ax=axs[i, 1], **segmentation_options
+            )
 
         if depth_options is None:
             depth_options = {}
@@ -113,7 +124,9 @@ def plot_predictions(
     except (AttributeError, KeyError):
         pass
 
-    img = inputs.captures.images[:, 0, :, :, :]  # batch (=1) x pairs (=1) x C (=3) x H (=1024) x W (=2048)
+    img = inputs.captures.images[
+        :, 0, :, :, :
+    ]  # batch (=1) x pairs (=1) x C (=3) x H (=1024) x W (=2048)
     seg = predictions.get("segmentations", None)  # batch (=1) x H (=1024) x W (=2048)
     if seg is None:
         segmentation_options = SKIP
@@ -126,7 +139,12 @@ def plot_predictions(
     figsize = (3 * height * seg.shape[-2] / seg.shape[-1], height)
 
     fig, axs = plt.subplots(
-        nrows, ncols, figsize=(ncols * figsize[0], nrows * figsize[1]), sharex=True, sharey=True, squeeze=False
+        nrows,
+        ncols,
+        figsize=(ncols * figsize[0], nrows * figsize[1]),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
     )
 
     for i, lbl in enumerate(("Input", "Segmentation", "Depth")):
@@ -156,7 +174,9 @@ def plot_predictions(
     return fig
 
 
-def draw_image(img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None) -> PILImageObject:
+def draw_image(
+    img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None
+) -> PILImageObject:
     """
     Shows the given images.
     """
@@ -165,7 +185,10 @@ def draw_image(img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None) -> 
         img = img.squeeze(0)
 
     assert len(img.shape) == 3, f"Expected image with CHW dimensions, got {img.shape}!"
-    assert img.shape[0] in (1, 3), f"Expected image with 1 or 3 channels, got {img.shape[0]}!"
+    assert img.shape[0] in (
+        1,
+        3,
+    ), f"Expected image with 1 or 3 channels, got {img.shape[0]}!"
 
     img = F.to_pil_image(img.detach())
 
@@ -250,7 +273,9 @@ def draw_layers(
     layers.clamp_(0, 1)
 
     # Get the desired colormap
-    cmap: colors.Colormap = sns.color_palette(palette, n_colors=layers.shape[0], as_cmap=True)
+    cmap: colors.Colormap = sns.color_palette(
+        palette, n_colors=layers.shape[0], as_cmap=True
+    )
 
     # Allocate the output RGB image
     out_list: list[PILImageObject] = []
@@ -309,7 +334,11 @@ def draw_map(
 
 
 def draw_image_depth(
-    dep: torch.Tensor, /, info: Metadata, palette: str = "viridis", ax: MatplotlibAxesObject | None = None
+    dep: torch.Tensor,
+    /,
+    info: Metadata,
+    palette: str = "viridis",
+    ax: MatplotlibAxesObject | None = None,
 ) -> PILImageObject:
     """
     Draws the depth map as an RGB heatmap, normalized from 0 until 1 using the given ``'max_depth'`` in the ``info``
@@ -339,7 +368,9 @@ def draw_image_depth(
     return _rgba_to_rgb(out)
 
 
-def _rgba_to_rgb(img: PILImageObject, background: PILImageObject | torch.Tensor | None = None) -> PILImageObject:
+def _rgba_to_rgb(
+    img: PILImageObject, background: PILImageObject | torch.Tensor | None = None
+) -> PILImageObject:
     """
     Convert an RGBA image to RGB by removing the alpha channel
     """
@@ -360,7 +391,9 @@ def _figure_to_pil(fig) -> PILImageObject:
     """
     Convert a Matplotlib figure to a PIL Image
     """
-    return pil_image.frombytes("RGB", fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+    return pil_image.frombytes(
+        "RGB", fig.canvas.get_width_height(), fig.canvas.tostring_rgb()
+    )
 
 
 def _float_to_uint8(mat) -> np.ndarray:

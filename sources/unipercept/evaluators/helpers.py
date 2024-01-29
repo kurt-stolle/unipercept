@@ -2,11 +2,14 @@
 General helper functions for evaluators.
 """
 
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.nn as nn
 import torch.special
+import typing_extensions as TX
 
 __all__ = ["DTYPE_INT", "DTYPE_FLOAT", "EPS", "stable_divide", "isin"]
 
@@ -18,9 +21,16 @@ EPS: T.Final[float] = torch.finfo(DTYPE_FLOAT).eps
 def stable_divide(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     Divide two floating point numbers, but avoid division by zero by adding a small epsilon value.
+
+    Examples
+    --------
+    >>> a = torch.tensor([1, 2, 3], dtype=torch.float64)
+    >>> b = torch.tensor([0, 1, 2], dtype=torch.float64)
+    >>> stable_divide(a, b)
+    tensor([1.0000, 2.0000, 1.5000], dtype=torch.float64)
     """
 
-    return a.to(dtype=DTYPE_FLOAT) / (b.to(dtype=DTYPE_FLOAT) + EPS)
+    return a.to(dtype=DTYPE_FLOAT) / b.to(dtype=DTYPE_FLOAT).clamp_min_(EPS)
 
 
 def isin(arr: torch.Tensor, values: list) -> torch.Tensor:

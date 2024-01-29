@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import typing as T
+
+import typing_extensions as TX
+
 from ._command import command
 
 __all__ = []
@@ -7,7 +11,9 @@ __all__ = []
 
 @command(help="list available backbones")
 def backbones(parser):
-    parser.add_argument("--pretrained", "-p", action="store_true", help="list only pretrained backbones")
+    parser.add_argument(
+        "--pretrained", "-p", action="store_true", help="list only pretrained backbones"
+    )
     parser.add_argument(
         "framework",
         default=["torchvision", "timm"],

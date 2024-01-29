@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typing
+import typing as T
 from enum import StrEnum
 from typing import (
     Any,
@@ -16,6 +17,7 @@ from typing import (
     get_type_hints,
 )
 
+import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = []
@@ -33,7 +35,9 @@ class InvalidKeyError(Exception):
     not a programming error, but rather due to the input data from an external source.
     """
 
-    def __init__(self, d: _Data, t: type[TypedDict], /, parents: tuple[str] | None = None) -> None:
+    def __init__(
+        self, d: _Data, t: type[TypedDict], /, parents: tuple[str] | None = None
+    ) -> None:
         self.parents = parents or ()
         self.name = t.__qualname__ or t.__name__
         self.keys_provided = frozenset(d.keys())
@@ -82,7 +86,14 @@ class InvalidTypeError(Exception):
     not a programming error, but rather due to the input data from an external source.
     """
 
-    def __init__(self, d: _Data, t: type[TypedDict], key_invalid: Any, /, parents: tuple[str] | None = None) -> None:
+    def __init__(
+        self,
+        d: _Data,
+        t: type[TypedDict],
+        key_invalid: Any,
+        /,
+        parents: tuple[str] | None = None,
+    ) -> None:
         self.parents = parents or ()
         self.name = t.__qualname__ or t.__name__
         self.key_invalid = key_invalid
@@ -118,7 +129,9 @@ def check_typeddict_keys(d: _Data, t: type[_Type], /) -> NoReturn | None:
     keys_optional = t.__optional_keys__
     keys_given = set(d.keys())
 
-    if not keys_required.issubset(keys_given) and keys_given.issubset(keys_required | keys_optional):
+    if not keys_required.issubset(keys_given) and keys_given.issubset(
+        keys_required | keys_optional
+    ):
         raise InvalidKeyError(d, t)
 
 
@@ -160,7 +173,9 @@ def check_typeddict(
 
     # Input validation
     if not typing.is_typeddict(t):
-        raise TypeError(f"Expected a TypedDict subclass, got {t.__qualname__ or t.__name__}!")
+        raise TypeError(
+            f"Expected a TypedDict subclass, got {t.__qualname__ or t.__name__}!"
+        )
     if not isinstance(d, dict):
         raise TypeError(f"Expected a dictionary, got {type(d).__qualname__}!")
 
@@ -240,7 +255,9 @@ def check_typeddict(
 #         continue
 
 
-def is_dict_type(d: _Data, t: type[_Type], /, **typecheck_kwargs) -> TypeGuard[type[_Type]]:
+def is_dict_type(
+    d: _Data, t: type[_Type], /, **typecheck_kwargs
+) -> TypeGuard[type[_Type]]:
     """
     Check that a dictionary matches a TypedDict definition by recursively checking
     keys and value types.

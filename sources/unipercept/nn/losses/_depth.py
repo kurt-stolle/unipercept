@@ -1,9 +1,12 @@
 # from __future__ import annotations
 
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.nn.losses.functional import (
@@ -32,7 +35,12 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         super().__init__(**kwargs)
 
         self.register_buffer(
-            "weights", torch.tensor([weight_sile, weight_are, weight_sre], dtype=torch.float, requires_grad=False)
+            "weights",
+            torch.tensor(
+                [weight_sile, weight_are, weight_sre],
+                dtype=torch.float,
+                requires_grad=False,
+            ),
         )
 
     @override
@@ -64,10 +72,14 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
 
         return loss.sum() * self.scale
 
-    def _compute_sile(self, pred: torch.Tensor, true: torch.Tensor, num: int) -> torch.Tensor:
+    def _compute_sile(
+        self, pred: torch.Tensor, true: torch.Tensor, num: int
+    ) -> torch.Tensor:
         return scale_invariant_logarithmic_error(pred, true, num, self.eps)
 
-    def _compute_rel(self, pred: torch.Tensor, true: torch.Tensor, num: int) -> T.Tuple[torch.Tensor, torch.Tensor]:
+    def _compute_rel(
+        self, pred: torch.Tensor, true: torch.Tensor, num: int
+    ) -> T.Tuple[torch.Tensor, torch.Tensor]:
         return relative_absolute_squared_error(pred, true, num, self.eps)
 
 
@@ -83,7 +95,12 @@ class DepthSmoothLoss(StableLossMixin, ScaledLossMixin, nn.Module):
 
     @override
     @torch.jit.script_if_tracing
-    def forward(self, images: torch.Tensor, depths: torch.Tensor, mask: torch.Optional[torch.Tensor]) -> torch.Tensor:
+    def forward(
+        self,
+        images: torch.Tensor,
+        depths: torch.Tensor,
+        mask: torch.Optional[torch.Tensor],
+    ) -> torch.Tensor:
         if len(images) == 0:
             return depths.sum()
 
@@ -103,8 +120,12 @@ class DepthSmoothLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         image_dy: torch.Tensor = self._gradient_y(images)
 
         # compute image weights
-        weights_x: torch.Tensor = torch.exp(-torch.mean(torch.abs(image_dx) + self.eps, dim=1, keepdim=True))
-        weights_y: torch.Tensor = torch.exp(-torch.mean(torch.abs(image_dy) + self.eps, dim=1, keepdim=True))
+        weights_x: torch.Tensor = torch.exp(
+            -torch.mean(torch.abs(image_dx) + self.eps, dim=1, keepdim=True)
+        )
+        weights_y: torch.Tensor = torch.exp(
+            -torch.mean(torch.abs(image_dy) + self.eps, dim=1, keepdim=True)
+        )
 
         # apply image weights to depth
         smoothness_x: torch.Tensor = torch.abs(idepth_dx * weights_x)
@@ -166,7 +187,9 @@ class PEDLoss(nn.Module):
         super().__init__()
 
     @override
-    def forward(self, output, target):  # NOTE:  target is panoptic mask, output is norm disparity
+    def forward(
+        self, output, target
+    ):  # NOTE:  target is panoptic mask, output is norm disparity
         # Compute the Iverson bracket for adjacent pixels along the x-dimension
         panoptic_diff_x = torch.diff(target, dim=-1) != 0
 
@@ -179,9 +202,9 @@ class PEDLoss(nn.Module):
         # Compute the partial disp derivative along the y-axis
         disp_diff_y = torch.diff(output, dim=-2)
 
-        loss = torch.mean(torch.mul(panoptic_diff_x, torch.exp(-torch.abs(disp_diff_x)))) + torch.mean(
-            torch.mul(panoptic_diff_y, torch.exp(-torch.abs(disp_diff_y)))
-        )
+        loss = torch.mean(
+            torch.mul(panoptic_diff_x, torch.exp(-torch.abs(disp_diff_x)))
+        ) + torch.mean(torch.mul(panoptic_diff_y, torch.exp(-torch.abs(disp_diff_y))))
 
         return loss
 
@@ -209,7 +232,9 @@ def compute_smoothness_loss(output, target):
     # Compute the partial disp derivative along the y-axis
     disp_diff_y = torch.diff(output, dim=-2)
 
-    loss = torch.mean(torch.mul(torch.abs(disp_diff_x), torch.exp(-torch.abs(image_diff_x)))) + torch.mean(
+    loss = torch.mean(
+        torch.mul(torch.abs(disp_diff_x), torch.exp(-torch.abs(image_diff_x)))
+    ) + torch.mean(
         torch.mul(torch.abs(disp_diff_y), torch.exp(-torch.abs(image_diff_y)))
     )
 
@@ -354,7 +379,9 @@ class ScaleAndShiftInvariantLoss(nn.Module):
 
         total = self.__data_loss(self.__prediction_ssi, target, mask)
         if self.__alpha > 0:
-            total += self.__alpha * self.__regularization_loss(self.__prediction_ssi, target, mask)
+            total += self.__alpha * self.__regularization_loss(
+                self.__prediction_ssi, target, mask
+            )
 
         return total
 

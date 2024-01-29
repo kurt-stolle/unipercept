@@ -5,6 +5,8 @@ The original implementation can be found here:
     https://pytorch.org/vision/stable/_modules/torchvision/ops/feature_pyramid_network.html
 """
 
+from __future__ import annotations
+
 import typing as T
 from collections import OrderedDict
 
@@ -94,11 +96,21 @@ class FeaturePyramidNetwork(nn.Module):
             if squeeze_excite:
                 inner_block_module = nn.Sequential(
                     SqueezeExcite2d(feature_info.channels),
-                    conv.Conv2d.with_norm(feature_info.channels, out_channels, kernel_size=1, padding=0, norm=norm),
+                    conv.Conv2d.with_norm(
+                        feature_info.channels,
+                        out_channels,
+                        kernel_size=1,
+                        padding=0,
+                        norm=norm,
+                    ),
                 )
             else:
                 inner_block_module = conv.Conv2d.with_norm(
-                    feature_info.channels, out_channels, kernel_size=1, padding=0, norm=norm
+                    feature_info.channels,
+                    out_channels,
+                    kernel_size=1,
+                    padding=0,
+                    norm=norm,
                 )
             self.inner_blocks[feature_name] = inner_block_module
 
@@ -118,7 +130,9 @@ class FeaturePyramidNetwork(nn.Module):
         # Extra outputs
         if extra_blocks is not None:
             if not isinstance(extra_blocks, ExtraFPNBlock):
-                raise TypeError(f"extra_blocks should be of type ExtraFPNBlock not {type(extra_blocks)}")
+                raise TypeError(
+                    f"extra_blocks should be of type ExtraFPNBlock not {type(extra_blocks)}"
+                )
 
         self.extra_blocks = extra_blocks
 

@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import re
+import typing as T
 from dataclasses import dataclass
 
 import pytest
+import typing_extensions as TX
 
 from unipercept.utils.matchable import Matchable
 
@@ -21,7 +25,11 @@ def test_matchable_class():
     assert foo.value_two == "bar"
 
     @dataclass
-    class Bar(Matchable, match_groups=["value_one"], match_kwgroups={"value_three": "value_two"}):
+    class Bar(
+        Matchable,
+        match_groups=["value_one"],
+        match_kwgroups={"value_three": "value_two"},
+    ):
         value_one: str
         value_three: str
 

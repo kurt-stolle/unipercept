@@ -3,10 +3,13 @@ Implements the kernel mapper module, which takes maps the multipurpose kernel $k
 specific kernels using a simple dictionary of heads, represented as a `nn.ModuleDict`.
 """
 
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
@@ -64,10 +67,14 @@ class MapMLP(nn.Module):
         elif isinstance(hidden_channels, int):
             pass
         else:
-            raise ValueError(f"Invalid type for `hidden_channels`: {type(hidden_channels)}")
+            raise ValueError(
+                f"Invalid type for `hidden_channels`: {type(hidden_channels)}"
+            )
 
         self.eps = eps
-        self.fc1 = nn.Linear(in_channels, hidden_channels, bias=bias if norm is None else False)
+        self.fc1 = nn.Linear(
+            in_channels, hidden_channels, bias=bias if norm is None else False
+        )
         self.act = get_activation(activation)
         self.drop1 = nn.Dropout(dropout, inplace=True)
         self.norm = get_norm(norm, hidden_channels)

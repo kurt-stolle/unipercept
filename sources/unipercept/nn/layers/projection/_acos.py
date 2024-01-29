@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import math
+import typing as T
 from typing import Tuple
 
 import torch
+import typing_extensions as TX
 
 DEFAULT_ACOS_BOUND: float = 1.0 - 1e-4
 

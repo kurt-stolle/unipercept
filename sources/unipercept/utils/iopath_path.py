@@ -1,10 +1,14 @@
 """
 Extends `pathlib.Path` to work with `iopath.common.file_io.PathManager`.
 """
+from __future__ import annotations
+
 import os
+import typing as T
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
+import typing_extensions as TX
 from iopath.common.file_io import PathManager
 from typing_extensions import Self, override
 
@@ -32,7 +36,9 @@ class IoPath(_Path):
 
     def __new__(cls, path: str | os.PathLike, *args, force=False):
         if cls is IoPath:
-            raise TypeError("Cannot instantiate IoPath directly, use a subclass instead")
+            raise TypeError(
+                "Cannot instantiate IoPath directly, use a subclass instead"
+            )
         if isinstance(path, str):
             path = cls._manager.get_local_path(path, force=force)
         return cast(Self, _Path(path, *args))

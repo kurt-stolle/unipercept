@@ -14,6 +14,7 @@ import warnings
 
 import torch
 import torch.distributed as dist
+import typing_extensions as TX
 from torch.utils.data import (
     DataLoader,
     Dataset,
@@ -47,7 +48,9 @@ _logger = get_logger(__name__)
 DEFAULT_NUM_WORKERS = max(
     1,
     get_env(
-        int, "UNIPERCEPT_DATALOADER_WORKERS", default=get_env(int, "SLURM_CPUS_PER_GPU", default=M.cpu_count()) // 2
+        int,
+        "UNIPERCEPT_DATALOADER_WORKERS",
+        default=get_env(int, "SLURM_CPUS_PER_GPU", default=M.cpu_count()) // 2,
     ),
 )
 
@@ -115,7 +118,9 @@ class DataLoaderFactory:
         _logger.info("Wrapping dataset: %s", str(self.dataset))
 
         # Keyword arguments for the loader
-        loader_kwargs = {k: v for k, v in dataclasses.asdict(self.config).items() if v is not None}
+        loader_kwargs = {
+            k: v for k, v in dataclasses.asdict(self.config).items() if v is not None
+        }
 
         # Instantiate sampler
         queue_size = len(self.dataset.queue)
@@ -141,7 +146,10 @@ class DataLoaderFactory:
 
             interface = DatasetInterface(datapipe, sampler, **interface_kwargs)
 
-            _logger.debug("Transformed map-style dataset to iterable-style dataset: %s", str(interface))
+            _logger.debug(
+                "Transformed map-style dataset to iterable-style dataset: %s",
+                str(interface),
+            )
 
             loader_kwargs["sampler"] = None
         else:
@@ -298,7 +306,9 @@ def _distribute_batch_size(total: int) -> int:
     """Given a total batch size, distribute it evenly across all GPUs."""
     world_size = get_process_count()
     if total == 0 or total % world_size != 0:
-        raise ValueError(f"Total batch size ({total}) must be divisible by the number of gpus ({world_size}).")
+        raise ValueError(
+            f"Total batch size ({total}) must be divisible by the number of gpus ({world_size})."
+        )
     per_device = total // world_size
 
     return per_device
@@ -352,20 +362,33 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
         """
 
         if not dist.is_available():
-            raise RuntimeError("Distributed data sampler requires torch.distributed to be available.")
+            raise RuntimeError(
+                "Distributed data sampler requires torch.distributed to be available."
+            )
 
         if isinstance(dist_num, int) and isinstance(dist_idx, int):
             return ProcessInfo(count=dist_num, index=dist_idx)
 
         if dist_num is None and dist_idx is None:
-            return ProcessInfo(count=get_process_count() or 1, index=get_process_index() or 0)
+            return ProcessInfo(
+                count=get_process_count() or 1, index=get_process_index() or 0
+            )
 
-        raise ValueError(f"Both `dist_num` and `dist_idx` must be integers, but got {dist_num=} and {dist_idx=}.")
+        raise ValueError(
+            f"Both `dist_num` and `dist_idx` must be integers, but got {dist_num=} and {dist_idx=}."
+        )
 
     _process_index: T.Final[int]
     _process_count: T.Final[int]
 
-    def __init__(self, queue_size: int, *, process_index: int | None = None, process_count: int | None = None, epoch=0):
+    def __init__(
+        self,
+        queue_size: int,
+        *,
+        process_index: int | None = None,
+        process_count: int | None = None,
+        epoch=0,
+    ):
         assert queue_size > 0, f"Queue size must be positive, but got {queue_size=}."
         assert epoch >= 0, f"Epoch must be non-negative, but got {epoch=}."
 
@@ -375,7 +398,9 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
         self._queue_size = queue_size
         self._epoch = epoch
 
-        _logger.debug(f"Initialized sampler {self._process_index+1} of {self._process_count}")
+        _logger.debug(
+            f"Initialized sampler {self._process_index+1} of {self._process_count}"
+        )
 
     @property
     def epoch(self):
@@ -427,7 +452,13 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
 
 class TrainingSampler(BaseSampler):
     def __init__(
-        self, *args, shuffle=True, repeat_factor: float | int = 2, selected_round=0, selected_ratio=0.9, **kwargs
+        self,
+        *args,
+        shuffle=True,
+        repeat_factor: float | int = 2,
+        selected_round=0,
+        selected_ratio=0.9,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
@@ -438,15 +469,23 @@ class TrainingSampler(BaseSampler):
         if not selected_ratio:
             selected_ratio = self._process_count
         if selected_round:
-            assert selected_round > self.queue_size, f"{self.queue_size=} <= {selected_round=}."
-            self._selected_count = int(math.floor(self.queue_size // selected_round * selected_round / selected_ratio))
+            assert (
+                selected_round > self.queue_size
+            ), f"{self.queue_size=} <= {selected_round=}."
+            self._selected_count = int(
+                math.floor(
+                    self.queue_size // selected_round * selected_round / selected_ratio
+                )
+            )
         else:
             self._selected_count = int(math.ceil(self.queue_size / selected_ratio))
 
     @functools.cached_property
     @override
     def sample_count(self):
-        return int(math.ceil(self.queue_size * self._repeat_factor / self.process_count))
+        return int(
+            math.ceil(self.queue_size * self._repeat_factor / self.process_count)
+        )
 
     @functools.cached_property
     @override
@@ -520,7 +559,9 @@ class InferenceSampler(BaseSampler):
             del kwargs["epoch"]
         super().__init__(*args, **kwargs)
 
-        self._indices = self.create_indices(self.queue_size, self.process_count, self.process_index)
+        self._indices = self.create_indices(
+            self.queue_size, self.process_count, self.process_index
+        )
 
     @property
     @override
@@ -564,7 +605,11 @@ _SAMPLER_CLASS_MAP = {
 class SamplerFactory:
     __slots__ = ("_fn",)
 
-    def __init__(self, sampler: SamplerType | str | T.Callable[T.Concatenate[int, _P], Sampler], **kwargs):
+    def __init__(
+        self,
+        sampler: SamplerType | str | T.Callable[T.Concatenate[int, _P], Sampler],
+        **kwargs,
+    ):
         if isinstance(sampler, (str, SamplerType)):
             init_fn = _SAMPLER_CLASS_MAP[SamplerType(sampler)]
         elif isinstance(sampler, type) and issubclass(sampler, Sampler):

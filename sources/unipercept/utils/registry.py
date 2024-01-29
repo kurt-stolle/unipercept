@@ -7,6 +7,8 @@ from __future__ import annotations
 import functools
 import typing as T
 
+import typing_extensions as TX
+
 __all__ = ["Registry"]  # , "WeakLazyRegistry"]
 
 _T = T.TypeVar("_T", bound=T.Any)
@@ -34,7 +36,9 @@ class Registry(T.Generic[_T, _I]):
         """
 
         @functools.wraps(fn)
-        def wrapped(obj: Registry, id: _I, /, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        def wrapped(
+            obj: Registry, id: _I, /, *args: _P.args, **kwargs: _P.kwargs
+        ) -> _R:
             if obj.to_id is not None:
                 key = obj.to_id(id)
             else:

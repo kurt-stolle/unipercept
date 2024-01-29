@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import typing as T
+
 import pytest
 import torch
 import torchvision.transforms.v2 as transforms
+import typing_extensions as TX
 
 from unipercept.data import ops
 from unipercept.data.tensors import registry
@@ -39,8 +42,12 @@ def fake_data(request) -> tuple[list[str], InputData]:
     data: InputData = torch.stack(datas)  # type: ignore
 
     assert data.batch_size == torch.Size((batch_size,)), data.batch_size or "N/A"
-    assert data.captures.batch_size == torch.Size((batch_size, pair_size)), data.captures.batch_size or "N/A"
-    assert data.captures.images.shape == torch.Size((batch_size, pair_size, 3, 1024, 1024)), data.images.shape or "N/A"
+    assert data.captures.batch_size == torch.Size((batch_size, pair_size)), (
+        data.captures.batch_size or "N/A"
+    )
+    assert data.captures.images.shape == torch.Size(
+        (batch_size, pair_size, 3, 1024, 1024)
+    ), (data.images.shape or "N/A")
 
     return ids, data
 
@@ -72,7 +79,10 @@ def test_torchvision_random_resized_crop(fake_data):
 
     for k, y_cap in y.captures.fix_subtypes_().items():
         if type(y_cap) in registry.pixel_maps:
-            assert y_cap.shape[-2:] == (512, 512), f"Shape mismatch for {k}: {y_cap.shape}"
+            assert y_cap.shape[-2:] == (
+                512,
+                512,
+            ), f"Shape mismatch for {k}: {y_cap.shape}"
 
 
 def test_torchvision_random_resized_crop(fake_data):
@@ -94,4 +104,7 @@ def test_torchvision_random_resized_crop(fake_data):
 
     for k, y_cap in y.captures.fix_subtypes_().items():
         if type(y_cap) in registry.pixel_maps:
-            assert y_cap.shape[-2:] == (512, 512), f"Shape mismatch for {k}: {y_cap.shape}"
+            assert y_cap.shape[-2:] == (
+                512,
+                512,
+            ), f"Shape mismatch for {k}: {y_cap.shape}"

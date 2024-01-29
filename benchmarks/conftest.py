@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import os
 import time
+import typing as T
 from collections import defaultdict
 
 import pytest
+import typing_extensions as TX
 
 CALL_TIMES = defaultdict(lambda: 0.0)
 
@@ -19,7 +23,9 @@ Call times:
         maxchar = len(keys[0])
     else:
         return
-    for i, (key, item) in enumerate(sorted(CALL_TIMES.items(), key=lambda x: x[1], reverse=True)):
+    for i, (key, item) in enumerate(
+        sorted(CALL_TIMES.items(), key=lambda x: x[1], reverse=True)
+    ):
         spaces = "  " + " " * (maxchar - len(key))
         out_str += f"\t{key}{spaces}{item: 4.4f}s\n"
         if i == maxprint - 1:

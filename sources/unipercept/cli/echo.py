@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+import typing as T
+
+import typing_extensions as TX
+
 from ._command import command
 
 __all__ = []
@@ -19,11 +25,26 @@ def main(args):
         if isinstance(out, dict):
             for key, value in out.items():
                 head = f"-- {key} "
-                print("\n" + head + "-" * (get_terminal_size().columns - len(head)), end="\n\n")
-                res = pformat(value, indent=1, compact=False, depth=2, width=get_terminal_size().columns - 1)
+                print(
+                    "\n" + head + "-" * (get_terminal_size().columns - len(head)),
+                    end="\n\n",
+                )
+                res = pformat(
+                    value,
+                    indent=1,
+                    compact=False,
+                    depth=2,
+                    width=get_terminal_size().columns - 1,
+                )
                 print(res)
         else:
-            res = pformat(out, indent=1, compact=False, depth=2, width=get_terminal_size().columns - 1)
+            res = pformat(
+                out,
+                indent=1,
+                compact=False,
+                depth=2,
+                width=get_terminal_size().columns - 1,
+            )
             print(res)
 
     elif fmt == "yaml":
@@ -38,7 +59,9 @@ def main(args):
 @command(help="output the configuration and arguments list to stdout")
 @command.with_config
 def echo(parser):
-    parser.add_argument("--format", default="pprint", help="output format", choices=["yaml", "pprint"])
+    parser.add_argument(
+        "--format", default="pprint", help="output format", choices=["yaml", "pprint"]
+    )
     parser.add_argument("--key", default="config", help="key to output")
 
     return main

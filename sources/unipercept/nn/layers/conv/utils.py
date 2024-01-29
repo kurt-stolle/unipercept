@@ -1,5 +1,7 @@
 """Various utility functions and classes for working with convolutional layers."""
 
+from __future__ import annotations
+
 import enum
 import functools
 import inspect
@@ -9,6 +11,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
@@ -16,23 +19,35 @@ from unipercept.nn.layers.norm import NormSpec, get_norm
 from unipercept.utils.abbreviate import short_name
 from unipercept.utils.function import to_2tuple
 
-__all__ = ["with_norm_activation", "NormActivationMixin", "with_padding_support", "Padding", "PaddingMixin"]
+__all__ = [
+    "with_norm_activation",
+    "NormActivationMixin",
+    "with_padding_support",
+    "Padding",
+    "PaddingMixin",
+]
 
 
 _OUTPUT_CHANNEL_PROPERTIES = ["out_channels", "out_dims"]
 
 
 @T.overload
-def get_output_channels(mod: nn.Module, *, use_weight: bool = True, none_ok: bool = False) -> int:
+def get_output_channels(
+    mod: nn.Module, *, use_weight: bool = True, none_ok: bool = False
+) -> int:
     ...
 
 
 @T.overload
-def get_output_channels(mod: nn.Module, *, use_weight: bool = True, none_ok: bool = True) -> int | None:
+def get_output_channels(
+    mod: nn.Module, *, use_weight: bool = True, none_ok: bool = True
+) -> int | None:
     ...
 
 
-def get_output_channels(mod: nn.Module, *, use_weight=True, none_ok=False) -> int | None:
+def get_output_channels(
+    mod: nn.Module, *, use_weight=True, none_ok=False
+) -> int | None:
     """Returns the number of output channels of a module."""
     for prop in _OUTPUT_CHANNEL_PROPERTIES:
         if not hasattr(mod, prop):
@@ -55,7 +70,11 @@ def get_output_channels(mod: nn.Module, *, use_weight=True, none_ok=False) -> in
 
 @torch.jit.ignore()
 def _init_sequential_norm_activation(
-    cls, *args, norm: T.Optional[NormSpec], activation: T.Optional[ActivationSpec], **kwargs
+    cls,
+    *args,
+    norm: T.Optional[NormSpec],
+    activation: T.Optional[ActivationSpec],
+    **kwargs,
 ) -> nn.Sequential:
     """Adds optional `norm` and `activation` parameters."""
 
@@ -92,7 +111,9 @@ def _init_sequential_norm(
 
 
 @torch.jit.ignore()
-def _init_sequential_activation(cls, *args, activation: T.Optional[ActivationSpec] = None, **kwargs) -> nn.Sequential:
+def _init_sequential_activation(
+    cls, *args, activation: T.Optional[ActivationSpec] = None, **kwargs
+) -> nn.Sequential:
     """Adds an optional `activation` parameter."""
     mod = cls(*args, **kwargs)
     act = get_activation(activation)
@@ -174,7 +195,9 @@ def _wrap_init(
     ):
         padding: _PaddingParam = kwargs.pop("padding", Padding.SAME)  # type: ignore
         padding, dynamic = _parse_padding(padding, kernel_size, **kwargs)
-        assert isinstance(padding, (int, tuple)), f"Padding must be an int or a tuple, got {padding}!"
+        assert isinstance(
+            padding, (int, tuple)
+        ), f"Padding must be an int or a tuple, got {padding}!"
 
         self.padding_dynamic = dynamic
         init(self, in_channels, out_channels, kernel_size, *args, padding=padding, **kwargs)  # type: ignore
@@ -199,7 +222,9 @@ def _wrap_forward(
 def _pad_same_amount(x: int, kernel_size: int, stride: int, dilation: int) -> int:
     """Returns the equivalent to `padding="SAME"` in TensorFlow, which supports strides greater than one."""
     # return torch.clamp(((x / stride).ceil() - 1) * stride + (kernel_size - 1) * dilation + 1 - x, min=0)
-    return max((math.ceil(x / stride) - 1) * stride + (kernel_size - 1) * dilation + 1 - x, 0)
+    return max(
+        (math.ceil(x / stride) - 1) * stride + (kernel_size - 1) * dilation + 1 - x, 0
+    )
 
 
 def _pad_same(
@@ -217,20 +242,30 @@ def _pad_same(
     pad_h = _pad_same_amount(ih, k0, s0, d0)
     pad_w = _pad_same_amount(iw, k1, s1, d1)
 
-    return nn.functional.pad(input, (pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2), value=value)
+    return nn.functional.pad(
+        input,
+        (pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2),
+        value=value,
+    )
 
 
-def _parse_padding(padding: _PaddingParam, kernel_size, **kwargs) -> tuple[_PaddingValue, bool]:
+def _parse_padding(
+    padding: _PaddingParam, kernel_size, **kwargs
+) -> tuple[_PaddingValue, bool]:
     """ "
     Parse the padding parameter into a value, returns -1 if the padding is not
     able to be statically determined. The second return value is a boolean that
     indicates if the padding is dynamic.
     """
 
-    def __is_padding_static(kernel_size: int, stride: int = 1, dilation: int = 1, **_) -> bool:
+    def __is_padding_static(
+        kernel_size: int, stride: int = 1, dilation: int = 1, **_
+    ) -> bool:
         return stride == 1 and (dilation * (kernel_size - 1)) % 2 == 0
 
-    def __get_padding_static(kernel_size: int, stride: int = 1, dilation: int = 1, **_) -> int:
+    def __get_padding_static(
+        kernel_size: int, stride: int = 1, dilation: int = 1, **_
+    ) -> int:
         padding = ((stride - 1) + dilation * (kernel_size - 1)) // 2
         return padding
 
@@ -273,13 +308,21 @@ class PaddingMixin:
         super().__init_subclass__(**kwargs)
 
     @torch.jit.unused
-    def _parse_padding(self, padding: _PaddingParam, kernel_size, **kwargs) -> _PaddingValue:
+    def _parse_padding(
+        self, padding: _PaddingParam, kernel_size, **kwargs
+    ) -> _PaddingValue:
         """Use during initialization to parse a padding parameter into a value."""
         parsed, self.padding_dynamic = _parse_padding(padding, kernel_size, **kwargs)
 
         return parsed
 
-    def _padding_forward(self, x: torch.Tensor, ks: T.Tuple[int, ...], ss: T.Tuple[int, ...], dl: T.Tuple[int, ...]):
+    def _padding_forward(
+        self,
+        x: torch.Tensor,
+        ks: T.Tuple[int, ...],
+        ss: T.Tuple[int, ...],
+        dl: T.Tuple[int, ...],
+    ):
         if self.padding_dynamic:
             x = _pad_same(x, ks, ss, dl)
         return x
@@ -304,7 +347,9 @@ def avg_pool2d_same(
 ):
     # FIXME how to deal with count_include_pad vs not for external padding?
     x = _pad_same(x, kernel_size, stride)
-    return nn.functional.avg_pool2d(x, kernel_size, stride, (0, 0), ceil_mode, count_include_pad)
+    return nn.functional.avg_pool2d(
+        x, kernel_size, stride, (0, 0), ceil_mode, count_include_pad
+    )
 
 
 class AvgPool2dSame(nn.AvgPool2d):
@@ -323,7 +368,9 @@ class AvgPool2dSame(nn.AvgPool2d):
 
     @override
     def forward(self, x):
-        return avg_pool2d_same(x, self.kernel_size, self.stride, self.ceil_mode, self.count_include_pad)
+        return avg_pool2d_same(
+            x, self.kernel_size, self.stride, self.ceil_mode, self.count_include_pad
+        )
 
 
 def max_pool2d_same(
@@ -354,14 +401,20 @@ class MaxPool2dSame(nn.MaxPool2d):
         super().__init__(kernel_size, stride, (0, 0), dilation, ceil_mode)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return max_pool2d_same(x, self.kernel_size, self.stride, self.dilation, self.ceil_mode)
+        return max_pool2d_same(
+            x, self.kernel_size, self.stride, self.dilation, self.ceil_mode
+        )
 
 
 class MaxPool2d(nn.Module):
-    def __new__(cls, kernel_size: _Maybe2Int, stride=None, **kwargs) -> nn.MaxPool2d | MaxPool2dSame:
+    def __new__(
+        cls, kernel_size: _Maybe2Int, stride=None, **kwargs
+    ) -> nn.MaxPool2d | MaxPool2dSame:
         stride = stride or kernel_size
         padding = kwargs.pop("padding", "")
-        padding, is_dynamic = _parse_padding(padding, kernel_size, stride=stride, **kwargs)
+        padding, is_dynamic = _parse_padding(
+            padding, kernel_size, stride=stride, **kwargs
+        )
 
         if is_dynamic:
             return MaxPool2dSame(kernel_size, stride=stride, **kwargs)
@@ -370,10 +423,14 @@ class MaxPool2d(nn.Module):
 
 
 class AvgPool2d(nn.Module):
-    def __new__(cls, kernel_size: _Maybe2Int, stride=None, **kwargs) -> nn.AvgPool2d | AvgPool2dSame:
+    def __new__(
+        cls, kernel_size: _Maybe2Int, stride=None, **kwargs
+    ) -> nn.AvgPool2d | AvgPool2dSame:
         stride = stride or kernel_size
         padding = kwargs.pop("padding", "")
-        padding, is_dynamic = _parse_padding(padding, kernel_size, stride=stride, **kwargs)
+        padding, is_dynamic = _parse_padding(
+            padding, kernel_size, stride=stride, **kwargs
+        )
 
         if is_dynamic:
             return AvgPool2dSame(kernel_size, stride=stride, **kwargs)

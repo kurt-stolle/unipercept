@@ -5,6 +5,7 @@ import enum as E
 import logging
 import typing as T
 
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.data import DataLoaderFactory
@@ -49,7 +50,9 @@ class EngineStage:
     batch_size: int
     optimizer: OptimizerFactory
     scheduler: SchedulerFactory
-    iterations: tuple[int, T.Literal["steps", "epochs"]] = D.field(default=(1, "epochs"), metadata={})
+    iterations: tuple[int, T.Literal["steps", "epochs"]] = D.field(
+        default=(1, "epochs"), metadata={}
+    )
     gradient_accumulation: int = 1
 
     def get_steps(self, steps_per_epoch: int) -> int:
@@ -79,20 +82,31 @@ class EngineParams:
     Defines the (hyper)parameters of the engine.
     """
 
-    project_name: str = D.field(default="default", metadata={"help": "Name of the project."})
-    notes: str = D.field(default="", metadata={"help": "Notes to use for the experiment."})
-    tags: T.Sequence[str] = D.field(default_factory=list, metadata={"help": "Tags to use for the experiment."})
+    project_name: str = D.field(
+        default="default", metadata={"help": "Name of the project."}
+    )
+    notes: str = D.field(
+        default="", metadata={"help": "Notes to use for the experiment."}
+    )
+    tags: T.Sequence[str] = D.field(
+        default_factory=list, metadata={"help": "Tags to use for the experiment."}
+    )
 
     full_determinism: bool = False
     seed: int = 42
-    max_grad_norm: float = D.field(default=15.0, metadata={"help": "Max gradient norm."})
+    max_grad_norm: float = D.field(
+        default=15.0, metadata={"help": "Max gradient norm."}
+    )
 
     # Memory tracker
-    memory_tracker: bool = D.field(default=False, metadata={"help": "Whether to track memory usage."})
+    memory_tracker: bool = D.field(
+        default=False, metadata={"help": "Whether to track memory usage."}
+    )
 
     # Experiment trackers
     trackers: set[str] = D.field(
-        default_factory=lambda: _DEFAULT_EXPERIMENT_TRACKERS, metadata={"help": "Experiment trackers to use."}
+        default_factory=lambda: _DEFAULT_EXPERIMENT_TRACKERS,
+        metadata={"help": "Experiment trackers to use."},
     )
 
     # FP16 modes during inference
@@ -100,7 +114,8 @@ class EngineParams:
 
     # Convert BatchNorm to SyncBatchNorm?
     convert_sync_batchnorm: bool = D.field(
-        default=False, metadata={"help": "Whether to convert BatchNorm to SyncBatchNorm."}
+        default=False,
+        metadata={"help": "Whether to convert BatchNorm to SyncBatchNorm."},
     )
 
     ########################################
@@ -115,14 +130,19 @@ class EngineParams:
     )
 
     train_sum_losses: bool = D.field(
-        default=False, metadata={"help": "Whether to sum the losses instead of directly passing them to backward."}
+        default=False,
+        metadata={
+            "help": "Whether to sum the losses instead of directly passing them to backward."
+        },
     )
 
     ########################################
     # Evaluation
     ########################################
 
-    eval_interval: tuple[int, _IntervalType] = D.field(default=(1, "epochs"), metadata={})
+    eval_interval: tuple[int, _IntervalType] = D.field(
+        default=(1, "epochs"), metadata={}
+    )
     eval_write_visuals: bool = D.field(
         default=False,
         metadata={
@@ -152,7 +172,9 @@ class EngineParams:
 
     eval_accumulation_steps: T.Optional[int] = D.field(
         default=None,
-        metadata={"help": "Number of predictions steps to accumulate before moving the tensors to the CPU."},
+        metadata={
+            "help": "Number of predictions steps to accumulate before moving the tensors to the CPU."
+        },
     )
 
     ########################################
@@ -185,19 +207,27 @@ class EngineParams:
             )
         },
     )
-    logging_first_step: bool = D.field(default=False, metadata={"help": "Log the first global_step"})
+    logging_first_step: bool = D.field(
+        default=False, metadata={"help": "Log the first global_step"}
+    )
     logging_steps: int = D.field(
         default=100,
         metadata={"help": ("Log every X training steps.")},
     )
-    logging_history: int = D.field(default=10, metadata={"help": "Number of past logs to keep in the state."})
-    logging_nan_inf_filter: bool = D.field(default=True, metadata={"help": "Filter nan and inf losses for logging."})
+    logging_history: int = D.field(
+        default=10, metadata={"help": "Number of past logs to keep in the state."}
+    )
+    logging_nan_inf_filter: bool = D.field(
+        default=True, metadata={"help": "Filter nan and inf losses for logging."}
+    )
 
     #################################################
     # Saving
     #################################################
 
-    save_interval: tuple[int, T.Literal["steps", "epochs"]] = D.field(default=(1, "epochs"), metadata={})
+    save_interval: tuple[int, T.Literal["steps", "epochs"]] = D.field(
+        default=(1, "epochs"), metadata={}
+    )
 
     def get_save_interval_steps(self, steps_per_epoch: int) -> int | None:
         """
@@ -244,7 +274,8 @@ class EngineParams:
     ###########################
 
     jit_mode_eval: bool = D.field(
-        default=False, metadata={"help": "Whether or not to use PyTorch jit trace for inference"}
+        default=False,
+        metadata={"help": "Whether or not to use PyTorch jit trace for inference"},
     )
 
     ##############################
@@ -264,7 +295,8 @@ class EngineParams:
     ###############################################
 
     interactive: T.Optional[bool] = D.field(
-        default=None, metadata={"help": "Whether or not to disable the tqdm progress bars."}
+        default=None,
+        metadata={"help": "Whether or not to disable the tqdm progress bars."},
     )
 
     ###############################################
@@ -278,7 +310,8 @@ class EngineParams:
         },
     )
     metric_maximize: T.Optional[bool] = D.field(
-        default=None, metadata={"help": "Whether the `metric` should be maximized or not."}
+        default=None,
+        metadata={"help": "Whether the `metric` should be maximized or not."},
     )
 
     ###############################################

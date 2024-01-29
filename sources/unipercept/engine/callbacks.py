@@ -60,7 +60,9 @@ class State:
     total_flops: float = 0
 
     # Logs
-    log_history: list[dict[str, float]] = D.field(default_factory=list, repr=False, compare=False)
+    log_history: list[dict[str, float]] = D.field(
+        default_factory=list, repr=False, compare=False
+    )
 
     # Metrics
     best_metric: float | None = None
@@ -173,7 +175,14 @@ class CallbackDispatcher:
 
     __slots__ = ()
 
-    def __call__(self, event: Event, params: EngineParams, state: State, control: Signal, **kwargs):
+    def __call__(
+        self,
+        event: Event,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        **kwargs,
+    ):
         """
         Override this method to implement your own logic. By default, it switches the control flow to the correct event.
         """
@@ -188,64 +197,90 @@ class CallbackDispatcher:
         """
         pass
 
-    def on_trackers_setup(self, params: EngineParams, state: State, control: Signal, *, session_id: str, **kwargs):
+    def on_trackers_setup(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        session_id: str,
+        **kwargs,
+    ):
         """
         Event called just before the initialization of the trackers, such that the user can pass additional keyword
         arguments to the tracker by modifying the ``init_kwargs`` dictionary.
         """
         pass
 
-    def on_train_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called at the beginning of training.
         """
         pass
 
-    def on_train_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called at the end of training.
         """
         pass
 
-    def on_train_epoch_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_epoch_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called at the beginning of an epoch.
         """
         pass
 
-    def on_train_epoch_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_epoch_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called at the end of an epoch.
         """
         pass
 
-    def on_train_step_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_step_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called at the beginning of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
         pass
 
-    def on_train_substep_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_substep_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called at the end of an substep during gradient accumulation.
         """
         pass
 
-    def on_train_step_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_step_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called at the end of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
         pass
 
-    def on_evaluate(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_evaluate(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called after an evaluation phase.
         """
         pass
 
-    def on_predict(self, params: EngineParams, state: State, control: Signal, metrics, **kwargs):
+    def on_predict(
+        self, params: EngineParams, state: State, control: Signal, metrics, **kwargs
+    ):
         """
         Event called after a successful prediction.
         """
@@ -263,19 +298,25 @@ class CallbackDispatcher:
         """
         pass
 
-    def on_inference_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_inference_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called after a prediction step.
         """
         pass
 
-    def on_inference_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_inference_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called after a prediction step.
         """
         pass
 
-    def on_inference_step(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_inference_step(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         """
         Event called after a prediction step.
         """
@@ -289,7 +330,14 @@ class CallbackDispatcher:
 
 @T.runtime_checkable
 class CallbackProtocol(T.Protocol):
-    def __call__(self, event: Event, params: EngineParams, state: State, control: Signal, **kwargs) -> Signal | None:
+    def __call__(
+        self,
+        event: Event,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        **kwargs,
+    ) -> Signal | None:
         ...
 
 
@@ -349,7 +397,14 @@ class Delegate:
     def list(self):
         return "\n".join(cb.__class__.__name__ for cb in self._seq)
 
-    def __call__(self, event: Event, params: EngineParams, state: State, control: Signal, **kwargs) -> Signal:
+    def __call__(
+        self,
+        event: Event,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        **kwargs,
+    ) -> Signal:
         if self._verbose:
             _logger.debug(f"Event {event} triggered.")
 
@@ -374,7 +429,9 @@ class Delegate:
 
 class InternalCallback(CallbackDispatcher):
     @TX.override
-    def on_train_step_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_step_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         control.should_log = False
         control.should_evaluate = False
         control.should_save = False
@@ -388,11 +445,15 @@ class InternalCallback(CallbackDispatcher):
         control.should_log = False
 
     @TX.override
-    def on_evaluate(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_evaluate(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         control.should_evaluate = False
 
     @TX.override
-    def on_train_epoch_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_epoch_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         control.should_epoch_stop = False
 
 
@@ -408,13 +469,18 @@ class FlowCallback(CallbackDispatcher):
         return step > 0 and step % target == 0
 
     @TX.override
-    def on_train_step_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_step_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         # Log
         if state.step == 1 and params.logging_first_step:
             control.should_log = True
         if self.should_run(state.step, state.logging_steps):
             control.should_log = True
-        if self.should_run(state.step, state.eval_steps) and params.eval_delay <= state.step:
+        if (
+            self.should_run(state.step, state.eval_steps)
+            and params.eval_delay <= state.step
+        ):
             control.should_evaluate = True
         if self.should_run(state.step, state.save_steps):
             control.should_save = True
@@ -433,29 +499,50 @@ class ProgressCallback(CallbackDispatcher):
         self.prediction_bar = None
 
     @TX.override
-    def on_train_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         if unipercept.state.check_main_process(True):
-            self.training_bar = tqdm(desc="Training", total=state.train_steps, dynamic_ncols=True)
+            self.training_bar = tqdm(
+                desc="Training", total=state.train_steps, dynamic_ncols=True
+            )
         self.current_step = 0
 
     @TX.override
-    def on_train_step_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_step_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         if unipercept.state.check_main_process(True):
-            assert self.training_bar is not None, f"Training bar does not exist at step {state.step}."
+            assert (
+                self.training_bar is not None
+            ), f"Training bar does not exist at step {state.step}."
             self.training_bar.update(state.step - self.current_step)
             self.current_step = state.step
 
     @TX.override
-    def on_inference_step(self, params: EngineParams, state: State, control: Signal, *, loader: DataLoader, **kwargs):
+    def on_inference_step(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        loader: DataLoader,
+        **kwargs,
+    ):
         if unipercept.state.check_main_process(True) and len(loader):
             if self.prediction_bar is None:
                 self.prediction_bar = tqdm(
-                    desc="Inference", total=len(loader), leave=self.training_bar is None, dynamic_ncols=True
+                    desc="Inference",
+                    total=len(loader),
+                    leave=self.training_bar is None,
+                    dynamic_ncols=True,
                 )
             self.prediction_bar.update(1)
 
     @TX.override
-    def on_evaluate(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_evaluate(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         if unipercept.state.check_main_process(True):
             if self.prediction_bar is not None:
                 self.prediction_bar.close()
@@ -469,13 +556,17 @@ class ProgressCallback(CallbackDispatcher):
             self.prediction_bar = None
 
     @TX.override
-    def on_log(self, params: EngineParams, state: State, control: Signal, logs=None, **kwargs):
+    def on_log(
+        self, params: EngineParams, state: State, control: Signal, logs=None, **kwargs
+    ):
         if unipercept.state.check_main_process(True) and self.training_bar is not None:
             # self.training_bar.write(str(logs))
             pass
 
     @TX.override
-    def on_train_end(self, params: EngineParams, state: State, control: Signal, **kwargs):
+    def on_train_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
         if unipercept.state.check_main_process(True):
             self.training_bar.close()
             self.training_bar = None
@@ -487,11 +578,21 @@ class Logger(CallbackDispatcher):
     """
 
     @TX.override
-    def on_log(self, params: EngineParams, state: State, control: Signal, *, logs: dict, **kwargs):
+    def on_log(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        logs: dict,
+        **kwargs,
+    ):
         _ = logs.pop("total_flops", None)
         if unipercept.state.check_main_process(True):
             _logger.info("Logs: %s", pformat(logs, indent=0, compact=True))
-            _logger.info("State: %s", pformat(state.state_dict(), indent=0, compact=True))
+            _logger.info(
+                "State: %s", pformat(state.state_dict(), indent=0, compact=True)
+            )
 
 
 class ConditionalStoppingCallback(CallbackDispatcher):
@@ -499,7 +600,9 @@ class ConditionalStoppingCallback(CallbackDispatcher):
     A ``Callback`` that performs stopping based on a parameter condition.
     """
 
-    def __init__(self, metric_name: str, maximize: bool, threshold: float, patience: int = 1):
+    def __init__(
+        self, metric_name: str, maximize: bool, threshold: float, patience: int = 1
+    ):
         if patience <= 0:
             raise ValueError(f"patience must be positive, got {patience}")
 
@@ -510,10 +613,15 @@ class ConditionalStoppingCallback(CallbackDispatcher):
         self.patience_counter = 0
 
     @TX.override
-    def on_evaluate(self, params: EngineParams, state: State, control: Signal, metrics, **kwargs):
+    def on_evaluate(
+        self, params: EngineParams, state: State, control: Signal, metrics, **kwargs
+    ):
         metric_value = metrics.get(self.metric_name)
         if metric_value is None:
-            _logger.warning(f"conditional stopping did not find {self.metric_name} so early stopping" " is disabled")
+            _logger.warning(
+                f"conditional stopping did not find {self.metric_name} so early stopping"
+                " is disabled"
+            )
             return
 
         operator = np.less if self.maximize else np.greater
@@ -523,7 +631,9 @@ class ConditionalStoppingCallback(CallbackDispatcher):
             self.patience_counter = 0
 
         if self.patience_counter >= self.patience:
-            _logger.info("Conditional stopping triggered for parameter %s", self.metric_name)
+            _logger.info(
+                "Conditional stopping triggered for parameter %s", self.metric_name
+            )
             control.should_training_stop = True
 
 
@@ -545,14 +655,24 @@ class EarlyStoppingCallback(CallbackDispatcher):
     early stopping will not occur until the next save step.
     """
 
-    def __init__(self, early_stopping_patience: int = 1, early_stopping_threshold: T.Optional[float] = 0.0):
+    def __init__(
+        self,
+        early_stopping_patience: int = 1,
+        early_stopping_threshold: T.Optional[float] = 0.0,
+    ):
         self.early_stopping_patience = early_stopping_patience
         self.early_stopping_threshold = early_stopping_threshold
         # early_stopping_patience_counter denotes the number of times validation metrics failed to improve.
         self.early_stopping_patience_counter = 0
 
     def check_metric_value(
-        self, params: EngineParams, state: State, control: Signal, *, metric_value, metric_maximize: bool = True
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        metric_value,
+        metric_maximize: bool = True,
     ):
         # best_metric is set by code for load_best_model
         operator = np.greater if metric_maximize else np.less
@@ -565,11 +685,17 @@ class EarlyStoppingCallback(CallbackDispatcher):
             self.early_stopping_patience_counter += 1
 
     @TX.override
-    def on_train_begin(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        assert params.metric is not None, "EarlyStoppingCallback requires metric_for_best_model is defined"
+    def on_train_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
+        assert (
+            params.metric is not None
+        ), "EarlyStoppingCallback requires metric_for_best_model is defined"
 
     @TX.override
-    def on_evaluate(self, params: EngineParams, state: State, control: Signal, metrics, **kwargs):
+    def on_evaluate(
+        self, params: EngineParams, state: State, control: Signal, metrics, **kwargs
+    ):
         metric_to_check = params.metric
         if not metric_to_check.startswith("eval_"):
             metric_to_check = f"eval_{metric_to_check}"

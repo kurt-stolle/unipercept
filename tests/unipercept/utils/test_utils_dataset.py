@@ -1,4 +1,9 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.utils.dataset import Dataset
@@ -49,4 +54,7 @@ def test_dataset(dataset):
 
     # Datapipe
     assert isinstance(dataset.datapipe, Iterable)
-    assert list(dataset.datapipe) == [{"id": 1, "name": "Foo"}, {"id": 2, "name": "Bar"}]
+    assert list(dataset.datapipe) == [
+        {"id": 1, "name": "Foo"},
+        {"id": 2, "name": "Bar"},
+    ]

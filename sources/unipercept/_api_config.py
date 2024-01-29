@@ -11,15 +11,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data
+import typing_extensions as TX
 from omegaconf import DictConfig
 from PIL import Image as pil_image
 
 from unipercept import file_io
-from unipercept.log import get_logger
 from unipercept.config import load_config, save_config
+from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
+from unipercept.integrations.wandb_integration import read_run as _read_run_wandb
+from unipercept.log import get_logger
 from unipercept.model import ModelFactory
-
-from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX, read_run as _read_run_wandb
 
 if T.TYPE_CHECKING:
     import torch.types
@@ -32,7 +33,9 @@ if T.TYPE_CHECKING:
     StateParam: T.TypeAlias = str | os.PathLike | dict[str, torch.Tensor] | Engine
     StateDict: T.TypeAlias = dict[str, torch.Tensor]
     ConfigParam: T.TypeAlias = str | os.PathLike | DictConfig
-    ImageParam: T.TypeAlias = str | os.PathLike | pil_image.Image | np.ndarray | torch.Tensor
+    ImageParam: T.TypeAlias = (
+        str | os.PathLike | pil_image.Image | np.ndarray | torch.Tensor
+    )
 
 __all__ = [
     "read_config",
@@ -55,7 +58,6 @@ _KEY_CHECKPOINT = "_model_weights_"  # Key used to store the path used to initia
 ##########################
 # SUPPORT FOR W&B REMOTE #
 ##########################
-
 
 
 def _read_config_wandb(path: str) -> DictConfig:
@@ -87,7 +89,9 @@ def _read_model_wandb(path: str) -> str:
     wandb_api = wandb.Api()
     run: Run = wandb_api.run(run_name)
 
-    model_artifact_name = f"{run.entity}/{run.project}/{run.id}-model:latest/model.safetensors"
+    model_artifact_name = (
+        f"{run.entity}/{run.project}/{run.id}-model:latest/model.safetensors"
+    )
 
     _logger.info("Downloading model artifact %s", model_artifact_name)
     local_path = file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
@@ -155,9 +159,13 @@ def read_config(config: ConfigParam) -> DictConfig:
 
         config_path = file_io.Path(config).resolve().expanduser()
         if not config_path.is_file():
-            raise FileNotFoundError(f"Could not find configuration file at {config_path}")
+            raise FileNotFoundError(
+                f"Could not find configuration file at {config_path}"
+            )
         if config_path.suffix not in (".py", ".yaml"):
-            raise ValueError(f"Configuration file must be a .py or .yaml file, got {config_path}")
+            raise ValueError(
+                f"Configuration file must be a .py or .yaml file, got {config_path}"
+            )
         obj = load_config(str(config_path))
         if not isinstance(obj, DictConfig):
             raise TypeError(f"Expected a DictConfig, got {obj}")
@@ -175,7 +183,9 @@ def read_config(config: ConfigParam) -> DictConfig:
     elif isinstance(config, DictConfig):
         return config
     else:
-        raise TypeError(f"Expected a configuration file path or a DictConfig, got {config}")
+        raise TypeError(
+            f"Expected a configuration file path or a DictConfig, got {config}"
+        )
 
 
 #######################
@@ -217,7 +227,9 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
                 elif not isinstance(state_dict, dict):
                     pass  # OK
                 else:
-                    raise TypeError(f"Expected a state_dict or a nn.Module, got {type(state_dict)}")
+                    raise TypeError(
+                        f"Expected a state_dict or a nn.Module, got {type(state_dict)}"
+                    )
                 target.load_state_dict(state_dict, strict=True)
             case ".safetensors":
                 # Load SafeTensors checkpoint
@@ -225,7 +237,9 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
 
                 st.load_model(target, state_path, strict=True)
             case _:
-                raise ValueError(f"Checkpoint file must be a .pth or .safetensors file, got {state_path}")
+                raise ValueError(
+                    f"Checkpoint file must be a .pth or .safetensors file, got {state_path}"
+                )
     elif isinstance(state, Engine):
         _logger.info("Loading checkpoint from engine")
         # State was passed as a Engine object
@@ -277,7 +291,10 @@ def create_model_factory(config: ConfigParam, *, state: str | None) -> ModelFact
 
 
 def create_model(
-    config: ConfigParam, *, state: StateParam | None = None, device: str | torch.types.Device = "cpu"
+    config: ConfigParam,
+    *,
+    state: StateParam | None = None,
+    device: str | torch.types.Device = "cpu",
 ) -> ModelBase:
     """
     Load a model from a configuration file. If the configuration file is part of a traning session, the latest
@@ -315,11 +332,15 @@ def create_model(
         _logger.info("Loading binary PyTorch model from %s", pickle_path)
 
         if state is not None:
-            raise ValueError("Cannot specify both a binary PyTorch model (`.bin` suffix) and a state")
+            raise ValueError(
+                "Cannot specify both a binary PyTorch model (`.bin` suffix) and a state"
+            )
         with open(pickle_path, "rb") as f:
             model = torch.load(f)
         if not isinstance(model, nn.Module):
-            raise TypeError(f"Expected binary file to load an `nn.Module` class, got {type(model)}")
+            raise TypeError(
+                f"Expected binary file to load an `nn.Module` class, got {type(model)}"
+            )
         return model
 
     # Default handling
@@ -339,20 +360,29 @@ def create_model(
 
 @T.overload
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str | re.Pattern] = None, batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam,
+    variant: T.Optional[str | re.Pattern] = None,
+    batch_size: int = 1,
+    return_loader: bool = True,
 ) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
     ...
 
 
 @T.overload
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str | re.Pattern] = None, batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam,
+    variant: T.Optional[str | re.Pattern] = None,
+    batch_size: int = 1,
+    return_loader: bool = True,
 ) -> tuple[T.Iterator[InputData], Metadata]:
     ...
 
 
 def create_dataset(
-    config: ConfigParam, variant: T.Optional[str | re.Pattern] = None, batch_size: int = 1, return_loader: bool = True
+    config: ConfigParam,
+    variant: T.Optional[str | re.Pattern] = None,
+    batch_size: int = 1,
+    return_loader: bool = True,
 ) -> tuple[T.Iterator[InputData] | torch.utils.data.DataLoader[InputData], Metadata]:
     """
     Create an iterator of a dataloader as specified in a configuration file.
@@ -395,15 +425,24 @@ def create_dataset(
         elif isinstance(variant, str):
             variant = re.compile(variant)
         elif not isinstance(variant, re.Pattern):
-            raise TypeError(f"Expected a string or a regular expression, got {type(variant)}")
+            raise TypeError(
+                f"Expected a string or a regular expression, got {type(variant)}"
+            )
 
         # Find the first key that matches the pattern
         key_list = list(loaders.keys())
         key = next((k for k in key_list if variant.match(k)), None)
         if key is None:
-            raise ValueError(f"Could not find a dataset matching {variant.pattern!r} in {key_list}")
+            raise ValueError(
+                f"Could not find a dataset matching {variant.pattern!r} in {key_list}"
+            )
         else:
-            _logger.info("Found dataset loader %s matching %s, available are: %s", key, variant.pattern, key_list)
+            _logger.info(
+                "Found dataset loader %s matching %s, available are: %s",
+                key,
+                variant.pattern,
+                key_list,
+            )
 
     datafactory = instantiate(loaders[key])
     dataloader = datafactory(batch_size)
@@ -553,7 +592,9 @@ def prepare_images(
 
 
 class _ImagePathsDataset(torch.utils.data.Dataset):
-    def __init__(self, paths: T.Sequence[tuple[str, tuple[int, int]]], ops: T.Sequence[Op]):
+    def __init__(
+        self, paths: T.Sequence[tuple[str, tuple[int, int]]], ops: T.Sequence[Op]
+    ):
         self.paths = paths
         self.ops = ops
 
@@ -563,7 +604,9 @@ class _ImagePathsDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         path, (sequence_id, frame_id) = self.paths[index]
 
-        input = create_inputs(path, sequence_offset=sequence_id, frame_offset=frame_id)[0]
+        input = create_inputs(path, sequence_offset=sequence_id, frame_offset=frame_id)[
+            0
+        ]
         for op in self.ops:
             input = op(input)
         return input
@@ -610,7 +653,9 @@ def create_inputs(
             image = pil_to_tensor(image_spec)
         else:
             image = torch.as_tensor(image_spec).cpu()
-        assert image.ndim == 3 and image.shape[0] == 3, f"Expected am RGB image, got {image.shape}"
+        assert (
+            image.ndim == 3 and image.shape[0] == 3
+        ), f"Expected am RGB image, got {image.shape}"
         batch.append(image)
 
     ids = torch.stack(
@@ -632,13 +677,18 @@ def create_inputs(
         ),
         motions=None,
         cameras=CameraModel(
-            image_size=torch.tensor([img.shape[-2:] for img in batch], dtype=torch.float32),
+            image_size=torch.tensor(
+                [img.shape[-2:] for img in batch], dtype=torch.float32
+            ),
             matrix=torch.eye(4, dtype=torch.float32).repeat(len(batch), 1, 1),
             pose=torch.eye(4, dtype=torch.float32).repeat(len(batch), 1, 1),
             batch_size=[len(batch)],
         ),
         content_boxes=torch.stack(
-            [torch.tensor([0, 0, img.shape[-2], img.shape[-1]], dtype=torch.float32) for img in batch]
+            [
+                torch.tensor([0, 0, img.shape[-2], img.shape[-1]], dtype=torch.float32)
+                for img in batch
+            ]
         ),
         batch_size=[len(batch)],
     )

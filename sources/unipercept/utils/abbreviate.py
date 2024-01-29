@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 import re
+import typing as T
 from typing import Any
+
+import typing_extensions as TX
 
 
 def full_name(mod: Any) -> str:
@@ -43,7 +48,9 @@ def short_name(mod: Any, num=4) -> str:
     res[: min(len(name), num)] = name[:num]
 
     def _assert_size():
-        assert len(res) == num, f"Abbreviation of {name} yielded {str(res)} which is not of length {num}!"
+        assert (
+            len(res) == num
+        ), f"Abbreviation of {name} yielded {str(res)} which is not of length {num}!"
 
     if len(name) > num:
         split = re.findall(r"[\dA-Z][^A-Z\d]*", name)

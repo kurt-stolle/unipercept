@@ -5,6 +5,8 @@ See: https://huggingface.co/docs/timm/main/en/feature_extraction
 """
 
 
+from __future__ import annotations
+
 import typing as T
 from collections import OrderedDict
 
@@ -12,6 +14,7 @@ import timm
 import timm.data
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from typing_extensions import override
 
 from .wrapper import (
@@ -64,7 +67,9 @@ class TimmBackbone(WrapperBase):
         **kwargs,
     ):
         dims = _get_dimension_order(name)
-        extractor, config = _build_extractor(name, pretrained=pretrained, out_indices=nodes, use_graph=use_graph)
+        extractor, config = _build_extractor(
+            name, pretrained=pretrained, out_indices=nodes, use_graph=use_graph
+        )
         info = infer_feature_info(extractor, dims)
 
         if "mean" in config:
@@ -77,7 +82,11 @@ class TimmBackbone(WrapperBase):
         else:
             assert len(keys) == len(info), f"Expected {len(info)} keys, got {len(keys)}"
 
-        super().__init__(dimension_order=dims, feature_info={k: v for k, v in zip(keys, info)}, **kwargs)
+        super().__init__(
+            dimension_order=dims,
+            feature_info={k: v for k, v in zip(keys, info)},
+            **kwargs,
+        )
 
         self.ext = extractor
 
@@ -133,7 +142,9 @@ def _build_extractor(
         idxs = tuple(range(len(mdl.feature_info)))
     elif isinstance(out_indices, int):
         num_features = len(mdl.feature_info)
-        assert out_indices <= num_features, f"out_indices must be less than or equal to {num_features}"
+        assert (
+            out_indices <= num_features
+        ), f"out_indices must be less than or equal to {num_features}"
         idxs = tuple(range(num_features - out_indices, num_features))
     else:
         idxs = tuple(out_indices)

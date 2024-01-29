@@ -1,4 +1,9 @@
+from __future__ import annotations
+
+import typing as T
+
 import torch
+import typing_extensions as TX
 from torch import Tensor
 
 from ._so3 import _so3_exp_map, hat, so3_log_map
@@ -80,7 +85,9 @@ def se3_exp_map(log_transform: Tensor, eps: float = 1e-4) -> Tensor:
     )
     T = torch.bmm(V, log_translation[:, :, None])[:, :, 0]
 
-    transform = torch.zeros(N, 4, 4, dtype=log_transform.dtype, device=log_transform.device)
+    transform = torch.zeros(
+        N, 4, 4, dtype=log_transform.dtype, device=log_transform.device
+    )
 
     transform[:, :3, :3] = R
     transform[:, :3, 3] = T
@@ -89,7 +96,9 @@ def se3_exp_map(log_transform: Tensor, eps: float = 1e-4) -> Tensor:
     return transform.permute(0, 2, 1)
 
 
-def se3_log_map(transform: Tensor, eps: float = 1e-4, cos_bound: float = 1e-4) -> Tensor:
+def se3_log_map(
+    transform: Tensor, eps: float = 1e-4, cos_bound: float = 1e-4
+) -> Tensor:
     """
     Convert a batch of 4x4 transformation matrices `transform`
     to a batch of 6-dimensional SE(3) logarithms of the SE(3) matrices.
@@ -191,7 +200,9 @@ def _se3_V_matrix(
             log_rotation_hat_square
             # pyre-fixme[58]: `**` is not supported for operand types `Tensor` and
             #  `int`.
-            * ((rotation_angles - torch.sin(rotation_angles)) / (rotation_angles**3))[:, None, None]
+            * ((rotation_angles - torch.sin(rotation_angles)) / (rotation_angles**3))[
+                :, None, None
+            ]
         )
     )
 

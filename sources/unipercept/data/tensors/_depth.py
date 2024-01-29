@@ -5,6 +5,7 @@ from enum import StrEnum, auto
 
 import safetensors.torch as safetensors
 import torch
+import typing_extensions as TX
 from torch.types import Device
 from torchvision.tv_tensors import Mask
 
@@ -38,7 +39,9 @@ class DepthMap(Mask):
 
     @classmethod
     @torch.no_grad()
-    def read(cls, path: str, dtype: torch.dtype = DEFAULT_DEPTH_DTYPE, **meta_kwds: T.Any) -> T.Self:
+    def read(
+        cls, path: str, dtype: torch.dtype = DEFAULT_DEPTH_DTYPE, **meta_kwds: T.Any
+    ) -> T.Self:
         path = file_io.get_local_path(path)
         # Switch by depth format
         format = get_kwd(meta_kwds, "format", DepthFormat | str)

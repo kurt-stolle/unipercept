@@ -3,9 +3,13 @@ SLURM scheduler integration.
 
 Current implementation only supports reading the job configuration, and not interacting with the scheduler itself.
 """
+from __future__ import annotations
+
 import multiprocessing
 import os
 import typing as T
+
+import typing_extensions as TX
 
 from unipercept.config import get_env
 
@@ -173,7 +177,11 @@ class SLURMEnvironment:
 
     @property
     def job_cpus_per_node(self) -> int:
-        return get_env(int, "SLURM_JOB_CPUS_PER_NODE", default=multiprocessing.cpu_count() / self.job_num_nodes)
+        return get_env(
+            int,
+            "SLURM_JOB_CPUS_PER_NODE",
+            default=multiprocessing.cpu_count() / self.job_num_nodes,
+        )
 
     @property
     def topology_addr(self) -> str:

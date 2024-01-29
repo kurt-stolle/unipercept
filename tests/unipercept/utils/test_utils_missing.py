@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import typing
+import typing as T
 
 import pytest
+import typing_extensions as TX
 from typing_extensions import reveal_type
 
 from unipercept.utils.missing import MissingValue
@@ -25,7 +29,9 @@ def test_missing_value_type():
 
     # Test value retrieval/creation with different case
     lower_case_na = MissingValue("na")
-    assert NA is lower_case_na  # They should be the same instance because of the uppercase conversion
+    assert (
+        NA is lower_case_na
+    )  # They should be the same instance because of the uppercase conversion
 
     # Test non-equality with a different type
     assert NA != "NA"

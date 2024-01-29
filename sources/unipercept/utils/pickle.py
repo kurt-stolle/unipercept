@@ -7,6 +7,7 @@ import typing as T
 import warnings
 
 import cloudpickle
+import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = ["pickles", "as_picklable"]
@@ -87,11 +88,15 @@ def pickles(fn: T.Callable, use_experiment=True) -> bool:
             pickle.dumps(fn)
             return True
         except (Exception, pickle.PicklingError) as e:
-            warnings.warn(f"Cannot pickle {fn.__name__} using direct pickle experiment.", stacklevel=2)
+            warnings.warn(
+                f"Cannot pickle {fn.__name__} using direct pickle experiment.",
+                stacklevel=2,
+            )
             return False
     else:
         warnings.warn(
-            "Cannot determine whether {fn.__name__} is picklable using heuristics, assuming it is not.", stacklevel=2
+            "Cannot determine whether {fn.__name__} is picklable using heuristics, assuming it is not.",
+            stacklevel=2,
         )
 
     return False

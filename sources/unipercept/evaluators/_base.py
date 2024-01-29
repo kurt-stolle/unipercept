@@ -11,6 +11,7 @@ import typing as T
 import pandas as pd
 import torch
 import torch.types
+import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDict, TensorDictBase
 
@@ -47,7 +48,9 @@ class Evaluator(metaclass=abc.ABCMeta):
     Implements a stateless evaluator for a given task.
     """
 
-    def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase) -> None:
+    def update(
+        self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
+    ) -> None:
         return None
 
     @abc.abstractmethod

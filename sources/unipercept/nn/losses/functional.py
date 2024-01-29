@@ -2,11 +2,14 @@
 Implements common functional operations for losses.
 """
 
+from __future__ import annotations
+
 import math
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 
 #####################
 # General utilities #
@@ -14,7 +17,9 @@ import torch.nn as nn
 
 
 def split_into_patches(
-    x: torch.Tensor, sizes: T.Tuple[int, int], strides: T.Optional[T.Tuple[int, int]] = None
+    x: torch.Tensor,
+    sizes: T.Tuple[int, int],
+    strides: T.Optional[T.Tuple[int, int]] = None,
 ) -> torch.Tensor:
     r"""
     Splits tensor into N, p_height x p_width blocks.
@@ -37,7 +42,9 @@ def split_into_patches(
 ##############################
 
 
-def scale_invariant_logarithmic_error(x: torch.Tensor, y: torch.Tensor, num: int, eps: float) -> torch.Tensor:
+def scale_invariant_logarithmic_error(
+    x: torch.Tensor, y: torch.Tensor, num: int, eps: float
+) -> torch.Tensor:
     r"""
     Scale invariant logarithmic error.
     """
@@ -77,7 +84,11 @@ def relative_absolute_squared_error(
 
 
 def depth_guided_segmentation_loss(
-    seg_feat: torch.Tensor, dep_true: torch.Tensor, eps: float, tau: int, patch_size: int
+    seg_feat: torch.Tensor,
+    dep_true: torch.Tensor,
+    eps: float,
+    tau: int,
+    patch_size: int,
 ):
     seg_patch = split_into_patches(seg_feat, (patch_size, patch_size))
     dep_patch = split_into_patches(dep_true, (patch_size, patch_size))
@@ -106,7 +117,12 @@ def depth_guided_segmentation_loss(
 
 
 def segmentation_guided_triplet_loss(
-    dep_feat: torch.Tensor, seg_true: torch.Tensor, margin: float, threshold: int, patch_height: int, patch_width: int
+    dep_feat: torch.Tensor,
+    seg_true: torch.Tensor,
+    margin: float,
+    threshold: int,
+    patch_height: int,
+    patch_width: int,
 ):
     # if seg_true.ndim != dep_feat.ndim:
     #     seg_true.unsqueeze_(1)
@@ -114,7 +130,9 @@ def segmentation_guided_triplet_loss(
     with torch.no_grad():
         # seg_true = seg_true.float()
         seg_true = nn.functional.interpolate(
-            seg_true[:, None, ...].float(), size=dep_feat.shape[-2:], mode="nearest-exact"
+            seg_true[:, None, ...].float(),
+            size=dep_feat.shape[-2:],
+            mode="nearest-exact",
         )
 
     # Split both depth estimated output and panoptic label into NxN patches
@@ -138,8 +156,12 @@ def segmentation_guided_triplet_loss(
     patch_center_j = patch_width // 2
     # Calculate anchors of output and target
     # N x C x P x 1 x 1
-    target_anchor = seg_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)
-    output_anchor = dep_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)
+    target_anchor = (
+        seg_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)
+    )
+    output_anchor = (
+        dep_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)
+    )
 
     # Calculate mask of positive and negative features
     mask_pos = ((seg_patch == target_anchor) & patch_valid).int()  # N x C x P x 5 x 5
@@ -154,8 +176,12 @@ def segmentation_guided_triplet_loss(
     target_neg_num = mask_neg.count_nonzero(dim=(-2, -1)).float()  # N x C x P x 1 x 1
 
     # Distance terms for all patches
-    distance_pos = torch.norm(output_anchor * mask_pos - output_pos, p=2, dim=(-2, -1)) / target_pos_num.clamp(1)
-    distance_neg = torch.norm(output_anchor * mask_neg - output_neg, p=2, dim=(-2, -1)) / target_neg_num.clamp(1)
+    distance_pos = torch.norm(
+        output_anchor * mask_pos - output_pos, p=2, dim=(-2, -1)
+    ) / target_pos_num.clamp(1)
+    distance_neg = torch.norm(
+        output_anchor * mask_neg - output_neg, p=2, dim=(-2, -1)
+    ) / target_neg_num.clamp(1)
 
     # Total loss for all patches
     # patch_losses = torch.maximum(

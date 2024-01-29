@@ -2,8 +2,13 @@
 Utilities for contrastive loss functions
 """
 
+from __future__ import annotations
+
+import typing as T
+
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 
 from unipercept.nn.losses.mixins import ScaledLossMixin
 
@@ -19,7 +24,9 @@ class TripletMarginSimilarityLoss(ScaledLossMixin, nn.TripletMarginWithDistanceL
     def __init__(self, *, margin: float = 0.1, **kwargs):
         super().__init__(**kwargs, margin=margin, distance_function=cosine_distance)
 
-    def forward(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor
+    ) -> torch.Tensor:
         loss = nn.functional.triplet_margin_with_distance_loss(
             anchor,
             positive,

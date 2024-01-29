@@ -1,7 +1,11 @@
+from __future__ import annotations
+
+import typing as T
 from functools import partial
 
 import pytest
 import torch
+import typing_extensions as TX
 
 import unipercept.nn.losses as _L
 
@@ -17,7 +21,9 @@ LOSS_NN_MODULES = [
 
 
 @pytest.fixture(
-    scope="module", params=LOSS_NN_MODULES, ids=[m.__name__ if isinstance(m, type) else str(m) for m in LOSS_NN_MODULES]
+    scope="module",
+    params=LOSS_NN_MODULES,
+    ids=[m.__name__ if isinstance(m, type) else str(m) for m in LOSS_NN_MODULES],
 )
 def loss_module(request):
     mod = request.param()

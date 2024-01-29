@@ -5,6 +5,7 @@ import typing as T
 
 import numpy as np
 import torch
+import typing_extensions as TX
 from fvcore.nn import weight_init
 from matplotlib.dates import WE
 from torch import Tensor, nn
@@ -93,7 +94,9 @@ class SemanticMerge(nn.Module):
             self.scale_heads.append(head_ops)
 
         if self.weight_method in (WeightMethod.ATTENTION, WeightMethod.FAST_ATTENTION):
-            self.edge_weights = nn.Parameter(torch.ones(len(self.in_features)), requires_grad=True)  # WSM
+            self.edge_weights = nn.Parameter(
+                torch.ones(len(self.in_features)), requires_grad=True
+            )  # WSM
         else:
             self.edge_weights = None
 
@@ -102,7 +105,10 @@ class SemanticMerge(nn.Module):
 
     @override
     def forward(self, features: dict[str, Tensor]) -> Tensor:
-        nodes: list[Tensor] = [head(features[self.in_features[i]]) for i, head in enumerate(self.scale_heads)]
+        nodes: list[Tensor] = [
+            head(features[self.in_features[i]])
+            for i, head in enumerate(self.scale_heads)
+        ]
         dtype = nodes[0].dtype  # TODO: check whether this is needed
 
         # Weighting per edge
@@ -114,7 +120,13 @@ class SemanticMerge(nn.Module):
             assert self.edge_weights is not None
             edge_weights = nn.functional.relu(self.edge_weights.to(dtype=dtype))
             weights_sum = torch.sum(edge_weights)
-            out = torch.stack([(nodes[i] * edge_weights[i]) / (weights_sum + 1e-4) for i in range(len(nodes))], dim=-1)
+            out = torch.stack(
+                [
+                    (nodes[i] * edge_weights[i]) / (weights_sum + 1e-4)
+                    for i in range(len(nodes))
+                ],
+                dim=-1,
+            )
         elif self.weight_method == WeightMethod.SUM:
             assert self.edge_weights is None
             out = torch.stack(nodes, dim=-1)
@@ -191,7 +203,9 @@ class SemanticShuffle(nn.Module):
             self.scale_heads.append(head_ops)
 
         if self.weight_method in (WeightMethod.ATTENTION, WeightMethod.FAST_ATTENTION):
-            self.edge_weights = nn.Parameter(torch.ones(len(self.in_features)), requires_grad=True)  # WSM
+            self.edge_weights = nn.Parameter(
+                torch.ones(len(self.in_features)), requires_grad=True
+            )  # WSM
         else:
             self.edge_weights = None
 
@@ -200,7 +214,10 @@ class SemanticShuffle(nn.Module):
 
     @override
     def forward(self, features: dict[str, Tensor]) -> Tensor:
-        nodes: list[Tensor] = [head(features[self.in_features[i]]) for i, head in enumerate(self.scale_heads)]
+        nodes: list[Tensor] = [
+            head(features[self.in_features[i]])
+            for i, head in enumerate(self.scale_heads)
+        ]
         dtype = nodes[0].dtype  # TODO: check whether this is needed
 
         # Weighting per edge
@@ -212,7 +229,13 @@ class SemanticShuffle(nn.Module):
             assert self.edge_weights is not None
             edge_weights = nn.functional.relu(self.edge_weights.to(dtype=dtype))
             weights_sum = torch.sum(edge_weights)
-            out = torch.stack([(nodes[i] * edge_weights[i]) / (weights_sum + 1e-4) for i in range(len(nodes))], dim=-1)
+            out = torch.stack(
+                [
+                    (nodes[i] * edge_weights[i]) / (weights_sum + 1e-4)
+                    for i in range(len(nodes))
+                ],
+                dim=-1,
+            )
         elif self.weight_method == WeightMethod.SUM:
             assert self.edge_weights is None
             out = torch.stack(nodes, dim=-1)

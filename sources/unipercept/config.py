@@ -4,59 +4,51 @@ Lazy configuration system, inspired by and based on Detectron2 and Hydra.
 
 from __future__ import annotations
 
-import enum
-import os
-import typing as T
-from distutils.util import strtobool
-
-
 import ast
 import builtins
 import collections.abc as abc
-import dataclasses
+import dataclasses as D
+import enum
 import os
 import types
 import typing as T
 import uuid
 from contextlib import contextmanager
 from copy import deepcopy
+from distutils.util import strtobool
 from typing import Any, List
-import dataclasses as D
 
 import omegaconf
+import typing_extensions as TX
 import yaml
 from omegaconf import DictConfig, ListConfig, OmegaConf, SCMode
 from typing_extensions import override
 
-from unipercept import file_io
+import unipercept.file_io as file_io
 from unipercept.utils.inspect import generate_path, locate_object
-from unipercept.utils.ulid import ULID
-
-if T.TYPE_CHECKING:
-    from unipercept.engine import Engine
-    from unipercept.model import ModelBase
 
 __all__ = [
-    "LazyCall",
-    "load_config",
-    "save_config",
     "apply_overrides",
-    "call",
-    "bind",
-    "LazyObject",
-    "instantiate",
     "as_dict",
+    "as_list",
     "as_set",
     "as_tuple",
-    "as_list",
+    "bind",
+    "call",
+    "ConfigList",
     "ConfigSet",
     "ConfigTuple",
-    "ConfigList",
+    "get_env",
+    "instantiate",
+    "LAZY_TARGET",
+    "LazyCall",
+    "LazyObject",
+    "load_config",
     "make_dict",
+    "make_list",
     "make_set",
     "make_tuple",
-    "make_list",
-    "get_env",
+    "save_config",
 ]
 
 
@@ -103,19 +95,29 @@ class EnvFilter(enum.StrEnum):
 
 
 @T.overload
-def get_env(__type: type[_R], /, *keys: str, default: _R, filter: EnvFilter = EnvFilter.TRUTHY) -> _R:
+def get_env(
+    __type: type[_R], /, *keys: str, default: _R, filter: EnvFilter = EnvFilter.TRUTHY
+) -> _R:
     ...
 
 
 @T.overload
 def get_env(
-    __type: type[_R], /, *keys: str, default: _R | None = None, filter: EnvFilter = EnvFilter.TRUTHY
+    __type: type[_R],
+    /,
+    *keys: str,
+    default: _R | None = None,
+    filter: EnvFilter = EnvFilter.TRUTHY,
 ) -> _R | None:
     ...
 
 
 def get_env(
-    __type: type[_R], /, *keys: str, default: _R | None = None, filter: EnvFilter = EnvFilter.TRUTHY
+    __type: type[_R],
+    /,
+    *keys: str,
+    default: _R | None = None,
+    filter: EnvFilter = EnvFilter.TRUTHY,
 ) -> _R | None:
     """
     Read an environment variable. If the variable is not set, return the default value.
@@ -143,7 +145,7 @@ def get_env(
 ######################
 
 # Some global constants for lazy configuration
-_TARGET_KEY: T.Final = "_target_"
+LAZY_TARGET: T.Final = "_target_"
 _PACKAGE_PREFIX: T.Final = "_config_"
 _OMEGA_DICT_FLAGS: T.Final = {"allow_objects": True}
 
@@ -165,7 +167,9 @@ class LazyCall:
 
     def __init__(self, target):
         if not (callable(target) or isinstance(target, (str, abc.Mapping))):
-            raise TypeError(f"target of LazyCall must be a callable or defines a callable! Got {target}")
+            raise TypeError(
+                f"target of LazyCall must be a callable or defines a callable! Got {target}"
+            )
         self._target = target
 
     def __call__(self, **kwargs):
@@ -257,10 +261,13 @@ def _patch_import():
         if not file_io.isfile(cur_file):
             cur_file_no_suffix = cur_file[: -len(".py")]
             if file_io.isdir(cur_file_no_suffix):
-                raise ImportError(f"Cannot import from {cur_file_no_suffix}." + relative_import_err)
+                raise ImportError(
+                    f"Cannot import from {cur_file_no_suffix}." + relative_import_err
+                )
             else:
                 raise ImportError(
-                    f"Cannot import name {relative_import_path} from " f"{original_file}: {cur_file} does not exist."
+                    f"Cannot import name {relative_import_path} from "
+                    f"{original_file}: {cur_file} does not exist."
                 )
         return cur_file
 
@@ -273,7 +280,9 @@ def _patch_import():
         ):
             cur_file = find_relative(globals["__file__"], name, level)
             _validate_syntax(cur_file)
-            spec = importlib.machinery.ModuleSpec(_generate_packagename(cur_file), None, origin=cur_file)
+            spec = importlib.machinery.ModuleSpec(
+                _generate_packagename(cur_file), None, origin=cur_file
+            )
             module = importlib.util.module_from_spec(spec)
             module.__file__ = cur_file
             with file_io.open(cur_file) as f:
@@ -353,7 +362,13 @@ def load_config(path: str) -> DictConfig:
                     k
                     for k, v in nsp.items()
                     if not k.startswith("_")
-                    and (isinstance(v, (dict, list, DictConfig, ListConfig, int, float, str, bool)) or v is None)
+                    and (
+                        isinstance(
+                            v,
+                            (dict, list, DictConfig, ListConfig, int, float, str, bool),
+                        )
+                        or v is None
+                    )
                 ),
             )
             obj: dict[str, T.Any] = {k: v for k, v in nsp.items() if k in export}
@@ -451,7 +466,10 @@ def apply_overrides(cfg, overrides: List[str]):
             if v is None:
                 break
             if not OmegaConf.is_config(v):
-                raise KeyError(f"Trying to update key {key}, but {prefix} " f"is not a config, but has type {type(v)}.")
+                raise KeyError(
+                    f"Trying to update key {key}, but {prefix} "
+                    f"is not a config, but has type {type(v)}."
+                )
         OmegaConf.update(cfg, key, value, merge=True)
 
     for o in OverridesParser.create().parse_overrides(overrides):
@@ -503,7 +521,9 @@ class _LazyCall(T.Generic[_P, _L]):
 
     def __init__(self, target: T.Callable[_P, _L]):
         if not (callable(target) or isinstance(target, (str, abc.Mapping))):
-            raise TypeError(f"target of LazyCall must be a callable or defines a callable! Got {target}")
+            raise TypeError(
+                f"target of LazyCall must be a callable or defines a callable! Got {target}"
+            )
         self._target = target
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> DictConfig:
@@ -513,7 +533,7 @@ class _LazyCall(T.Generic[_P, _L]):
             target = generate_path(self._target)
         else:
             target = self._target
-        kwargs[_TARGET_KEY] = target
+        kwargs[LAZY_TARGET] = target
 
         return DictConfig(content=kwargs, flags=_OMEGA_DICT_FLAGS)
 
@@ -567,14 +587,27 @@ def instantiate(cfg: T.Mapping[T.Any, LazyObject[_L]], /) -> T.Mapping[T.Any, _L
 
 def instantiate(cfg: T.Any, /) -> T.Any:
     """
-    Recursively instantiate objects defined in dictionaries by "_target_" and arguments.
+    Recursively instantiate objects defined in dictionaries by "_target_" and 
+    arguments.
 
-    Our version differs from Detectron2's in that it never returns a configuration object, but always
-    returns the instantiated object (e.g. a ListConfig is always converted to a list).
-
+    Our version differs from Detectron2's in that it never returns a 
+    configuration object, but always returns the instantiated object (e.g. a 
+    ListConfig is always converted to a list).
     """
     if cfg is None or isinstance(
-        cfg, (int, float, bool, str, set, frozenset, bytes, type, types.NoneType, types.FunctionType)
+        cfg,
+        (
+            int,
+            float,
+            bool,
+            str,
+            set,
+            frozenset,
+            bytes,
+            type,
+            types.NoneType,
+            types.FunctionType,
+        ),
     ):
         return cfg  # type: ignore
 
@@ -585,7 +618,9 @@ def instantiate(cfg: T.Any, /) -> T.Any:
 
     # If input is a DictConfig backed by dataclasses (i.e. omegaconf's structured config),
     # instantiate it to the actual dataclass.
-    if isinstance(cfg, omegaconf.DictConfig) and D.is_dataclass(cfg._metadata.object_type):
+    if isinstance(cfg, omegaconf.DictConfig) and D.is_dataclass(
+        cfg._metadata.object_type
+    ):
         return omegaconf.OmegaConf.to_object(cfg)
 
     if isinstance(cfg, T.Mapping) and "_target_" in cfg:
@@ -631,7 +666,11 @@ class ConfigSet(set):
 
 
 def make_set(items) -> set[T.Any]:
-    items = omegaconf.OmegaConf.to_object(items) if isinstance(items, omegaconf.ListConfig) else items
+    items = (
+        omegaconf.OmegaConf.to_object(items)
+        if isinstance(items, omegaconf.ListConfig)
+        else items
+    )
     return ConfigSet(i for i in items)  # type: ignore
 
 
@@ -643,7 +682,11 @@ _T = T.TypeVar("_T", bound=tuple, covariant=True)
 
 
 def make_tuple(items) -> _T:
-    items = omegaconf.OmegaConf.to_object(items) if isinstance(items, omegaconf.ListConfig) else items
+    items = (
+        omegaconf.OmegaConf.to_object(items)
+        if isinstance(items, omegaconf.ListConfig)
+        else items
+    )
     return ConfigTuple(i for i in items)  # type: ignore
 
 
@@ -652,7 +695,11 @@ class ConfigList(list):
 
 
 def make_list(items) -> list[T.Any]:
-    items = omegaconf.OmegaConf.to_object(items) if isinstance(items, omegaconf.ListConfig) else items
+    items = (
+        omegaconf.OmegaConf.to_object(items)
+        if isinstance(items, omegaconf.ListConfig)
+        else items
+    )
     return ConfigList(i for i in items)  # type: ignore
 
 

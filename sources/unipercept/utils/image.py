@@ -11,12 +11,17 @@ Added featues are:
 - a function to read the image size from the file header.
 """
 
+from __future__ import annotations
+
 import struct
+import typing as T
 from enum import StrEnum
 from enum import auto as A
 from os import PathLike
 from pathlib import Path
 from typing import IO, NamedTuple, Optional
+
+import typing_extensions as TX
 
 __all__ = ["what", "Format", "size", "Size"]
 

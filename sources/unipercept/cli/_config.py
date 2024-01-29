@@ -6,6 +6,7 @@ import argparse
 import enum
 import typing as T
 
+import typing_extensions as TX
 from bullet import Bullet, Input
 from typing_extensions import override
 
@@ -57,7 +58,9 @@ class ConfigLoad(argparse.Action):
 
     @staticmethod
     def interactive_select(configs_root="//configs/") -> str:
-        print("No configuration file specified (--config <path> [config.key=value ...]).")
+        print(
+            "No configuration file specified (--config <path> [config.key=value ...])."
+        )
 
         # Prompt 1: Where to look for configurations?
         try:
@@ -82,7 +85,10 @@ class ConfigLoad(argparse.Action):
         config_candidates = configs_root.glob("**/*")
         config_candidates = list(
             filter(
-                lambda f: f.is_file() and not f.name.startswith("_") and f.suffix in (".py", ".yaml"), config_candidates
+                lambda f: f.is_file()
+                and not f.name.startswith("_")
+                and f.suffix in (".py", ".yaml"),
+                config_candidates,
             )
         )
         config_candidates.sort()
@@ -92,7 +98,9 @@ class ConfigLoad(argparse.Action):
             exit(1)
             return
         else:
-            print(f"Found {len(config_candidates)} configuration files in {str(configs_root)}.")
+            print(
+                f"Found {len(config_candidates)} configuration files in {str(configs_root)}."
+            )
 
         # Prompt 2: Which configuration file to use?
         choices = [str(p.relative_to(configs_root)) for p in config_candidates]
@@ -139,7 +147,9 @@ class ConfigLoad(argparse.Action):
             if v is None:
                 break
             if not OmegaConf.is_config(v):
-                raise KeyError(f"Trying to update key {key}, but {prefix} is not a config, but has type {type(v)}.")
+                raise KeyError(
+                    f"Trying to update key {key}, but {prefix} is not a config, but has type {type(v)}."
+                )
         OmegaConf.update(cfg, key, value, merge=True)
 
     def apply_overrides(self, cfg, overrides):
@@ -151,7 +161,12 @@ class ConfigLoad(argparse.Action):
 
 
 def add_config_args(
-    parser: argparse.ArgumentParser, *, flags=("--config",), required=True, nargs="*", **kwargs_add_argument
+    parser: argparse.ArgumentParser,
+    *,
+    flags=("--config",),
+    required=True,
+    nargs="*",
+    **kwargs_add_argument,
 ) -> None:
     """Adds a configuration file group to the argument parser."""
 

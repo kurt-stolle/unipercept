@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import functools
+import typing as T
 from copy import copy, deepcopy
 from types import MethodType
 from typing import Callable, Concatenate, Generic, ParamSpec, TypeVar, overload
+
+import typing_extensions as TX
 
 try:
     from typing import Self  # type: ignore
@@ -29,7 +34,9 @@ class shadowmutate(Generic[_T, _P, _R]):
         if len(args) == 1 and callable(args[0]):
             return cls(**kwargs)(args[0])
         elif len(args) != 0:
-            raise TypeError(f"Expected 0 or 1 positional argument, got {len(args)} positional arguments")
+            raise TypeError(
+                f"Expected 0 or 1 positional argument, got {len(args)} positional arguments"
+            )
 
         # Case 2: Decorator as @shadowmutate(...) with (optional) keyword arguments
         return super().__new__(cls)

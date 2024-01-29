@@ -6,13 +6,10 @@ The Accelerate library is adopted to handle distributed training and inference.
 from __future__ import annotations
 
 import dataclasses as D
-import os
 import typing as T
 
 import accelerate.utils
-import torch.distributed as dist
 import torch
-
 from tensordict import TensorDict, TensorDictBase
 
 __all__ = []
@@ -43,20 +40,26 @@ def get_interactive():
 
 @T.overload
 def get_total_batchsize(
-    dataloader: torch.utils.data.DataLoader, device: torch.types.Device, return_offsets: T.Literal[False] = False
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.types.Device,
+    return_offsets: T.Literal[False] = False,
 ) -> int:
     ...
 
 
 @T.overload
 def get_total_batchsize(
-    dataloader: torch.utils.data.DataLoader, device: torch.types.Device, return_offsets: T.Literal[True]
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.types.Device,
+    return_offsets: T.Literal[True],
 ) -> tuple[int, list[int]]:
     ...
 
 
 def get_total_batchsize(
-    dataloader: torch.utils.data.DataLoader, device: torch.types.Device, return_offsets: bool = False
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.types.Device,
+    return_offsets: bool = False,
 ) -> int | tuple[int, list[int]]:
     a = len(dataloader)
 
@@ -89,7 +92,11 @@ def get_process_count() -> int:
 
 
 def check_main_process(local=False):
-    return _state_backend.is_local_main_process if local else _state_backend.is_main_process
+    return (
+        _state_backend.is_local_main_process
+        if local
+        else _state_backend.is_main_process
+    )
 
 
 def check_debug_enabled():
@@ -126,12 +133,16 @@ def on_main_process():
 ###############
 
 if T.TYPE_CHECKING:
-    _N = T.TypeVar("_N", bound=torch.Tensor | dict[T.Any, torch.Tensor] | T.Sequence[torch.Tensor])
+    _N = T.TypeVar(
+        "_N", bound=torch.Tensor | dict[T.Any, torch.Tensor] | T.Sequence[torch.Tensor]
+    )
 
     def gather(tensor: _N) -> _N:
         ...
 
-    def pad_across_processes(tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0) -> _N:
+    def pad_across_processes(
+        tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0
+    ) -> _N:
         ...
 
 else:

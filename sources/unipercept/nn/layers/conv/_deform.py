@@ -4,8 +4,13 @@ Implements deformable convolutions.
 Now uses the `torchvision.ops.DeformConv2d` module to do the heavy lifting.
 """
 
+from __future__ import annotations
+
+import typing as T
+
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from torchvision.ops import DeformConv2d
 from typing_extensions import override
 
@@ -37,7 +42,9 @@ class ModDeform2d(NormActivationMixin, PaddingMixin, nn.Module):
         super().__init__()
 
         if isinstance(padding, tuple):
-            assert not padding[1] or padding[1] == padding[0], "Asymmetric padding is not supported"
+            assert (
+                not padding[1] or padding[1] == padding[0]
+            ), "Asymmetric padding is not supported"
             padding = padding[0]
 
         self.mod = Conv2d(

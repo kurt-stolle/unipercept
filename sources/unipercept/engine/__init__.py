@@ -4,6 +4,10 @@ Implements the main Engine class
 
 from __future__ import annotations
 
+import typing as T
+
+import typing_extensions as TX
+
 from . import accelerate, callbacks, debug, memory, writer
 from ._engine import *
 from ._optimizer import *

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import typing as T
 from typing import Any, Callable, Iterator, Sequence
 
+import typing_extensions as TX
 from torch.utils.data.datapipes.utils.common import match_masks
 from torchdata.datapipes import functional_datapipe
 from torchdata.datapipes.iter import (
@@ -24,7 +26,12 @@ class UniCoreFileLister(IoPathFileLister):
     See ``IoPathFileLister``.
     """
 
-    def __init__(self, root: str | Sequence[str] | IterDataPipe, masks: str | list[str], recursive=False) -> None:
+    def __init__(
+        self,
+        root: str | Sequence[str] | IterDataPipe,
+        masks: str | list[str],
+        recursive=False,
+    ) -> None:
         super().__init__(root, masks, pathmgr=file_io._manager)
 
         self.recursive = recursive

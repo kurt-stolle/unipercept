@@ -4,6 +4,7 @@ import types
 import typing as T
 from weakref import WeakValueDictionary
 
+import typing_extensions as TX
 from typing_extensions import override
 
 _O = T.TypeVar("_O", bound=T.Any)
@@ -19,7 +20,9 @@ class MissingValue:
 
     """
 
-    __sentinel_types__: T.ClassVar[WeakValueDictionary[str, T.Self]] = WeakValueDictionary()
+    __sentinel_types__: T.ClassVar[
+        WeakValueDictionary[str, T.Self]
+    ] = WeakValueDictionary()
 
     def __class_getitem__(cls, name: str) -> types.GenericAlias:
         return types.GenericAlias(cls, (name.upper()))

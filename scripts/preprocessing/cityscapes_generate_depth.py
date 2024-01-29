@@ -32,14 +32,18 @@ The disparity maps are stored as 16-bit PNG files, where each pixel value is the
 multiplied by 256.
 """
 
+from __future__ import annotations
+
 import argparse
 import multiprocessing
 import re
+import typing as T
 from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
 import PIL
+import typing_extensions as TX
 from tqdm import tqdm
 
 
@@ -160,12 +164,18 @@ def main(dir_root: Path, dir_out: Path) -> None:
     # Process each image in parallel
     with multiprocessing.Pool() as pool:
         tasks = []
-        for file_id, path_disp in tqdm(files_disp.items(), desc="Matching disparity maps to calibration files"):
+        for file_id, path_disp in tqdm(
+            files_disp.items(), desc="Matching disparity maps to calibration files"
+        ):
             drive_id = file_id_to_drive_id(file_id)
             path_cam = files_cam[drive_id]
             path_out = dir_out / f"{file_id_to_string(file_id)}.png"
             tasks.append((path_disp, path_cam, path_out))
-        for _ in tqdm(pool.imap_unordered(process_image, tasks), total=len(tasks), desc="Processing images"):
+        for _ in tqdm(
+            pool.imap_unordered(process_image, tasks),
+            total=len(tasks),
+            desc="Processing images",
+        ):
             pass
 
     print("Done")

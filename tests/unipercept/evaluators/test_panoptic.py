@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+import typing as T
+
 import einops
 import pytest
 import torch
+import typing_extensions as TX
 from tensordict import TensorDict
 
 from unipercept.evaluators import PRED_PANOPTIC, TRUE_PANOPTIC, PanopticEvaluator
@@ -27,7 +32,9 @@ def true_panoptic(true_info):
 
     from unipercept.data.tensors import LabelsFormat, PanopticMap
 
-    panseg = PanopticMap.read("assets/sample-annotated/segmentation.png", true_info, format=LabelsFormat.KITTI)
+    panseg = PanopticMap.read(
+        "assets/sample-annotated/segmentation.png", true_info, format=LabelsFormat.KITTI
+    )
 
     panseg.unsqueeze_(1)
     panseg = interpolate(panseg.float(), scale_factor=0.25, mode="nearest-exact").long()
@@ -48,7 +55,9 @@ def test_panoptic_evaluator(true_panoptic: torch.Tensor, true_info):
 
     print(f"GT: {true_panoptic.unique().tolist()}")
 
-    pred_panoptic = torch.where(true_panoptic >= 0, true_panoptic, torch.randint(0, 10, true_panoptic.shape))
+    pred_panoptic = torch.where(
+        true_panoptic >= 0, true_panoptic, torch.randint(0, 10, true_panoptic.shape)
+    )
 
     storage = TensorDict(
         {
@@ -58,7 +67,9 @@ def test_panoptic_evaluator(true_panoptic: torch.Tensor, true_info):
                     pred_panoptic.unsqueeze(0),
                     PanopticMap.from_parts(
                         torch.randint(
-                            0, max(true_info.stuff_ids | true_info.thing_ids), (sample_amt - 1, sample_h, sample_w)
+                            0,
+                            max(true_info.stuff_ids | true_info.thing_ids),
+                            (sample_amt - 1, sample_h, sample_w),
                         ).long(),
                         torch.zeros((sample_amt - 1, sample_h, sample_w)).long(),
                     ),
@@ -70,7 +81,9 @@ def test_panoptic_evaluator(true_panoptic: torch.Tensor, true_info):
     storage[PRED_PANOPTIC]
     storage.memmap_()
 
-    evaluator = PanopticEvaluator.from_metadata("cityscapes", show_progress=True, show_summary=True, show_details=True)
+    evaluator = PanopticEvaluator.from_metadata(
+        "cityscapes", show_progress=True, show_summary=True, show_details=True
+    )
     metrics = evaluator.compute(storage, device="cpu")
 
     print(metrics)

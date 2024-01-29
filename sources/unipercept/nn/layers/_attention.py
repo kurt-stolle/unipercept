@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
+import typing as T
 from typing import Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import typing_extensions as TX
 from einops import parse_shape, rearrange
 from einops.layers.torch import EinMix
 from torch import Tensor
@@ -27,7 +29,9 @@ class SelfAttention2d(nn.Module):
             d_qk = d_in // 8
 
         if d_qk % n_heads != 0:
-            raise ValueError(f"Query/Key dimension {d_qk} must be divisible by number of heads {n_heads}.")
+            raise ValueError(
+                f"Query/Key dimension {d_qk} must be divisible by number of heads {n_heads}."
+            )
 
         self.n_heads = n_heads
         self.w_qk = EinMix(

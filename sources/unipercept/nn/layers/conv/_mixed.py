@@ -7,7 +7,10 @@ Paper: https://arxiv.org/abs/1907.09595
 
 from __future__ import annotations
 
+import typing as T
+
 import torch
+import typing_extensions as TX
 from torch import nn as nn
 from typing_extensions import override
 
@@ -24,7 +27,15 @@ class MixedConv2d(nn.ModuleDict):
     """Mixed group convolutional layer."""
 
     def __init__(
-        self, in_channels, out_channels, kernel_size=3, stride=1, padding="", dilation=1, depthwise=False, **kwargs
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=3,
+        stride=1,
+        padding="",
+        dilation=1,
+        depthwise=False,
+        **kwargs,
     ):
         super().__init__()
 
@@ -34,13 +45,22 @@ class MixedConv2d(nn.ModuleDict):
         out_splits = _split_channels(out_channels, num_groups)
         self.in_channels = sum(in_splits)
         self.out_channels = sum(out_splits)
-        for idx, (k, in_ch, out_ch) in enumerate(zip(kernel_size, in_splits, out_splits)):
+        for idx, (k, in_ch, out_ch) in enumerate(
+            zip(kernel_size, in_splits, out_splits)
+        ):
             conv_groups = in_ch if depthwise else 1
             # use add_module to keep key space clean
             self.add_module(
                 str(idx),
                 Conv2d(
-                    in_ch, out_ch, k, stride=stride, padding=padding, dilation=dilation, groups=conv_groups, **kwargs
+                    in_ch,
+                    out_ch,
+                    k,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    groups=conv_groups,
+                    **kwargs,
                 ),
             )
         self.splits = in_splits

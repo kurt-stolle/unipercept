@@ -3,11 +3,14 @@ Normalization layers. These are mostly wrappers around PyTorch's norm layers, en
 through the config system.
 """
 
+from __future__ import annotations
+
 import functools
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.utils.inspect import locate_object

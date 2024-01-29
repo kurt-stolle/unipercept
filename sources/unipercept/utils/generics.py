@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import functools
 import types
+import typing as T
 from typing import Final, Generic, TypeVar, cast
+
+import typing_extensions as TX
 
 from unipercept.utils.missing import MissingValue
 
@@ -29,7 +32,9 @@ def genericmeta(mcls: _T) -> _T:
             name, *args = args
 
         if all(not issubclass(b, Generic) or b is Generic for b in bases):
-            raise TypeError(f"Cannot use {cls.__name__!r} to create {name!r}, none of bases={bases!r} is {Generic!r}")
+            raise TypeError(
+                f"Cannot use {cls.__name__!r} to create {name!r}, none of bases={bases!r} is {Generic!r}"
+            )
 
         bases = types.resolve_bases(bases)
         return mcls_new(cls, name, bases, **kwds)  # type: ignore

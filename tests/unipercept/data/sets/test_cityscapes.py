@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import typing
+import typing as T
 from pathlib import Path
 
 import pytest
+import typing_extensions as TX
 from numpy.ma.core import get_data
 
 from unipercept import file_io, get_dataset
@@ -20,7 +24,9 @@ SAMPLE_IDS = [
 def cityscapes_mock(request, tmp_path_factory: pytest.TempPathFactory):
     root = tmp_path_factory.mktemp("cityscapes")
     split = "train"
-    ds = get_dataset(request.param)(queue_fn=collect.GroupAdjacentTime(1), split=split, root=root.as_posix())
+    ds = get_dataset(request.param)(
+        queue_fn=collect.GroupAdjacentTime(1), split=split, root=root.as_posix()
+    )
 
     root_images = Path(ds.path_image)
     root_images.mkdir(parents=True, exist_ok=True)
@@ -90,7 +96,9 @@ def test_cityscapes_static(split):
     ds_cls = get_dataset("cityscapes")
     assert ds_cls is CityscapesDataset, ds_cls
     if not file_io.isdir(ds_cls.root):
-        pytest.skip(f"Dataset {ds_cls.__name__} not installed @ {file_io.get_local_path(ds_cls.root)}")
+        pytest.skip(
+            f"Dataset {ds_cls.__name__} not installed @ {file_io.get_local_path(ds_cls.root)}"
+        )
     ds = ds_cls(split=split, queue_fn=collect.GroupAdjacentTime(1))
 
     assert len(ds.manifest) > 0
@@ -110,7 +118,9 @@ def test_cityscapes_vps(split, all, pair_size):
     ds_cls = get_dataset("cityscapes-vps")
     assert ds_cls is CityscapesVPSDataset, ds_cls
     if not file_io.isdir(ds_cls.root):
-        pytest.skip(f"Dataset {ds_cls.__name__} not installed @ {file_io.get_local_path(ds_cls.root)}")
+        pytest.skip(
+            f"Dataset {ds_cls.__name__} not installed @ {file_io.get_local_path(ds_cls.root)}"
+        )
     ds = ds_cls(split=split, queue_fn=collect.GroupAdjacentTime(pair_size), all=all)
 
     assert len(ds.manifest) > 0

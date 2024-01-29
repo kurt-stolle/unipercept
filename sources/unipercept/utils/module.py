@@ -3,11 +3,17 @@ Defines a lazy module factory that allows to create a module's __getattr__ and _
 name and exported module list.
 """
 
+from __future__ import annotations
+
 import importlib
 import typing as T
 
+import typing_extensions as TX
 
-def lazy_module_factory(name: str, modules: T.Iterable[str], /, extras: T.Optional[T.Iterable[str]] = None):
+
+def lazy_module_factory(
+    name: str, modules: T.Iterable[str], /, extras: T.Optional[T.Iterable[str]] = None
+):
     """
     Creates a __getattr__ and __dir__ function for a module that lazily imports its submodules.
 
@@ -25,7 +31,9 @@ def lazy_module_factory(name: str, modules: T.Iterable[str], /, extras: T.Option
         if mod in attr:
             return importlib.import_module(f"{name}.{mod}")
         else:
-            raise AttributeError(f"module {name!r} has no submodule {mod!r}, available are: {attr}")
+            raise AttributeError(
+                f"module {name!r} has no submodule {mod!r}, available are: {attr}"
+            )
 
     dir = list(modules)
     if extras is not None:

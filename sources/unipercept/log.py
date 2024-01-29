@@ -15,6 +15,7 @@ import typing as T
 from collections import Counter
 from typing import Optional
 
+import typing_extensions as TX
 from tabulate import tabulate
 from termcolor import colored
 from typing_extensions import override
@@ -39,7 +40,9 @@ LOG_LEVELS: T.Final[dict[str, int]] = {
 DEFAULT_LEVEL: T.Final[str] = os.getenv("UNI_LOG_LEVEL", "debug")
 
 
-def log_every_n(level: str, message: str, n: int = 1, *, name: str | None = None) -> None:
+def log_every_n(
+    level: str, message: str, n: int = 1, *, name: str | None = None
+) -> None:
     """
     Log once per n times.
 
@@ -55,7 +58,9 @@ def log_every_n(level: str, message: str, n: int = 1, *, name: str | None = None
         logging.getLogger(name or caller_module).log(_get_level(level), message)
 
 
-def log_every_n_seconds(level: str | int, message: str, n: int = 1, *, name: str | None = None):
+def log_every_n_seconds(
+    level: str | int, message: str, n: int = 1, *, name: str | None = None
+):
     """
     Log no more than once per n seconds.
 
@@ -73,7 +78,9 @@ def log_every_n_seconds(level: str | int, message: str, n: int = 1, *, name: str
         _log_timers[key] = current_time
 
 
-def create_table(mapping: T.Mapping[T.Any, T.Any], format: T.Literal["long", "wide"] = "wide") -> str:
+def create_table(
+    mapping: T.Mapping[T.Any, T.Any], format: T.Literal["long", "wide"] = "wide"
+) -> str:
     """
     Create a small table using the keys of small_dict as headers. This is only
     suitable for small dictionaries.
@@ -208,7 +215,9 @@ def _get_formatter(root_name: str, color: bool = True) -> logging.Formatter:
             root_name=root_name,
         )
     else:
-        formatter = logging.Formatter("[ %(asctime)s @ %(name)s ] (%(levelname)s) : %(message)s", datefmt=datefmt)
+        formatter = logging.Formatter(
+            "[ %(asctime)s @ %(name)s ] (%(levelname)s) : %(message)s", datefmt=datefmt
+        )
 
     return formatter
 
@@ -238,7 +247,9 @@ class _ColorfulFormatter(logging.Formatter):
     @override
     def formatMessage(self, record):
         date, time = record.asctime.split(" ")
-        record.asctime = colored(date, color="cyan") + " " + colored(time, color="light_cyan")
+        record.asctime = (
+            colored(date, color="cyan") + " " + colored(time, color="light_cyan")
+        )
 
         match record.levelno:
             case logging.DEBUG:

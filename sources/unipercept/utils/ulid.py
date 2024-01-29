@@ -5,16 +5,18 @@ Simple implementation of ULIDs.
 
 from __future__ import annotations
 
-import typing as T
-from unipercept.utils.typings import Buffer, Primitive, Datetime
+import abc
 import array
+import binascii
+import datetime
 import os
 import time
-import binascii
-import typing_extensions as TX
-import datetime
+import typing as T
 import uuid
-import abc
+
+import typing_extensions as TX
+
+from unipercept.utils.typings import Buffer, Datetime, Primitive
 
 __all__ = ["Timestamp", "Randomness", "ULID", "base32_encode", "base32_decode"]
 
@@ -247,7 +249,10 @@ class Timestamp(_MemView):
             timestamp = timestamp.timestamp().bytes
 
         if not isinstance(timestamp, (bytes, bytearray)):
-            msg = "Expected datetime, int, float, str, memoryview, Timestamp, ULID, " "bytes, or bytearray; got %s"
+            msg = (
+                "Expected datetime, int, float, str, memoryview, Timestamp, ULID, "
+                "bytes, or bytearray; got %s"
+            )
             raise ValueError(msg, type(timestamp).__name__)
 
         length = len(timestamp)
@@ -307,7 +312,9 @@ class Timestamp(_MemView):
         sec = milli // 1000.0
         timezone = datetime.timezone.utc
 
-        return datetime.datetime.utcfromtimestamp(sec).replace(microsecond=micro, tzinfo=timezone)
+        return datetime.datetime.utcfromtimestamp(sec).replace(
+            microsecond=micro, tzinfo=timezone
+        )
 
     @property
     @TX.override
@@ -395,8 +402,9 @@ class Randomness(_MemView):
             randomness = randomness.randomness().bytes
 
         if not isinstance(randomness, (bytes, bytearray)):
-            msg = "Expected int, float, str, memoryview, Randomness, ULID, " "bytes, or bytearray; got {}".format(
-                type(randomness).__name__
+            msg = (
+                "Expected int, float, str, memoryview, Randomness, ULID, "
+                "bytes, or bytearray; got {}".format(type(randomness).__name__)
             )
             raise ValueError(msg)
 
@@ -442,7 +450,11 @@ class ULID(_MemView):
         return cls.create(timestamp, randomness)
 
     @classmethod
-    def create(cls, timestamp: Timestamp | Primitive | Datetime | ULID, randomness: Randomness | Primitive) -> T.Self:
+    def create(
+        cls,
+        timestamp: Timestamp | Primitive | Datetime | ULID,
+        randomness: Randomness | Primitive,
+    ) -> T.Self:
         if not isinstance(timestamp, Timestamp):
             timestamp = Timestamp.create(timestamp)
         if not isinstance(randomness, Randomness):
@@ -901,19 +913,49 @@ def _base32_decode_ulid(value: str) -> bytes:
         (
             ((decoding[encoded[0]] << 5) | decoding[encoded[1]]) & 0xFF,
             ((decoding[encoded[2]] << 3) | (decoding[encoded[3]] >> 2)) & 0xFF,
-            ((decoding[encoded[3]] << 6) | (decoding[encoded[4]] << 1) | (decoding[encoded[5]] >> 4)) & 0xFF,
+            (
+                (decoding[encoded[3]] << 6)
+                | (decoding[encoded[4]] << 1)
+                | (decoding[encoded[5]] >> 4)
+            )
+            & 0xFF,
             ((decoding[encoded[5]] << 4) | (decoding[encoded[6]] >> 1)) & 0xFF,
-            ((decoding[encoded[6]] << 7) | (decoding[encoded[7]] << 2) | (decoding[encoded[8]] >> 3)) & 0xFF,
+            (
+                (decoding[encoded[6]] << 7)
+                | (decoding[encoded[7]] << 2)
+                | (decoding[encoded[8]] >> 3)
+            )
+            & 0xFF,
             ((decoding[encoded[8]] << 5) | (decoding[encoded[9]])) & 0xFF,
             ((decoding[encoded[10]] << 3) | (decoding[encoded[11]] >> 2)) & 0xFF,
-            ((decoding[encoded[11]] << 6) | (decoding[encoded[12]] << 1) | (decoding[encoded[13]] >> 4)) & 0xFF,
+            (
+                (decoding[encoded[11]] << 6)
+                | (decoding[encoded[12]] << 1)
+                | (decoding[encoded[13]] >> 4)
+            )
+            & 0xFF,
             ((decoding[encoded[13]] << 4) | (decoding[encoded[14]] >> 1)) & 0xFF,
-            ((decoding[encoded[14]] << 7) | (decoding[encoded[15]] << 2) | (decoding[encoded[16]] >> 3)) & 0xFF,
+            (
+                (decoding[encoded[14]] << 7)
+                | (decoding[encoded[15]] << 2)
+                | (decoding[encoded[16]] >> 3)
+            )
+            & 0xFF,
             ((decoding[encoded[16]] << 5) | (decoding[encoded[17]])) & 0xFF,
             ((decoding[encoded[18]] << 3) | (decoding[encoded[19]] >> 2)) & 0xFF,
-            ((decoding[encoded[19]] << 6) | (decoding[encoded[20]] << 1) | (decoding[encoded[21]] >> 4)) & 0xFF,
+            (
+                (decoding[encoded[19]] << 6)
+                | (decoding[encoded[20]] << 1)
+                | (decoding[encoded[21]] >> 4)
+            )
+            & 0xFF,
             ((decoding[encoded[21]] << 4) | (decoding[encoded[22]] >> 1)) & 0xFF,
-            ((decoding[encoded[22]] << 7) | (decoding[encoded[23]] << 2) | (decoding[encoded[24]] >> 3)) & 0xFF,
+            (
+                (decoding[encoded[22]] << 7)
+                | (decoding[encoded[23]] << 2)
+                | (decoding[encoded[24]] >> 3)
+            )
+            & 0xFF,
             ((decoding[encoded[24]] << 5) | (decoding[encoded[25]])) & 0xFF,
         )
     )
@@ -928,9 +970,19 @@ def _base32_decode_timestamp(timestamp: str) -> bytes:
         (
             ((decoding[encoded[0]] << 5) | decoding[encoded[1]]) & 0xFF,
             ((decoding[encoded[2]] << 3) | (decoding[encoded[3]] >> 2)) & 0xFF,
-            ((decoding[encoded[3]] << 6) | (decoding[encoded[4]] << 1) | (decoding[encoded[5]] >> 4)) & 0xFF,
+            (
+                (decoding[encoded[3]] << 6)
+                | (decoding[encoded[4]] << 1)
+                | (decoding[encoded[5]] >> 4)
+            )
+            & 0xFF,
             ((decoding[encoded[5]] << 4) | (decoding[encoded[6]] >> 1)) & 0xFF,
-            ((decoding[encoded[6]] << 7) | (decoding[encoded[7]] << 2) | (decoding[encoded[8]] >> 3)) & 0xFF,
+            (
+                (decoding[encoded[6]] << 7)
+                | (decoding[encoded[7]] << 2)
+                | (decoding[encoded[8]] >> 3)
+            )
+            & 0xFF,
             ((decoding[encoded[8]] << 5) | (decoding[encoded[9]])) & 0xFF,
         )
     )
@@ -944,14 +996,34 @@ def _base32_decode_randomness(randomness: str) -> bytes:
     return bytes(
         (
             ((decoding[encoded[0]] << 3) | (decoding[encoded[1]] >> 2)) & 0xFF,
-            ((decoding[encoded[1]] << 6) | (decoding[encoded[2]] << 1) | (decoding[encoded[3]] >> 4)) & 0xFF,
+            (
+                (decoding[encoded[1]] << 6)
+                | (decoding[encoded[2]] << 1)
+                | (decoding[encoded[3]] >> 4)
+            )
+            & 0xFF,
             ((decoding[encoded[3]] << 4) | (decoding[encoded[4]] >> 1)) & 0xFF,
-            ((decoding[encoded[4]] << 7) | (decoding[encoded[5]] << 2) | (decoding[encoded[6]] >> 3)) & 0xFF,
+            (
+                (decoding[encoded[4]] << 7)
+                | (decoding[encoded[5]] << 2)
+                | (decoding[encoded[6]] >> 3)
+            )
+            & 0xFF,
             ((decoding[encoded[6]] << 5) | (decoding[encoded[7]])) & 0xFF,
             ((decoding[encoded[8]] << 3) | (decoding[encoded[9]] >> 2)) & 0xFF,
-            ((decoding[encoded[9]] << 6) | (decoding[encoded[10]] << 1) | (decoding[encoded[11]] >> 4)) & 0xFF,
+            (
+                (decoding[encoded[9]] << 6)
+                | (decoding[encoded[10]] << 1)
+                | (decoding[encoded[11]] >> 4)
+            )
+            & 0xFF,
             ((decoding[encoded[11]] << 4) | (decoding[encoded[12]] >> 1)) & 0xFF,
-            ((decoding[encoded[12]] << 7) | (decoding[encoded[13]] << 2) | (decoding[encoded[14]] >> 3)) & 0xFF,
+            (
+                (decoding[encoded[12]] << 7)
+                | (decoding[encoded[13]] << 2)
+                | (decoding[encoded[14]] >> 3)
+            )
+            & 0xFF,
             ((decoding[encoded[14]] << 5) | (decoding[encoded[15]])) & 0xFF,
         )
     )
@@ -997,7 +1069,10 @@ def _base32_as_bytes(value: str, expected_length: int) -> bytes:
     if length in (10, 26):
         msb = decoding[encoded[0]]
         if msb > 7:
-            msg = "Timestamp value too large and will overflow 128-bits. " 'Must be between b"0" and b"7"'
+            msg = (
+                "Timestamp value too large and will overflow 128-bits. "
+                'Must be between b"0" and b"7"'
+            )
             raise ValueError(msg)
 
     return encoded

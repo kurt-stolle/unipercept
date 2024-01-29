@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Literal, Mapping, NamedTuple, Sequence
 
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept import file_io
@@ -55,7 +56,10 @@ class FileID:
 
         match = cls.pattern.search(path)
         assert match is not None
-        return cls(match.group("city"), match.group("drive"), match.group("frame")), path
+        return (
+            cls(match.group("city"), match.group("drive"), match.group("frame")),
+            path,
+        )
 
     def __lt__(self, other: FileID) -> bool:
         return D.astuple(self) < D.astuple(other)
@@ -130,8 +134,12 @@ class CameraCalibration:
 
 
 CAMERA = CameraCalibration(
-    extrinsic=CameraExtrinsic(baseline=0.222126, pitch=0.05, roll=0.0, x=1.7, y=-0.1, yaw=0.007, z=1.18),
-    intrinsic=CameraIntrinsic(fx=2268.36, fy=2225.5405988775956, u0=1048.64, v0=519.277),
+    extrinsic=CameraExtrinsic(
+        baseline=0.222126, pitch=0.05, roll=0.0, x=1.7, y=-0.1, yaw=0.007, z=1.18
+    ),
+    intrinsic=CameraIntrinsic(
+        fx=2268.36, fy=2225.5405988775956, u0=1048.64, v0=519.277
+    ),
     size=(1024, 2048),
 )
 
@@ -141,26 +149,143 @@ CAMERA = CameraCalibration(
 # ----------- #
 
 CLASSES: T.Final[T.Sequence[SClass]] = [
-    SClass(color=RGB(128, 64, 128), kind=SType.VOID, dataset_id=255, unified_id=-1, name="void"),
-    SClass(color=RGB(128, 64, 128), kind=SType.STUFF, dataset_id=7, unified_id=0, name="road"),
-    SClass(color=RGB(244, 35, 232), kind=SType.STUFF, dataset_id=8, unified_id=1, name="sidewalk"),
-    SClass(color=RGB(70, 70, 70), kind=SType.STUFF, dataset_id=11, unified_id=2, name="building"),
-    SClass(color=RGB(102, 102, 156), kind=SType.STUFF, dataset_id=12, unified_id=3, name="wall"),
-    SClass(color=RGB(190, 153, 153), kind=SType.STUFF, dataset_id=13, unified_id=4, name="fence"),
-    SClass(color=RGB(153, 153, 153), kind=SType.STUFF, dataset_id=17, unified_id=5, name="pole"),
-    SClass(color=RGB(250, 170, 30), kind=SType.STUFF, dataset_id=19, unified_id=6, name="traffic light"),
-    SClass(color=RGB(220, 220, 0), kind=SType.STUFF, dataset_id=20, unified_id=7, name="traffic sign"),
-    SClass(color=RGB(107, 142, 35), kind=SType.STUFF, dataset_id=21, unified_id=8, name="vegetation"),
-    SClass(color=RGB(152, 251, 152), kind=SType.STUFF, dataset_id=22, unified_id=9, name="terrain"),
-    SClass(color=RGB(70, 130, 180), kind=SType.STUFF, dataset_id=23, unified_id=10, name="sky", depth_fixed=0.0),
-    SClass(color=RGB(220, 20, 60), kind=SType.THING, dataset_id=24, unified_id=11, name="person"),
-    SClass(color=RGB(255, 0, 0), kind=SType.THING, dataset_id=25, unified_id=12, name="rider"),
-    SClass(color=RGB(0, 0, 142), kind=SType.THING, dataset_id=26, unified_id=13, name="car"),
-    SClass(color=RGB(0, 0, 70), kind=SType.THING, dataset_id=27, unified_id=14, name="truck"),
-    SClass(color=RGB(0, 60, 100), kind=SType.THING, dataset_id=28, unified_id=15, name="bus"),
-    SClass(color=RGB(0, 80, 100), kind=SType.THING, dataset_id=31, unified_id=16, name="train"),
-    SClass(color=RGB(0, 0, 230), kind=SType.THING, dataset_id=32, unified_id=17, name="motorcycle"),
-    SClass(color=RGB(119, 11, 32), kind=SType.THING, dataset_id=33, unified_id=18, name="bicycle"),
+    SClass(
+        color=RGB(128, 64, 128),
+        kind=SType.VOID,
+        dataset_id=255,
+        unified_id=-1,
+        name="void",
+    ),
+    SClass(
+        color=RGB(128, 64, 128),
+        kind=SType.STUFF,
+        dataset_id=7,
+        unified_id=0,
+        name="road",
+    ),
+    SClass(
+        color=RGB(244, 35, 232),
+        kind=SType.STUFF,
+        dataset_id=8,
+        unified_id=1,
+        name="sidewalk",
+    ),
+    SClass(
+        color=RGB(70, 70, 70),
+        kind=SType.STUFF,
+        dataset_id=11,
+        unified_id=2,
+        name="building",
+    ),
+    SClass(
+        color=RGB(102, 102, 156),
+        kind=SType.STUFF,
+        dataset_id=12,
+        unified_id=3,
+        name="wall",
+    ),
+    SClass(
+        color=RGB(190, 153, 153),
+        kind=SType.STUFF,
+        dataset_id=13,
+        unified_id=4,
+        name="fence",
+    ),
+    SClass(
+        color=RGB(153, 153, 153),
+        kind=SType.STUFF,
+        dataset_id=17,
+        unified_id=5,
+        name="pole",
+    ),
+    SClass(
+        color=RGB(250, 170, 30),
+        kind=SType.STUFF,
+        dataset_id=19,
+        unified_id=6,
+        name="traffic light",
+    ),
+    SClass(
+        color=RGB(220, 220, 0),
+        kind=SType.STUFF,
+        dataset_id=20,
+        unified_id=7,
+        name="traffic sign",
+    ),
+    SClass(
+        color=RGB(107, 142, 35),
+        kind=SType.STUFF,
+        dataset_id=21,
+        unified_id=8,
+        name="vegetation",
+    ),
+    SClass(
+        color=RGB(152, 251, 152),
+        kind=SType.STUFF,
+        dataset_id=22,
+        unified_id=9,
+        name="terrain",
+    ),
+    SClass(
+        color=RGB(70, 130, 180),
+        kind=SType.STUFF,
+        dataset_id=23,
+        unified_id=10,
+        name="sky",
+        depth_fixed=0.0,
+    ),
+    SClass(
+        color=RGB(220, 20, 60),
+        kind=SType.THING,
+        dataset_id=24,
+        unified_id=11,
+        name="person",
+    ),
+    SClass(
+        color=RGB(255, 0, 0),
+        kind=SType.THING,
+        dataset_id=25,
+        unified_id=12,
+        name="rider",
+    ),
+    SClass(
+        color=RGB(0, 0, 142), kind=SType.THING, dataset_id=26, unified_id=13, name="car"
+    ),
+    SClass(
+        color=RGB(0, 0, 70),
+        kind=SType.THING,
+        dataset_id=27,
+        unified_id=14,
+        name="truck",
+    ),
+    SClass(
+        color=RGB(0, 60, 100),
+        kind=SType.THING,
+        dataset_id=28,
+        unified_id=15,
+        name="bus",
+    ),
+    SClass(
+        color=RGB(0, 80, 100),
+        kind=SType.THING,
+        dataset_id=31,
+        unified_id=16,
+        name="train",
+    ),
+    SClass(
+        color=RGB(0, 0, 230),
+        kind=SType.THING,
+        dataset_id=32,
+        unified_id=17,
+        name="motorcycle",
+    ),
+    SClass(
+        color=RGB(119, 11, 32),
+        kind=SType.THING,
+        dataset_id=33,
+        unified_id=18,
+        name="bicycle",
+    ),
 ]
 
 
@@ -212,7 +337,10 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         sources_map: dict[FileID, up.data.types.CaptureSources] = {}
 
         # Create mapping of ID -> dt.CaptureSources
-        for id, file_path in map(FileID.attach_id, UniCoreFileLister(self.path_image, masks="*.png", recursive=True)):
+        for id, file_path in map(
+            FileID.attach_id,
+            UniCoreFileLister(self.path_image, masks="*.png", recursive=True),
+        ):
             partial_sources: up.data.types.CaptureSources = {
                 "image": {
                     "path": file_path,
@@ -225,9 +353,13 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
 
         sources_dict = {}
         if file_io.isdir(self.path_panoptic):
-            sources_dict["panoptic"] = UniCoreFileLister(self.path_panoptic, masks="*.png", recursive=True)
+            sources_dict["panoptic"] = UniCoreFileLister(
+                self.path_panoptic, masks="*.png", recursive=True
+            )
         if file_io.isdir(self.path_depth):
-            sources_dict["depth"] = UniCoreFileLister(self.path_depth, masks="*.png", recursive=True)
+            sources_dict["depth"] = UniCoreFileLister(
+                self.path_depth, masks="*.png", recursive=True
+            )
 
         for source_key, files in sources_dict.items():
             for id, file_path in map(FileID.attach_id, files):
@@ -237,7 +369,10 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
                         + ", ".join([str(k) for k in sources_map.keys()])
                     )
 
-                resource: up.data.types.FileResourceWithMeta = {"path": file_path, "meta": {}}
+                resource: up.data.types.FileResourceWithMeta = {
+                    "path": file_path,
+                    "meta": {},
+                }
                 match source_key:
                     case "panoptic":
                         resource["meta"] = self.meta_panoptic
@@ -259,7 +394,9 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         sequence_map: dict[str, list[FileID]] = {}
         seq_idx = 0
         for origin, ids in sorted(sequence_origins.items(), key=operator.itemgetter(0)):
-            assert len(ids) > 0, f"Encountered no IDs in sequence origin map @ '{origin}'"
+            assert (
+                len(ids) > 0
+            ), f"Encountered no IDs in sequence origin map @ '{origin}'"
 
             ids.sort(key=operator.attrgetter("frame"))
 
@@ -314,7 +451,11 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
             }
             sequences[seq_key] = seq_item
 
-        return {"timestamp": datetime.utcnow().isoformat(), "version": "1.0", "sequences": sequences}
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": "1.0",
+            "sequences": sequences,
+        }
 
 
 class CityscapesVPSDataset(CityscapesDataset, info=get_info, id="cityscapes-vps"):

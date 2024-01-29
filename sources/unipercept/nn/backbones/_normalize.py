@@ -2,10 +2,13 @@
 Implements a module that normalizes input captures.
 """
 
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = ["Normalizer"]
@@ -21,7 +24,9 @@ class Normalizer(nn.Module):
 
         self.register_buffer("mean", torch.tensor(mean).view(-1, 1, 1))
         self.register_buffer("std", torch.tensor(std).view(-1, 1, 1))
-        assert self.mean.shape == self.std.shape, f"{self.mean} and {self.std} have different shapes!"
+        assert (
+            self.mean.shape == self.std.shape
+        ), f"{self.mean} and {self.std} have different shapes!"
 
     def normalize(self, image: torch.Tensor) -> torch.Tensor:
         """

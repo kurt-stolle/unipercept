@@ -2,10 +2,13 @@
 Implements segmentation-to-depth and vice-versa losses.
 """
 
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from torch import nn
 from typing_extensions import override
 
@@ -40,7 +43,9 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         # assert seg_feat.shape[-2:] == dep_true.shape[-2:], f"{seg_feat.shape}, {dep_true.shape}"
 
         # Get patches
-        loss, mask = depth_guided_segmentation_loss(seg_feat, dep_true, self.eps, self.tau, self.patch_size)
+        loss, mask = depth_guided_segmentation_loss(
+            seg_feat, dep_true, self.eps, self.tau, self.patch_size
+        )
 
         # if not mask.any():
         #     return seg_feat.mean() * 0.0
@@ -63,7 +68,9 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     margin: T.Final[float]
     threshold: T.Final[int]
 
-    def __init__(self, *, patch_size: T.Tuple[int, int] = (5, 5), margin=0.33, **kwargs):
+    def __init__(
+        self, *, patch_size: T.Tuple[int, int] = (5, 5), margin=0.33, **kwargs
+    ):
         super().__init__(**kwargs)
 
         self.patch_width, self.patch_height = patch_size
@@ -73,7 +80,12 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     @override
     def forward(self, dep_feat: torch.Tensor, seg_true: torch.Tensor):
         loss, mask = segmentation_guided_triplet_loss(
-            dep_feat, seg_true, self.margin, self.threshold, self.patch_height, self.patch_width
+            dep_feat,
+            seg_true,
+            self.margin,
+            self.threshold,
+            self.patch_height,
+            self.patch_width,
         )
         loss = torch.masked_select(loss, mask)  # N x C x P'
 

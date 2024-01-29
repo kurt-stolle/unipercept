@@ -1,9 +1,16 @@
+from __future__ import annotations
+
+import typing as T
+
 import torch
+import typing_extensions as TX
 
 __all__ = ["masks_to_centers", "masks_to_boxes"]
 
 
-def masks_to_centers(masks: torch.Tensor, stride: int = 1, use_vmap: bool = False) -> torch.Tensor:
+def masks_to_centers(
+    masks: torch.Tensor, stride: int = 1, use_vmap: bool = False
+) -> torch.Tensor:
     """
     Converts a mask to a center point.
 
@@ -33,7 +40,9 @@ def masks_to_centers(masks: torch.Tensor, stride: int = 1, use_vmap: bool = Fals
         return torch.stack(cmap, dim=-1)
 
 
-def masks_to_boxes(masks: torch.Tensor, stride: int = 1, use_vmap: bool = False) -> torch.Tensor:
+def masks_to_boxes(
+    masks: torch.Tensor, stride: int = 1, use_vmap: bool = False
+) -> torch.Tensor:
     """
     Convert masks to bounding boxes.
 
@@ -73,7 +82,9 @@ def _get_index_axes_like(t: torch.Tensor, *, stride: int) -> torch.Tensor:
         h, w = t.shape[-2:]
         y = torch.arange(0, h * stride, stride, dtype=torch.float, device=t.device)
         x = torch.arange(0, w * stride, stride, dtype=torch.float, device=t.device)
-        g = torch.stack(torch.meshgrid(y, x, indexing="ij"), dim=-1) + stride // 2  # (H, W, 2)
+        g = (
+            torch.stack(torch.meshgrid(y, x, indexing="ij"), dim=-1) + stride // 2
+        )  # (H, W, 2)
     return g
 
 
@@ -86,7 +97,9 @@ def _get_mass_center(masks: torch.Tensor, index_axes: torch.Tensor) -> torch.Ten
     # return (m / m * ax).nanmean(dim=(-2, -1))
 
 
-def _get_bounding_box(index_axes: torch.Tensor, masks: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _get_bounding_box(
+    index_axes: torch.Tensor, masks: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     # Select the maximum index in the valid indices tensor
     max_coords = masks * index_axes[None, :, :]
     max_index = max_coords.amax(dim=(-1, -2))

@@ -5,6 +5,7 @@ from enum import StrEnum, auto
 
 import safetensors.torch as safetensors
 import torch
+import typing_extensions as TX
 from torchvision.tv_tensors import Mask as _Mask
 from typing_extensions import override
 
@@ -62,7 +63,9 @@ class PanopticMap(_Mask):
                 labels.translate_semantic_(translation=info["translations_dataset"])
             case LabelsFormat.TORCH:
                 assert info is not None
-                labels = torch.load(path, map_location=torch.device("cpu")).as_subclass(cls)
+                labels = torch.load(path, map_location=torch.device("cpu")).as_subclass(
+                    cls
+                )
                 assert labels is not None
                 assert isinstance(labels, (PanopticMap, torch.Tensor)), type(labels)
                 labels = labels.as_subclass(cls)
@@ -73,7 +76,11 @@ class PanopticMap(_Mask):
                 ignore_label = info["ignore_label"]
                 img = read_pixels(path, color=True)
 
-                map_ = img[:, :, 0] + BYTE_OFFSET * img[:, :, 1] + BYTE_OFFSET * BYTE_OFFSET * img[:, :, 2]
+                map_ = (
+                    img[:, :, 0]
+                    + BYTE_OFFSET * img[:, :, 1]
+                    + BYTE_OFFSET * BYTE_OFFSET * img[:, :, 2]
+                )
                 map_ = torch.where(map_ > 0, map_, ignore_label)
                 map_ = torch.where(map_ < divisor, map_ * divisor, map_ + 1)
 
@@ -117,8 +124,12 @@ class PanopticMap(_Mask):
 
                 if img.ndim == 3:
                     assert img.shape[2] == 3, f"Expected 3 channels, got {img.shape[2]}"
-                    assert torch.all(img[:, :, 0] == img[:, :, 1]), "Expected all channels to be equal"
-                    assert torch.all(img[:, :, 0] == img[:, :, 2]), "Expected all channels to be equal"
+                    assert torch.all(
+                        img[:, :, 0] == img[:, :, 1]
+                    ), "Expected all channels to be equal"
+                    assert torch.all(
+                        img[:, :, 0] == img[:, :, 2]
+                    ), "Expected all channels to be equal"
                     img = img[:, :, 0]
 
                 labels = cls.from_combined(img, divisor)
@@ -155,7 +166,9 @@ class PanopticMap(_Mask):
 
         assert labels.ndim == 2, f"Expected 2D tensor, got {labels.ndim}D tensor"
 
-        assert labels is not None, f"No labels were read from '{path}' (format: {panoptic_format})"
+        assert (
+            labels is not None
+        ), f"No labels were read from '{path}' (format: {panoptic_format})"
 
         if len(meta_kwds) > 0:
             raise TypeError(f"Unexpected keyword arguments: {tuple(meta_kwds.keys())}")
@@ -166,12 +179,18 @@ class PanopticMap(_Mask):
 
     @classmethod
     def default(cls, shape: torch.Size, device: torch.device | str = "cpu") -> T.Self:
-        return torch.full(shape, cls.IGNORE * cls.DIVISOR, dtype=torch.long, device=device).as_subclass(cls)
+        return torch.full(
+            shape, cls.IGNORE * cls.DIVISOR, dtype=torch.long, device=device
+        ).as_subclass(cls)
 
     @classmethod
     def default_like(cls, other: torch.Tensor) -> T.Self:
         """Returns a default instance of this class with the same shape as the given tensor."""
-        return cls(torch.full_like(other, fill_value=cls.IGNORE * cls.DIVISOR, dtype=torch.long))
+        return cls(
+            torch.full_like(
+                other, fill_value=cls.IGNORE * cls.DIVISOR, dtype=torch.long
+            )
+        )
 
     @classmethod
     @override
@@ -183,7 +202,9 @@ class PanopticMap(_Mask):
         return tensor.to(dtype=torch.long, non_blocking=True).as_subclass(cls)
 
     @classmethod
-    def from_parts(cls, semantic: torch.Tensor | T.Any, instance: torch.Tensor | T.Any) -> T.Self:
+    def from_parts(
+        cls, semantic: torch.Tensor | T.Any, instance: torch.Tensor | T.Any
+    ) -> T.Self:
         """
         Create an instance from a semantic segmentation and instance segmentation map by combining them
         using the global ``LABEL_DIVISOR``.
@@ -228,7 +249,9 @@ class PanopticMap(_Mask):
         """Return a list of masks, one for each semantic class."""
         sem_map = self.get_semantic_map()
         uq = torch.unique(sem_map)
-        yield from ((int(u), (sem_map == u).as_subclass(_Mask)) for u in uq if u != self.IGNORE)
+        yield from (
+            (int(u), (sem_map == u).as_subclass(_Mask)) for u in uq if u != self.IGNORE
+        )
 
     def get_semantic_mask(self, class_id: int) -> _Mask:
         """Return a mask for the specified semantic class."""

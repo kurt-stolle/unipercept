@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import typing as T
 from typing import Dict, List, Union
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from tensordict import TensorDict
 from torch import Tensor
 from typing_extensions import override
@@ -47,7 +49,9 @@ class DepthProjection(nn.Module):
         )
 
     @override
-    def forward(self, logits: Tensor, mean_depths: Tensor, cams: render.Cameras) -> Tensor:
+    def forward(
+        self, logits: Tensor, mean_depths: Tensor, cams: render.Cameras
+    ) -> Tensor:
         """ "
         Project the masks and mean depths to world coordinates.
 

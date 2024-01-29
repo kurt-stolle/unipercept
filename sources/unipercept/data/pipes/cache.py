@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import os
+import typing as T
 from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 
 import torch
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept import file_io
@@ -17,7 +21,9 @@ class LazyPickleCache(Generic[_K, _V]):
         self.path = path
 
     @staticmethod
-    def store(path: str | os.PathLike, items: Mapping[_K, _V] | Iterable[tuple[_K, _V]]) -> None:
+    def store(
+        path: str | os.PathLike, items: Mapping[_K, _V] | Iterable[tuple[_K, _V]]
+    ) -> None:
         if not (isinstance(items, Iterable) or isinstance(items, Mapping)):
             raise TypeError(f"{type(items)} is not a Mapping or Iterable")
 

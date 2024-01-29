@@ -8,6 +8,7 @@ import functools
 import os
 import typing as T
 
+import typing_extensions as TX
 from iopath.common.file_io import (
     HTTPURLHandler,
     OneDrivePathHandler,
@@ -79,13 +80,35 @@ for h in (
         "D2_DATASETS",
         default="./datasets",
     ),
-    EnvironPathHandler("//cache/", "UP_CACHE", "UNIPERCEPT_CACHE", "UNICORE_CACHE", default="~/.torch/unicore/cache"),
-    EnvironPathHandler("//output/", "UP_OUTPUT", "UNIPERCEPT_OUTPUT", "UNICORE_OUTPUT", default="./output"),
-    EnvironPathHandler("//configs/", "UP_CONFIGS", "UNIPERCEPT_CONFIGS", default="./configs"),
-    EnvironPathHandler("//scratch/", "UP_SCRATCH", "UNIPERCEPT_SCRATCH", "UNICORE_SCRATCH", default="./scratch"),
+    EnvironPathHandler(
+        "//cache/",
+        "UP_CACHE",
+        "UNIPERCEPT_CACHE",
+        "UNICORE_CACHE",
+        default="~/.torch/unicore/cache",
+    ),
+    EnvironPathHandler(
+        "//output/",
+        "UP_OUTPUT",
+        "UNIPERCEPT_OUTPUT",
+        "UNICORE_OUTPUT",
+        default="./output",
+    ),
+    EnvironPathHandler(
+        "//configs/", "UP_CONFIGS", "UNIPERCEPT_CONFIGS", default="./configs"
+    ),
+    EnvironPathHandler(
+        "//scratch/",
+        "UP_SCRATCH",
+        "UNIPERCEPT_SCRATCH",
+        "UNICORE_SCRATCH",
+        default="./scratch",
+    ),
 ):
     _manager.register_handler(h, allow_override=False)
-_exports: frozenset[str] = frozenset(fn_name for fn_name in dir(_manager) if not fn_name.startswith("_"))
+_exports: frozenset[str] = frozenset(
+    fn_name for fn_name in dir(_manager) if not fn_name.startswith("_")
+)
 
 ##############
 # Decorators #
@@ -155,10 +178,14 @@ def __dir__():
 
 if T.TYPE_CHECKING:
 
-    def opent(path: str, mode: str = "r", buffering: int = 32, **kwargs: T.Any) -> T.Iterable[T.Any]:
+    def opent(
+        path: str, mode: str = "r", buffering: int = 32, **kwargs: T.Any
+    ) -> T.Iterable[T.Any]:
         ...
 
-    def open(path: str, mode: str = "r", buffering: int = -1, **kwargs: T.Any) -> IO[str] | T.IO[bytes]:
+    def open(
+        path: str, mode: str = "r", buffering: int = -1, **kwargs: T.Any
+    ) -> IO[str] | T.IO[bytes]:
         ...
 
     def opena(
@@ -177,7 +204,9 @@ if T.TYPE_CHECKING:
     def async_close(**kwargs: T.Any) -> bool:
         ...
 
-    def copy(src_path: str, dst_path: str, overwrite: bool = False, **kwargs: T.Any) -> bool:
+    def copy(
+        src_path: str, dst_path: str, overwrite: bool = False, **kwargs: T.Any
+    ) -> bool:
         ...
 
     def mv(src_path: str, dst_path: str, **kwargs: T.Any) -> bool:
@@ -186,7 +215,9 @@ if T.TYPE_CHECKING:
     def get_local_path(path: str, force: bool = False, **kwargs: T.Any) -> str:
         ...
 
-    def copy_from_local(local_path: str, dst_path: str, overwrite: bool = False, **kwargs: T.Any) -> None:
+    def copy_from_local(
+        local_path: str, dst_path: str, overwrite: bool = False, **kwargs: T.Any
+    ) -> None:
         ...
 
     def exists(path: str, **kwargs: T.Any) -> bool:

@@ -6,6 +6,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from torch import Tensor
 from typing_extensions import override
 
@@ -42,7 +43,9 @@ class CoordCat2d(nn.Module):
 
 
 @torch.no_grad()
-def _make_grid(gamma: float, shape: torch.Size, device: torch.device) -> T.Tuple[torch.Tensor, torch.Tensor]:
+def _make_grid(
+    gamma: float, shape: torch.Size, device: torch.device
+) -> T.Tuple[torch.Tensor, torch.Tensor]:
     x_pos = torch.linspace(-gamma, gamma, shape[-2], device=device)
     y_pos = torch.linspace(-gamma, gamma, shape[-1], device=device)
 

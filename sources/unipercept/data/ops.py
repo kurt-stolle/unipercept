@@ -20,6 +20,7 @@ import torch.utils.data as torch_data
 import torchvision.ops
 import torchvision.transforms.v2 as tvt2
 import torchvision.transforms.v2.functional
+import typing_extensions as TX
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
 
@@ -69,7 +70,9 @@ class Op(torch.nn.Module, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def _run(self, inputs: InputData) -> InputData:
-        raise NotImplementedError(f"{self.__class__.__name__} is missing required implemention!")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} is missing required implemention!"
+        )
 
     if T.TYPE_CHECKING:
 
@@ -95,20 +98,27 @@ class CloneOp(Op):
 class TorchvisionOp(Op):
     """Wrap transforms from the torchvision library as an Op."""
 
-    def __init__(self, transforms: T.Sequence[tvt2.Transform] | tvt2.Transform, *, verbose=False) -> None:
+    def __init__(
+        self, transforms: T.Sequence[tvt2.Transform] | tvt2.Transform, *, verbose=False
+    ) -> None:
         super().__init__()
 
         self._verbose = verbose
 
         if isinstance(transforms, tvt2.Compose):
             self._transforms = transforms
-            warnings.warn("Expected transforms to be a sequence or transform, got a `Compose`!", stacklevel=2)
+            warnings.warn(
+                "Expected transforms to be a sequence or transform, got a `Compose`!",
+                stacklevel=2,
+            )
         elif isinstance(transforms, T.Sequence):
             self._transforms = tvt2.Compose(transforms)
         elif isinstance(transforms, tvt2.Transform):
             self._transforms = transforms
         else:
-            raise ValueError(f"Expected transforms to be a sequence or transform`, got {transforms}!")
+            raise ValueError(
+                f"Expected transforms to be a sequence or transform`, got {transforms}!"
+            )
 
     @override
     def _run(self, inputs: InputData) -> InputData:
@@ -174,13 +184,17 @@ class GuidedRandomCrop(Op):
     def _find_crop(self, panoptic: PanopticMap) -> tuple[int, int]:
         # TODO: what if only some conditions are met?
 
-        assert panoptic.ndim == 3, f"Expected a panoptic map with shape PHW, got {panoptic.shape}!"
+        assert (
+            panoptic.ndim == 3
+        ), f"Expected a panoptic map with shape PHW, got {panoptic.shape}!"
 
         # Only consider the first element in the sequence
         panoptic = panoptic[0, :, :].as_subclass(PanopticMap)
 
         # Compute step size
-        step = min(panoptic.shape[-1], panoptic.shape[-2]) // min(self._size[-1], self._size[-2])
+        step = min(panoptic.shape[-1], panoptic.shape[-2]) // min(
+            self._size[-1], self._size[-2]
+        )
         step *= self._step_factor
 
         # Height/width
@@ -193,12 +207,13 @@ class GuidedRandomCrop(Op):
 
         # Create random crops until the conditions are met or the maximum number of iterations is reached
         for top, left in zip(
-            random.choices(top_choices, k=self._max_iterations), random.choices(left_choices, k=self._max_iterations)
+            random.choices(top_choices, k=self._max_iterations),
+            random.choices(left_choices, k=self._max_iterations),
         ):
             # Randomly select a crop
-            crop = torchvision.transforms.v2.functional.crop_mask(panoptic, top, left, height, width).as_subclass(
-                PanopticMap
-            )
+            crop = torchvision.transforms.v2.functional.crop_mask(
+                panoptic, top, left, height, width
+            ).as_subclass(PanopticMap)
 
             crop_sem = crop.get_semantic_map()
             crop_ins = crop.get_instance_map()
@@ -229,7 +244,9 @@ class GuidedRandomCrop(Op):
             return top, left
         else:
             if self._verbose:
-                _logger.warning(f"Failed to find a valid crop after {self._max_iterations} iterations!")
+                _logger.warning(
+                    f"Failed to find a valid crop after {self._max_iterations} iterations!"
+                )
             return random.choice(top_choices), random.choice(left_choices)
 
         raise RuntimeError("Failed to find a valid crop!")
@@ -249,9 +266,13 @@ class GuidedRandomCrop(Op):
             if not type(x) in pixel_maps:
                 return x
             else:
-                return torchvision.transforms.v2.functional.crop(x, top, left, *self._size)
+                return torchvision.transforms.v2.functional.crop(
+                    x, top, left, *self._size
+                )
 
-        inputs.captures = inputs.captures.fix_subtypes_().apply(apply_crop, batch_size=inputs.captures.batch_size)
+        inputs.captures = inputs.captures.fix_subtypes_().apply(
+            apply_crop, batch_size=inputs.captures.batch_size
+        )
         return inputs
 
 
@@ -261,7 +282,15 @@ class GuidedRandomCrop(Op):
 
 
 class PseudoMotion(Op):
-    def __init__(self, frames: int, size: int | T.Sequence[int] = 512, scale=1.33, rotation=5, shear=1, p_reverse=0.5):
+    def __init__(
+        self,
+        frames: int,
+        size: int | T.Sequence[int] = 512,
+        scale=1.33,
+        rotation=5,
+        shear=1,
+        p_reverse=0.5,
+    ):
         super().__init__()
 
         if scale < 1:
@@ -352,11 +381,21 @@ class BoxesFromMasks(Op):
         if caps.segmentations is not None:
             boxes = []
             for cap in caps:
-                segs = torch.stack([m for _, m in cap.segmentations.as_subclass(PanopticMap).get_instance_masks()])
+                segs = torch.stack(
+                    [
+                        m
+                        for _, m in cap.segmentations.as_subclass(
+                            PanopticMap
+                        ).get_instance_masks()
+                    ]
+                )
                 boxes.append(torchvision.ops.masks_to_boxes(segs))
 
             h, w = inputs.captures.images.shape[-2:]
-            inputs.captures.boxes = [BoundingBoxes(b, format=BoundingBoxFormat.XYXY, canvas_size=(h, w)) for b in boxes]
+            inputs.captures.boxes = [
+                BoundingBoxes(b, format=BoundingBoxFormat.XYXY, canvas_size=(h, w))
+                for b in boxes
+            ]
 
         return inputs
 
@@ -447,7 +486,9 @@ class _TransformedMap(torch_data.Dataset["InputData"], T.Generic[_D]):
     def __getitem__(self, idx: int | str) -> tuple[InputData]:
         for _ in range(self._retry):
             inputs = self._set[idx]
-            assert len(inputs.batch_size) == 0, f"Expected a single batched data point, got {inputs.batch_size}!"
+            assert (
+                len(inputs.batch_size) == 0
+            ), f"Expected a single batched data point, got {inputs.batch_size}!"
             for fn in self._fns:
                 inputs = fn(inputs)
                 if inputs is None:
@@ -462,7 +503,9 @@ class _TransformedMap(torch_data.Dataset["InputData"], T.Generic[_D]):
         raise RuntimeError(f"Failed to apply transforms after {self._retry} retries!")
 
 
-def apply_dataset(dataset: _D, actions: T.Sequence[Op]) -> _TransformedMap[_D] | _TransformedIterable[_D]:
+def apply_dataset(
+    dataset: _D, actions: T.Sequence[Op]
+) -> _TransformedMap[_D] | _TransformedIterable[_D]:
     """Map a function over the elements in a dataset."""
     if isinstance(dataset, torch_data.IterableDataset):
         return _TransformedIterable(dataset, actions)

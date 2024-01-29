@@ -14,6 +14,7 @@ import einops
 import pandas as pd
 import torch
 import torch.types
+import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from tqdm import tqdm
@@ -62,14 +63,20 @@ class PanopticWriter(Evaluator):
         return cls(info=get_info(name), **kwargs)
 
     @override
-    def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
+    def update(
+        self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
+    ):
         """
         Stores the panoptic segmentation predictions and ground truths in storage for later evaluation.
         """
         super().update(storage, inputs, outputs)
 
         storage_keys = storage.keys(include_nested=True, leaves_only=True)
-        if TRUE_PANOPTIC in storage_keys and PRED_PANOPTIC in storage_keys and VALID_PANOPTIC in storage_keys:
+        if (
+            TRUE_PANOPTIC in storage_keys
+            and PRED_PANOPTIC in storage_keys
+            and VALID_PANOPTIC in storage_keys
+        ):
             return
 
         pred = outputs.get(self.pred_key)
@@ -84,7 +91,11 @@ class PanopticWriter(Evaluator):
 
         valid = (true != PanopticMap.IGNORE).any(dim=(-1)).any(dim=-1)
 
-        for key, item in ((TRUE_PANOPTIC, true), (PRED_PANOPTIC, pred), (VALID_PANOPTIC, valid)):
+        for key, item in (
+            (TRUE_PANOPTIC, true),
+            (PRED_PANOPTIC, pred),
+            (VALID_PANOPTIC, valid),
+        ):
             storage.set(key, item, inplace=True)
 
     @override
@@ -94,7 +105,10 @@ class PanopticWriter(Evaluator):
         from unipercept.render import draw_image_segmentation
 
         plot_keys = []
-        for key, mode_attr in ((TRUE_PANOPTIC, "plot_true"), (PRED_PANOPTIC, "plot_pred")):
+        for key, mode_attr in (
+            (TRUE_PANOPTIC, "plot_true"),
+            (PRED_PANOPTIC, "plot_pred"),
+        ):
             mode = getattr(self, mode_attr)
             if mode == PlotMode.NEVER:
                 continue
@@ -104,7 +118,9 @@ class PanopticWriter(Evaluator):
 
         for i in range(self.plot_samples):
             for key in plot_keys:
-                result[f"{key}_{i}"] = draw_image_segmentation(storage.get_at(key, i), self.info)
+                result[f"{key}_{i}"] = draw_image_segmentation(
+                    storage.get_at(key, i), self.info
+                )
         return result
 
 
@@ -144,9 +160,13 @@ class PanopticEvaluator(PanopticWriter):
         metrics = super().compute(storage, **kwargs)
 
         if self.pq_definition & PQDefinition.ORIGINAL:
-            metrics["original"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=True)
+            metrics["original"] = self.compute_pq(
+                storage, **kwargs, allow_stuff_instances=True
+            )
         if self.pq_definition & PQDefinition.BALANCED:
-            metrics["balanced"] = self.compute_pq(storage, **kwargs, allow_stuff_instances=False)
+            metrics["balanced"] = self.compute_pq(
+                storage, **kwargs, allow_stuff_instances=False
+            )
 
         if len(metrics) == 0:
             raise ValueError("No PQ definition selected.")
@@ -176,11 +196,15 @@ class PanopticEvaluator(PanopticWriter):
         # Loop over each sample independently: segments must not be matched across frames.
         sample_amt = storage.batch_size[0]
         # worker_amt = min(multiprocessing.cpu_count(), 16)
-        assert sample_amt > 0, f"Batch size must be greater than zero, got {sample_amt=}"
+        assert (
+            sample_amt > 0
+        ), f"Batch size must be greater than zero, got {sample_amt=}"
 
         n_iter = range(sample_amt)
         if self.show_progress:
-            n_iter = tqdm(n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt)
+            n_iter = tqdm(
+                n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt
+            )
 
         for n in n_iter:
             valid = storage.get_at(VALID_PANOPTIC, n).item()
@@ -207,7 +231,9 @@ class PanopticEvaluator(PanopticWriter):
                 pred,
                 true,
                 void_color=void_color,
-                background_ids=self.background_ids if not allow_stuff_instances else None,
+                background_ids=self.background_ids
+                if not allow_stuff_instances
+                else None,
                 num_categories=num_categories,
             )
 
@@ -236,10 +262,18 @@ class PanopticEvaluator(PanopticWriter):
 
         # Mask out categories that have only true negatives
         tn_mask: torch.Tensor = n_valid > 0
-        th_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.object_ids))
-        st_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.background_ids))
+        th_mask: torch.Tensor = H.isin(
+            torch.arange(num_categories, device=device), list(self.object_ids)
+        )
+        st_mask: torch.Tensor = H.isin(
+            torch.arange(num_categories, device=device), list(self.background_ids)
+        )
 
-        for name, mask in [("all", tn_mask), ("thing", tn_mask & th_mask), ("stuff", tn_mask & st_mask)]:
+        for name, mask in [
+            ("all", tn_mask),
+            ("thing", tn_mask & th_mask),
+            ("stuff", tn_mask & st_mask),
+        ]:
             n_masked = n_valid[mask].sum().item()
             summary[name] = {
                 "PQ": pq[mask].mean().item(),
@@ -253,7 +287,8 @@ class PanopticEvaluator(PanopticWriter):
         summary_df = self._tabulate(summary)
         if self.show_summary:
             self._show_table(
-                f"Panoptic evaluation summary ({allow_stuff_instances=}, {allow_unknown_category=})", summary_df
+                f"Panoptic evaluation summary ({allow_stuff_instances=}, {allow_unknown_category=})",
+                summary_df,
             )
 
         # Detailed -- per class
@@ -280,7 +315,8 @@ class PanopticEvaluator(PanopticWriter):
         details_df = self._tabulate(details)
         if self.show_details:
             self._show_table(
-                f"Panoptic evaluation details({allow_stuff_instances=}, {allow_unknown_category=})", details_df
+                f"Panoptic evaluation details({allow_stuff_instances=}, {allow_unknown_category=})",
+                details_df,
             )
 
         if self.report_details:
@@ -321,7 +357,11 @@ def _nested_tuple(nested_list: list) -> tuple:
         A nested tuple with the same content.
 
     """
-    return tuple(map(_nested_tuple, nested_list)) if isinstance(nested_list, list) else nested_list
+    return (
+        tuple(map(_nested_tuple, nested_list))
+        if isinstance(nested_list, list)
+        else nested_list
+    )
 
 
 def _to_tuple(t: torch.Tensor) -> tuple:
@@ -352,7 +392,9 @@ def _get_color_areas(inputs: torch.Tensor) -> dict[tuple, torch.Tensor]:
     return dict(zip(_to_tuple(unique_keys), unique_keys_area))
 
 
-def _get_void_color(things: T.FrozenSet[int], stuffs: T.FrozenSet[int]) -> tuple[int, int]:
+def _get_void_color(
+    things: T.FrozenSet[int], stuffs: T.FrozenSet[int]
+) -> tuple[int, int]:
     """Get an unused color ID.
 
     Args:
@@ -367,7 +409,9 @@ def _get_void_color(things: T.FrozenSet[int], stuffs: T.FrozenSet[int]) -> tuple
     return unused_category_id, 0
 
 
-def _get_category_id_to_continuous_id(things: T.FrozenSet[int], stuffs: T.FrozenSet[int]) -> dict[int, int]:
+def _get_category_id_to_continuous_id(
+    things: T.FrozenSet[int], stuffs: T.FrozenSet[int]
+) -> dict[int, int]:
     """Convert original IDs to continuous IDs.
 
     Args:
@@ -381,7 +425,9 @@ def _get_category_id_to_continuous_id(things: T.FrozenSet[int], stuffs: T.Frozen
     # things metrics are stored with a continuous id in [0, len(things)),
     thing_id_to_continuous_id = {thing_id: idx for idx, thing_id in enumerate(things)}
     # stuff metrics are stored with a continuous id in [len(things), len(things) + len(stuffs))
-    stuff_id_to_continuous_id = {stuff_id: idx + len(things) for idx, stuff_id in enumerate(stuffs)}
+    stuff_id_to_continuous_id = {
+        stuff_id: idx + len(things) for idx, stuff_id in enumerate(stuffs)
+    }
     cat_id_to_continuous_id = {}
     cat_id_to_continuous_id.update(thing_id_to_continuous_id)
     cat_id_to_continuous_id.update(stuff_id_to_continuous_id)
@@ -528,12 +574,17 @@ def _panoptic_quality_update_sample(
     # calculate the area of each prediction, ground truth and pairwise intersection.
     # NOTE: mypy needs `cast()` because the annotation for `_get_color_areas` is too generic.
     pred_areas = T.cast(dict[_ColorType, torch.Tensor], _get_color_areas(flatten_preds))
-    target_areas = T.cast(dict[_ColorType, torch.Tensor], _get_color_areas(flatten_target))
+    target_areas = T.cast(
+        dict[_ColorType, torch.Tensor], _get_color_areas(flatten_target)
+    )
     # intersection matrix of shape [num_pixels, 2, 2]
-    intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target), -1), -1, -2)
+    intersection_matrix = torch.transpose(
+        torch.stack((flatten_preds, flatten_target), -1), -1, -2
+    )
     assert intersection_matrix.shape == (flatten_preds.shape[0], 2, 2)
     intersection_areas = T.cast(
-        dict[tuple[_ColorType, _ColorType], torch.Tensor], _get_color_areas(intersection_matrix)
+        dict[tuple[_ColorType, _ColorType], torch.Tensor],
+        _get_color_areas(intersection_matrix),
     )
 
     # select intersection of things of same category with iou > 0.5
@@ -545,7 +596,14 @@ def _panoptic_quality_update_sample(
             continue
         if pred_color[0] != target_color[0]:
             continue
-        iou = _calculate_iou(pred_color, target_color, pred_areas, target_areas, intersection_areas, void_color)
+        iou = _calculate_iou(
+            pred_color,
+            target_color,
+            pred_areas,
+            target_areas,
+            intersection_areas,
+            void_color,
+        )
         sem_id = target_color[0]
         if target_color[0] not in background_ids and iou > 0.5:
             pred_segment_matched.add(pred_color)
@@ -555,11 +613,15 @@ def _panoptic_quality_update_sample(
         elif target_color[0] in background_ids and iou > 0:
             iou_sum[sem_id] += iou
 
-    for cat_id in _filter_false_negatives(target_areas, target_segment_matched, intersection_areas, void_color):
+    for cat_id in _filter_false_negatives(
+        target_areas, target_segment_matched, intersection_areas, void_color
+    ):
         if cat_id not in background_ids:
             false_negatives[cat_id] += 1
 
-    for cat_id in _filter_false_positives(pred_areas, pred_segment_matched, intersection_areas, void_color):
+    for cat_id in _filter_false_positives(
+        pred_areas, pred_segment_matched, intersection_areas, void_color
+    ):
         if cat_id not in background_ids:
             false_positives[cat_id] += 1
 
@@ -570,7 +632,15 @@ def _panoptic_quality_update_sample(
     return iou_sum, true_positives, false_positives, false_negatives
 
 
-def _compute_stq(element, num_classes=19, max_ins=10000, ign_id=255, num_things=8, label_divisor=1e4, ins_divisor=1e7):
+def _compute_stq(
+    element,
+    num_classes=19,
+    max_ins=10000,
+    ign_id=255,
+    num_things=8,
+    label_divisor=1e4,
+    ins_divisor=1e7,
+):
     import numpy as np
 
     y_pred, y_true = element
@@ -581,8 +651,12 @@ def _compute_stq(element, num_classes=19, max_ins=10000, ign_id=255, num_things=
     semantic_label = y_true // max_ins
     semantic_prediction = y_pred // max_ins
     semantic_label = np.where(semantic_label != ign_id, semantic_label, num_classes)
-    semantic_prediction = np.where(semantic_prediction != ign_id, semantic_prediction, num_classes)
-    semantic_ids = np.reshape(semantic_label, [-1]) * label_divisor + np.reshape(semantic_prediction, [-1])
+    semantic_prediction = np.where(
+        semantic_prediction != ign_id, semantic_prediction, num_classes
+    )
+    semantic_ids = np.reshape(semantic_label, [-1]) * label_divisor + np.reshape(
+        semantic_prediction, [-1]
+    )
 
     # instance eval
     instance_label = y_true % max_ins
@@ -597,5 +671,7 @@ def _compute_stq(element, num_classes=19, max_ins=10000, ign_id=255, num_things=
     seg_labels = y_true[label_mask]
 
     non_crowd_intersection = np.logical_and(label_mask, prediction_mask)
-    intersection_ids = y_true[non_crowd_intersection] * ins_divisor + y_pred[non_crowd_intersection]
+    intersection_ids = (
+        y_true[non_crowd_intersection] * ins_divisor + y_pred[non_crowd_intersection]
+    )
     return semantic_ids, seq_preds, seg_labels, intersection_ids

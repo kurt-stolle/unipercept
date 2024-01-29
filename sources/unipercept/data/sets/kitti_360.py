@@ -4,11 +4,14 @@ KITTI-360 dataset.
 Documentation: https://www.cvlibs.net/datasets/kitti-360/documentation.php
 """
 
+from __future__ import annotations
+
 import dataclasses as D
 import re
 import typing as T
 from pathlib import Path
 
+import typing_extensions as TX
 from tqdm import tqdm
 
 from unipercept import file_io
@@ -95,7 +98,12 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
 
         The file contains lines formatted as: ``{path_image} {path_semantic}``. We only read the image path.
         """
-        with open(self.root_path / "data_2d_semantics" / "train" / f"2013_05_28_drive_{self.split}_frames.txt") as f:
+        with open(
+            self.root_path
+            / "data_2d_semantics"
+            / "train"
+            / f"2013_05_28_drive_{self.split}_frames.txt"
+        ) as f:
             for line in f:
                 file_path = line.split(" ")[0]
                 yield FileID.from_path(file_path)
@@ -105,15 +113,30 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
         pseudo_gen = PseudoGenerator(depth_factor=80 / 10.0)
 
         # Create mapping of ID -> dt.CaptureSources
-        files_list = sorted(self._discover_files(), key=lambda id: (id.drive, id.camera, id.frame))
+        files_list = sorted(
+            self._discover_files(), key=lambda id: (id.drive, id.camera, id.frame)
+        )
         for id in tqdm(files_list, desc="Discovering and generating pseudolabels"):
             if id.kind != "data_rect":
                 continue
-            image_path = self.root_path / "data_2d_raw" / id.drive / id.camera / id.kind / f"{id.frame}{id.ext}"
+            image_path = (
+                self.root_path
+                / "data_2d_raw"
+                / id.drive
+                / id.camera
+                / id.kind
+                / f"{id.frame}{id.ext}"
+            )
             assert image_path.is_file(), f"File {image_path} does not exist"
 
             panseg_path = (
-                self.root_path / "data_2d_semantics" / "train" / id.drive / id.camera / "instance" / f"{id.frame}.png"
+                self.root_path
+                / "data_2d_semantics"
+                / "train"
+                / id.drive
+                / id.camera
+                / "instance"
+                / f"{id.frame}.png"
             )
 
             if not panseg_path.is_file():

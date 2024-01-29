@@ -6,6 +6,7 @@ import os
 import typing as T
 
 import torch
+import typing_extensions as TX
 from omegaconf import DictConfig
 
 import unipercept as up
@@ -20,22 +21,36 @@ _config_t: T.TypeAlias = DictConfig
 @command.with_config
 def train(p: argparse.ArgumentParser):
     # General arguments
-    p.add_argument("--headless", action="store_true", help="disable all interactive prompts")
+    p.add_argument(
+        "--headless", action="store_true", help="disable all interactive prompts"
+    )
     p.add_argument("--no-jit", action="store_true", help="disable JIT compilation")
-    p.add_argument("--stage", type=int, default=-1, help="stage number to start training from")
+    p.add_argument(
+        "--stage", type=int, default=-1, help="stage number to start training from"
+    )
     p.add_argument("--weights", "-w", type=str, help="path to load model weights from")
     p.add_argument(
         "--debug",
         action="store_true",
         help="optimizes the configuration for model debugging",
     )
-    p.add_argument("--resume", "-R", action="store_true", help="continue training from the last checkpoint")
+    p.add_argument(
+        "--resume",
+        "-R",
+        action="store_true",
+        help="continue training from the last checkpoint",
+    )
 
     # Mode (training/evaluation/...)
     p_mode = p.add_mutually_exclusive_group(required=False)
-    p_mode.add_argument("--training", "-T", action="store_true", help="run in training mode (default)")
     p_mode.add_argument(
-        "--evaluation", "-E", action="store_true", help="run in evaluation mode (no training, only evaluation)"
+        "--training", "-T", action="store_true", help="run in training mode (default)"
+    )
+    p_mode.add_argument(
+        "--evaluation",
+        "-E",
+        action="store_true",
+        help="run in evaluation mode (no training, only evaluation)",
     )
 
     return main
@@ -126,10 +141,15 @@ def main(args):
 
     if args.evaluation:
         results = engine.run_evaluation(model_factory, weights=args.weights)
-        _logger.info("Evaluation results: \n%s", up.log.create_table(results, format="long"))
+        _logger.info(
+            "Evaluation results: \n%s", up.log.create_table(results, format="long")
+        )
     else:
         engine.run_training(
-            model_factory, trial=None, stage=args.stage if args.stage >= 0 else None, weights=args.weights
+            model_factory,
+            trial=None,
+            stage=args.stage if args.stage >= 0 else None,
+            weights=args.weights,
         )
 
 

@@ -3,13 +3,17 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+from __future__ import annotations
+
 import importlib.metadata
 import importlib.resources
 import shutil
 import sys
+import typing as T
 from pathlib import Path
 
 import sphinx_rtd_theme
+import typing_extensions as TX
 
 sources_path = importlib.resources.files("unipercept")
 assert sources_path.is_dir()

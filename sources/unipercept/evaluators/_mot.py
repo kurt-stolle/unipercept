@@ -9,6 +9,7 @@ import typing as T
 
 import torch
 import torch.types
+import typing_extensions as TX
 from tensordict import TensorDict, TensorDictBase
 
 from ._base import Evaluator
@@ -26,8 +27,12 @@ class ObjectTrackingEvaluator(Evaluator):
     def from_info(cls, name: str) -> T.Self:
         return cls()
 
-    def update(self, storage: TensorDictBase, outputs: ModelOutput) -> TensorDict | None:
+    def update(
+        self, storage: TensorDictBase, outputs: ModelOutput
+    ) -> TensorDict | None:
         raise NotImplementedError
 
-    def compute(self, storage: TensorDictBase, *, device: torch.types.Device) -> dict[str, int | float | str | bool]:
+    def compute(
+        self, storage: TensorDictBase, *, device: torch.types.Device
+    ) -> dict[str, int | float | str | bool]:
         raise NotImplementedError

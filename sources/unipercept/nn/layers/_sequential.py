@@ -6,6 +6,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 
 
 class SequentialList(nn.Sequential):

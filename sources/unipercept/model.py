@@ -12,7 +12,6 @@ from dataclasses import field
 import torch
 import torch.nn as nn
 import typing_extensions as TX
-from sklearn import tree
 from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
 from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
 
@@ -38,7 +37,9 @@ class CaptureData(Tensorclass):
     segmentations: PanopticMap | None = field(
         default=None, metadata={"help": "Panoptic segmentation maps for the capture."}
     )
-    depths: DepthMap | None = field(default=None, metadata={"help": "Depth maps for the capture."})
+    depths: DepthMap | None = field(
+        default=None, metadata={"help": "Depth maps for the capture."}
+    )
     metadata: TensorDict | None = field(
         default=None,
         metadata={
@@ -65,8 +66,14 @@ class CaptureData(Tensorclass):
         """Subtypes are removed when converting to a tensor, so this method restores them."""
 
         self.images = self.images.as_subclass(Image)
-        self.segmentations = self.segmentations.as_subclass(PanopticMap) if self.segmentations is not None else None
-        self.depths = self.depths.as_subclass(DepthMap) if self.depths is not None else None
+        self.segmentations = (
+            self.segmentations.as_subclass(PanopticMap)
+            if self.segmentations is not None
+            else None
+        )
+        self.depths = (
+            self.depths.as_subclass(DepthMap) if self.depths is not None else None
+        )
         return self
 
     def items(self):
@@ -156,11 +163,13 @@ class MotionData(Tensorclass):
 
     def __post_init__(self):
         if self.optical_flow is not None and (
-            self.optical_flow.ndim != len(self.batch_size) + 3 or self.optical_flow.shape[-3] != 2
+            self.optical_flow.ndim != len(self.batch_size) + 3
+            or self.optical_flow.shape[-3] != 2
         ):
             raise ValueError("Optical flows must be of shape (..., 2, H, W)")
         if self.transform is not None and (
-            self.transform.ndim != len(self.batch_size) + 1 or self.transform.shape[-1] != 4
+            self.transform.ndim != len(self.batch_size) + 1
+            or self.transform.shape[-1] != 4
         ):
             raise ValueError("transform must be of shape (..., 4)")
 
@@ -237,7 +246,9 @@ class InputData(Tensorclass):
             The input data with only the extracted frame.
         """
         if index < 0 or index >= self.num_frames:
-            raise ValueError(f"Index must be between 0 and {self.num_frames}, got {index}")
+            raise ValueError(
+                f"Index must be between 0 and {self.num_frames}, got {index}"
+            )
 
         return self.__class__(
             ids=self.ids.clone(),
@@ -304,7 +315,11 @@ class ModelBase(nn.Module):
 
 
 class ModelFactory:
-    def __init__(self, model_config, checkpoint_path: file_io.Path | os.PathLike | str | None = None):
+    def __init__(
+        self,
+        model_config,
+        checkpoint_path: file_io.Path | os.PathLike | str | None = None,
+    ):
         self.model_config = model_config
         self.checkpoint_path = checkpoint_path
 
@@ -375,7 +390,9 @@ class ModelAdapter(nn.Module):
 
         super().__init__()
 
-        if isinstance(model, (nn.parallel.distributed.DistributedDataParallel, nn.DataParallel)):
+        if isinstance(
+            model, (nn.parallel.distributed.DistributedDataParallel, nn.DataParallel)
+        ):
             model = model.module
         self.model = model
         if not isinstance(inputs, tuple):
@@ -395,7 +412,10 @@ class ModelAdapter(nn.Module):
                 for input in inputs_flat:
                     if isinstance(input, torch.Tensor):
                         continue
-                    raise ValueError("Inputs for tracing must only contain tensors. " f"Got a {type(input)} instead.")
+                    raise ValueError(
+                        "Inputs for tracing must only contain tensors. "
+                        f"Got a {type(input)} instead."
+                    )
 
         self.flattened_inputs = tuple(inputs_flat)  # type: ignore
         self.inputs_schema = inputs_spec
@@ -417,19 +437,25 @@ class ModelAdapter(nn.Module):
             outputs = self.inference_func(self.model, *inputs_orig_format)
             flattened_outputs, schema = tree_flatten(outputs)
 
-            flattened_output_tensors = tuple([x for x in flattened_outputs if isinstance(x, torch.Tensor)])
+            flattened_output_tensors = tuple(
+                [x for x in flattened_outputs if isinstance(x, torch.Tensor)]
+            )
             if len(flattened_output_tensors) < len(flattened_outputs):
                 if self.allow_non_tensor:
                     flattened_outputs = flattened_output_tensors
                     self.outputs_schema = None
                 else:
-                    raise ValueError("Model cannot be traced because some model outputs " "cannot flatten to tensors.")
+                    raise ValueError(
+                        "Model cannot be traced because some model outputs "
+                        "cannot flatten to tensors."
+                    )
             else:
                 if self.outputs_schema is None:
                     self.outputs_schema = schema
                 else:
                     assert self.outputs_schema == schema, (
-                        "Model should always return outputs with the same " "structure so it can be traced!"
+                        "Model should always return outputs with the same "
+                        "structure so it can be traced!"
                     )
             return flattened_outputs
 

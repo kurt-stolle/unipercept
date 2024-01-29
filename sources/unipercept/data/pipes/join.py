@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+import typing as T
 from typing import Any, Callable, Generic, Iterable, Iterator, Sequence, TypeVar, cast
 
+import typing_extensions as TX
 from torchdata.datapipes import functional_datapipe
 from torchdata.datapipes.iter import IterDataPipe
 from typing_extensions import override

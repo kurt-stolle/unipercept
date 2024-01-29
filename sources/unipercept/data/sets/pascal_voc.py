@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Mapping
 
+import typing_extensions as TX
 from tqdm import tqdm
 from typing_extensions import override
 
@@ -101,15 +102,22 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
 
         _logger.debug(f"Setting up panoptic annotations at {root}")
 
-        dataset = VOCSegmentation(root, year=self.year, image_set=self.split, download=self.download)
+        dataset = VOCSegmentation(
+            root, year=self.year, image_set=self.split, download=self.download
+        )
         src_img: list[str] = dataset.images
         src_seg: list[str] = dataset.targets
         src_pan = [
-            t.replace("SegmentationClass", "SegmentationPanoptic").replace(dataset._TARGET_FILE_EXT, ".pth")
+            t.replace("SegmentationClass", "SegmentationPanoptic").replace(
+                dataset._TARGET_FILE_EXT, ".pth"
+            )
             for t in src_seg
         ]
         src_dep: list[str] = [
-            t.replace("SegmentationClass", "Depth").replace(dataset._TARGET_FILE_EXT, ".pth") for t in src_seg
+            t.replace("SegmentationClass", "Depth").replace(
+                dataset._TARGET_FILE_EXT, ".pth"
+            )
+            for t in src_seg
         ]
         del dataset
 
@@ -119,7 +127,9 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
             pan_path = file_io.Path(src_pan[i])
             if not pan_path.is_file():
                 seg_path = Path(src_seg[i])
-                ins_path = Path(src_seg[i].replace("SegmentationClass", "SegmentationObject"))
+                ins_path = Path(
+                    src_seg[i].replace("SegmentationClass", "SegmentationObject")
+                )
                 pseudo_gen.create_panoptic_source((seg_path, ins_path), pan_path)
 
             img_path = file_io.Path(src_img[i])
@@ -173,4 +183,8 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
             }
             sequences[i] = seq_item
 
-        return {"timestamp": datetime.utcnow().isoformat(), "version": f"{self.year}-panoptic", "sequences": sequences}
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": f"{self.year}-panoptic",
+            "sequences": sequences,
+        }

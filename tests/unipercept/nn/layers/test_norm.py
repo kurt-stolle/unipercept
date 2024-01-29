@@ -1,5 +1,10 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
 import torch
+import typing_extensions as TX
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -46,6 +51,8 @@ def test_global_response_norm(channels_last, batch_size, num_channels, input_sha
     w = torch.randn((num_channels))
     b = torch.randn((num_channels))
 
-    y = norm_module.global_response_norm(x, spatial_dim, channel_dim, w.view(*wb_shape), b.view(*wb_shape), EPS)
+    y = norm_module.global_response_norm(
+        x, spatial_dim, channel_dim, w.view(*wb_shape), b.view(*wb_shape), EPS
+    )
 
     assert y.shape == x.shape

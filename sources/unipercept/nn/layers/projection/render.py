@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import typing as T
 from typing import Optional
 
 import torch
+import typing_extensions as TX
 from torch import Tensor
 
 from unipercept.utils.tensorclass import Tensorclass
@@ -57,7 +59,9 @@ class Cameras(Tensorclass):
         return world_to_proj_transform.transform_points(points, eps=eps)
 
     def get_projection_transform(self) -> Transform3d:
-        transform = Transform3d(self.K.transpose(1, 2).contiguous(), tt=TransformType.DEFAULT)
+        transform = Transform3d(
+            self.K.transpose(1, 2).contiguous(), tt=TransformType.DEFAULT
+        )
         return transform
 
     def unproject_points(
@@ -112,7 +116,10 @@ def get_world_to_view_transform(R: Tensor, T: Tensor) -> Transform3d:
     # of shape (N, 4, 4).
 
     if T.shape[0] != R.shape[0]:
-        raise ValueError(f"Expected R, T to have the same batch dimension; got {R.shape[0]} " f", {T.shape[0]}")
+        raise ValueError(
+            f"Expected R, T to have the same batch dimension; got {R.shape[0]} "
+            f", {T.shape[0]}"
+        )
     if T.dim() != 2 or T.shape[1:] != (3,):
         raise ValueError(f"Expected T to have shape (N, 3); got {T.shape}")
     if R.dim() != 3 or R.shape[1:] != (3, 3):

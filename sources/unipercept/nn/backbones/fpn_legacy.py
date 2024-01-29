@@ -2,12 +2,15 @@
 
 # from __future__ import annotations
 
+from __future__ import annotations
+
 import enum
 import itertools
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from tensordict import TensorDictBase
 from torch.utils.checkpoint import checkpoint
 from typing_extensions import override
@@ -95,7 +98,9 @@ class _Resample(nn.Sequential):
         elif callable(pre_activation):
             pre_act_mod = pre_activation
         else:
-            raise ValueError(f"pre_activation must be bool or callable, got {pre_activation}")
+            raise ValueError(
+                f"pre_activation must be bool or callable, got {pre_activation}"
+            )
 
         if scale > 1 and downsample_mode == "conv":
             kernel_size = int(scale) + 1
@@ -135,10 +140,14 @@ class _Resample(nn.Sequential):
                 raise ValueError("downsample_mode must be specified when downsampling")
             if downsample_mode in ("max", "avg"):
                 down_cls = _ML.conv.utils.POOLING_LAYERS[downsample_mode]
-                down_mod = down_cls(kernel_size=int(scale) + 1, stride=int(scale), padding="same")
+                down_mod = down_cls(
+                    kernel_size=int(scale) + 1, stride=int(scale), padding="same"
+                )
             else:
                 assert isinstance(downsample_mode, str), type(downsample_mode)
-                down_mod = _ML.Interpolate2d(scale_factor=1 / scale, mode=downsample_mode)
+                down_mod = _ML.Interpolate2d(
+                    scale_factor=1 / scale, mode=downsample_mode
+                )
             self.add_module("downsample", down_mod)
         elif scale < 1:  # e.g. 2 / 1
             if upsample_mode is None:
@@ -201,7 +210,9 @@ class _Combine(nn.Module):
             )
 
         if self.weight_method in (WeightMethod.ATTENTION, WeightMethod.FAST_ATTENTION):
-            self.edge_weights = nn.Parameter(torch.ones(len(self)), requires_grad=True)  # WSM
+            self.edge_weights = nn.Parameter(
+                torch.ones(len(self)), requires_grad=True
+            )  # WSM
         else:
             self.edge_weights = None
 
@@ -228,7 +239,11 @@ class _Combine(nn.Module):
             edge_weights = nn.functional.relu(self.edge_weights.to(dtype=dtype))
             weights_sum = torch.sum(edge_weights)
             out = torch.stack(
-                [(nodes[i] * edge_weights[i]) / (weights_sum + 0.0001) for i in range(len(nodes))], dim=-1
+                [
+                    (nodes[i] * edge_weights[i]) / (weights_sum + 0.0001)
+                    for i in range(len(nodes))
+                ],
+                dim=-1,
             )
         elif self.weight_method == WeightMethod.SUM:
             out = torch.stack(nodes, dim=-1)
@@ -273,7 +288,10 @@ class FeaturePyramidNetworkLayer(nn.Module):
     ):
         super().__init__()
         self.num_levels = num_levels
-        info_list = list(info_list) + [BackboneFeatureInfo(out_channels, level_to_stride[fc["level"]]) for fc in nodes]
+        info_list = list(info_list) + [
+            BackboneFeatureInfo(out_channels, level_to_stride[fc["level"]])
+            for fc in nodes
+        ]
 
         self.fnode = nn.ModuleList()
         for i, c in enumerate(nodes):
@@ -348,7 +366,9 @@ class FeaturePyramidNetwork(nn.Module):
 
         num_levels = routing["num_levels"]
         if num_levels < len(in_features):
-            raise ValueError("number of input must be greater than or equal to the number of input features")
+            raise ValueError(
+                "number of input must be greater than or equal to the number of input features"
+            )
         if num_levels <= 0:
             raise ValueError("number of levels must be positive")
 
@@ -357,7 +377,9 @@ class FeaturePyramidNetwork(nn.Module):
         )
 
         # Add nodes to fill in missing levels
-        info_list: list[BackboneFeatureInfo] = [feature_info[key] for key in in_features]
+        info_list: list[BackboneFeatureInfo] = [
+            feature_info[key] for key in in_features
+        ]
         pre_activation = False
         self.resample = nn.ModuleDict()
         for level in range(num_levels):
@@ -386,12 +408,16 @@ class FeaturePyramidNetwork(nn.Module):
 
             pre_activation = True  # only the first resample has no pre-activation
 
-            info_list.append(BackboneFeatureInfo(channels=out_channels, stride=next_stride))
+            info_list.append(
+                BackboneFeatureInfo(channels=out_channels, stride=next_stride)
+            )
 
         # Add layers
         self.cell = _ML.SequentialList()
 
-        level_to_stride: dict[int, int] = {i: info_list[i].stride for i in range(len(info_list))}
+        level_to_stride: dict[int, int] = {
+            i: info_list[i].stride for i in range(len(info_list))
+        }
 
         for rep in range(num_hidden):
             _logger.debug(f"Building cell {rep}")
@@ -412,7 +438,9 @@ class FeaturePyramidNetwork(nn.Module):
 
         self.in_features = tuple(in_features)
 
-        self.feature_info = {f"fpn_{i+1}": info for i, info in enumerate(info_list[-num_levels::])}
+        self.feature_info = {
+            f"fpn_{i+1}": info for i, info in enumerate(info_list[-num_levels::])
+        }
 
     @override
     def forward(self, features: T.Dict[str, torch.Tensor]) -> T.Dict[str, torch.Tensor]:
@@ -496,7 +524,11 @@ def build_pan_routing(
     nodes = []
     for i in range(max_level, min_level - 1, -1):
         # top-down path.
-        offsets = [level_last_id(i), level_last_id(i + 1)] if i != max_level else [level_last_id(i)]
+        offsets = (
+            [level_last_id(i), level_last_id(i + 1)]
+            if i != max_level
+            else [level_last_id(i)]
+        )
         nodes.append(
             {
                 "level": i,
@@ -508,7 +540,11 @@ def build_pan_routing(
 
     for i in range(min_level, max_level + 1):
         # bottom-up path.
-        offsets = [level_last_id(i), level_last_id(i - 1)] if i != min_level else [level_last_id(i)]
+        offsets = (
+            [level_last_id(i), level_last_id(i - 1)]
+            if i != min_level
+            else [level_last_id(i)]
+        )
         nodes.append(
             {
                 "level": i,
@@ -588,7 +624,9 @@ def build_quad_routing(
                 "level": i,
                 "in_offsets": [
                     level_first_id(i),
-                    level_last_id(i - 1) if i != min_level + 1 else level_first_id(i - 1),
+                    level_last_id(i - 1)
+                    if i != min_level + 1
+                    else level_first_id(i - 1),
                 ],
                 "weight_method": weight_method,
             }
@@ -601,7 +639,9 @@ def build_quad_routing(
         nodes.append(
             {
                 "level": i,
-                "in_offsets": [node_ids[i][0]] + [node_ids[i][-1]] + [level_last_id(i + 1)],
+                "in_offsets": [node_ids[i][0]]
+                + [node_ids[i][-1]]
+                + [level_last_id(i + 1)],
                 "weight_method": weight_method,
             }
         )
@@ -621,7 +661,13 @@ def build_quad_routing(
     # each FPN repeat to be same as input from backbone, in order of increasing reductions
     for i in range(min_level, max_level + 1):
         # quad-add path.
-        nodes.append({"level": i, "in_offsets": [node_ids[i][2], node_ids[i][4]], "weight_method": quad_method})
+        nodes.append(
+            {
+                "level": i,
+                "in_offsets": [node_ids[i][2], node_ids[i][4]],
+                "weight_method": quad_method,
+            }
+        )
         node_ids[i].append(next(id_cnt))
 
     return {"nodes": nodes, "num_levels": num_levels}

@@ -6,6 +6,7 @@ import functools
 import typing as T
 
 import torch
+import typing_extensions as TX
 from PIL import Image as pil_image
 from torchvision.io import ImageReadMode
 from torchvision.transforms.v2.functional import to_dtype, to_image
@@ -16,7 +17,13 @@ from unipercept import file_io
 if T.TYPE_CHECKING:
     import unipercept as up
 
-__all__ = ["read_image", "ImageReadMode", "read_segmentation", "read_optical_flow", "read_depth_map"]
+__all__ = [
+    "read_image",
+    "ImageReadMode",
+    "read_segmentation",
+    "read_optical_flow",
+    "read_depth_map",
+]
 
 MAX_CACHE: T.Final = 1000
 

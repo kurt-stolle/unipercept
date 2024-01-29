@@ -1,8 +1,11 @@
 # from __future__ import annotations
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from torch import Tensor
 from torchvision.ops import sigmoid_focal_loss
 from typing_extensions import override
@@ -19,5 +22,9 @@ class SigmoidFocalLoss(nn.Module):
         self.gamma = gamma
 
     @override
-    def forward(self, x: Tensor, y: Tensor, mask: torch.Optional[torch.Tensor] = None) -> Tensor:
-        return sigmoid_focal_loss(x, y, alpha=self.alpha, gamma=self.gamma, reduction="none")
+    def forward(
+        self, x: Tensor, y: Tensor, mask: torch.Optional[torch.Tensor] = None
+    ) -> Tensor:
+        return sigmoid_focal_loss(
+            x, y, alpha=self.alpha, gamma=self.gamma, reduction="none"
+        )

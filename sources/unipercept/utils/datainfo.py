@@ -3,9 +3,11 @@ Various descriptors for dataset info (metadata about the dataset)
 """
 from __future__ import annotations
 
+import typing as T
 from types import resolve_bases
 from typing import Any, Callable, Final, Generic, Iterable, TypeAlias, TypeVar
 
+import typing_extensions as TX
 from typing_extensions import final, override
 
 __all__ = ["infomethod", "infoproperty", "discover_info"]

@@ -1,15 +1,22 @@
+from __future__ import annotations
+
+import functools as F
 import gzip
 import html
 import os
-import functools as F
-import ftfy
 import re
+import typing as T
+
+import ftfy
 import torch
+import typing_extensions as TX
 
 
 @F.lru_cache()
 def default_bpe():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bpe_simple_vocab_16e6.txt.gz")
+    return os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bpe_simple_vocab_16e6.txt.gz"
+    )
 
 
 @F.lru_cache()
@@ -22,7 +29,11 @@ def bytes_to_unicode():
     coverage. This is a significant percentage of your normal, say, 32K bpe vocab. To avoid that, we want lookup tables
     between utf-8 bytes and unicode strings. And avoids mapping to whitespace/control characters the bpe code barfs on.
     """
-    bs = list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
+    bs = (
+        list(range(ord("!"), ord("~") + 1))
+        + list(range(ord("¡"), ord("¬") + 1))
+        + list(range(ord("®"), ord("ÿ") + 1))
+    )
     cs = bs[:]
     n = 0
     for b in range(2**8):
@@ -74,7 +85,9 @@ class Tokenize:
 
         sot_token = self.tokenizer.encoder["<|startoftext|>"]
         eot_token = self.tokenizer.encoder["<|endoftext|>"]
-        all_tokens = [[sot_token] + self.tokenizer.encode(text) + [eot_token] for text in texts]
+        all_tokens = [
+            [sot_token] + self.tokenizer.encode(text) + [eot_token] for text in texts
+        ]
         result = torch.zeros(len(all_tokens), self.max_seq_len, dtype=torch.long)
 
         for i, tokens in enumerate(all_tokens):
@@ -83,7 +96,9 @@ class Tokenize:
                     tokens = tokens[: self.max_seq_len]
                     tokens[-1] = eot_token
                 else:
-                    raise RuntimeError(f"Input {texts[i]} is too long for context length {self.max_seq_len}")
+                    raise RuntimeError(
+                        f"Input {texts[i]} is too long for context length {self.max_seq_len}"
+                    )
             result[i, : len(tokens)] = torch.tensor(tokens)
 
         if expanded_dim:
@@ -109,7 +124,10 @@ class SimpleTokenizer:
         self.encoder = dict(zip(vocab, range(len(vocab))))
         self.decoder = {v: k for k, v in self.encoder.items()}
         self.bpe_ranks = dict(zip(merges, range(len(merges))))
-        self.cache = {"<|startoftext|>": "<|startoftext|>", "<|endoftext|>": "<|endoftext|>"}
+        self.cache = {
+            "<|startoftext|>": "<|startoftext|>",
+            "<|endoftext|>": "<|endoftext|>",
+        }
         self.pat = re.compile(
             r"""<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[\p{L}]+|[\p{N}]|[^\s\p{L}\p{N}]+""",
             re.IGNORECASE,
@@ -161,10 +179,16 @@ class SimpleTokenizer:
         text = whitespace_clean(basic_clean(text)).lower()
         for token in re.findall(self.pat, text):
             token = "".join(self.byte_encoder[b] for b in token.encode("utf-8"))
-            bpe_tokens.extend(self.encoder[bpe_token] for bpe_token in self.bpe(token).split(" "))
+            bpe_tokens.extend(
+                self.encoder[bpe_token] for bpe_token in self.bpe(token).split(" ")
+            )
         return bpe_tokens
 
     def decode(self, tokens):
         text = "".join([self.decoder[token] for token in tokens])
-        text = bytearray([self.byte_decoder[c] for c in text]).decode("utf-8", errors="replace").replace("</w>", " ")
+        text = (
+            bytearray([self.byte_decoder[c] for c in text])
+            .decode("utf-8", errors="replace")
+            .replace("</w>", " ")
+        )
         return text

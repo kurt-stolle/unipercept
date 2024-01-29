@@ -6,6 +6,8 @@ import inspect
 import typing as T
 from typing import Callable, Concatenate, Generic, Optional, ParamSpec, TypeAlias
 
+import typing_extensions as TX
+
 import unipercept
 import unipercept.log
 
@@ -72,7 +74,9 @@ class command(Generic[CommandParams]):
             description="Unified Perception CLI for configuration-based training, evaluation and research.",
             epilog="See `unipercept <command> -h` for more information on a specific command.",
         )
-        parser.add_argument("--version", action="version", version=f"%(prog)s {unipercept.__version__}")
+        parser.add_argument(
+            "--version", action="version", version=f"%(prog)s {unipercept.__version__}"
+        )
         parser_cmd = parser.add_subparsers(title="command", required=True)
 
         # Register commands
@@ -95,7 +99,9 @@ class command(Generic[CommandParams]):
         args.func(args)
 
 
-def prompt_confirm(message: str, condition: bool, default: bool = False) -> None | T.NoReturn:
+def prompt_confirm(
+    message: str, condition: bool, default: bool = False
+) -> None | T.NoReturn:
     """
     Prompt the user for confirmation when a potentially destructive action is
     about to be performed.

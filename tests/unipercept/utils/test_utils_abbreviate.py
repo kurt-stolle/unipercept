@@ -1,5 +1,10 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
 import torch.nn as nn
+import typing_extensions as TX
 
 from unipercept.utils.abbreviate import full_name, short_name
 

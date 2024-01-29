@@ -5,6 +5,8 @@ the provided decorator `@tensorclass`.
 This is useful when you want typing to work properly, and is more explicit.
 """
 
+from __future__ import annotations
+
 import dataclasses as D
 import types
 import typing as T
@@ -117,7 +119,11 @@ class Tensorclass(metaclass=_TensorclassMeta):
 
         # Tensorclass-specific methods
         @classmethod
-        def from_tensordict(cls, tensordict: TensorDictBase, non_tensordict: dict[str, T.Any] | None = None) -> T.Self:
+        def from_tensordict(
+            cls,
+            tensordict: TensorDictBase,
+            non_tensordict: dict[str, T.Any] | None = None,
+        ) -> T.Self:
             ...
 
         # Inherited methods
@@ -189,7 +195,13 @@ class Tensorclass(metaclass=_TensorclassMeta):
         def irecv(self) -> tuple[int, list[torch.Future]] | list[torch.Future] | None:
             ...
 
-        def reduce(self, dst, op=torch.distributed.ReduceOp.SUM, async_op=False, return_premature=False):
+        def reduce(
+            self,
+            dst,
+            op=torch.distributed.ReduceOp.SUM,
+            async_op=False,
+            return_premature=False,
+        ):
             ...
 
         def pop(self) -> _CompatibleType:
@@ -377,7 +389,9 @@ class Tensorclass(metaclass=_TensorclassMeta):
         def load_memmap(cls, prefix: str) -> T.Self:
             ...
 
-        def to(self, dest: torch.types.Device | torch.Size | type, **kwargs: T.Any) -> T.Self:
+        def to(
+            self, dest: torch.types.Device | torch.Size | type, **kwargs: T.Any
+        ) -> T.Self:
             ...
 
         def masked_fill_(self, mask: torch.Tensor, value: float | int | bool) -> T.Self:

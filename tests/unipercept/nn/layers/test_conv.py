@@ -1,13 +1,21 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from hypothesis import given
 from hypothesis import strategies as st
 
 from unipercept.nn.layers import conv
 
 
-@pytest.fixture(scope="module", params=[conv.Conv2d, conv.Standard2d, conv.Separable2d, conv.ModDeform2d])
+@pytest.fixture(
+    scope="module",
+    params=[conv.Conv2d, conv.Standard2d, conv.Separable2d, conv.ModDeform2d],
+)
 def conv_module(request) -> nn.Module:
     return request.param
 
@@ -23,13 +31,21 @@ def norm_module(request) -> nn.Module:
 
 
 num_channels = st.integers(min_value=1, max_value=6)
-input_shape = st.tuples(st.integers(min_value=6, max_value=16), st.integers(min_value=6, max_value=16))
+input_shape = st.tuples(
+    st.integers(min_value=6, max_value=16), st.integers(min_value=6, max_value=16)
+)
 kernel_size = st.sampled_from([3, 5])
 stride = st.integers(min_value=1, max_value=2)
 padding = st.one_of(st.integers(min_value=0, max_value=1), st.just("same"))
 
 
-@given(num_channels=num_channels, input_shape=input_shape, kernel_size=kernel_size, stride=stride, padding=padding)
+@given(
+    num_channels=num_channels,
+    input_shape=input_shape,
+    kernel_size=kernel_size,
+    stride=stride,
+    padding=padding,
+)
 def test_forward(
     conv_module,
     num_channels,
@@ -65,7 +81,9 @@ def test_forward(
     print(
         f"x     : mean {input_tensor.mean().item(): 4.3f}, std {input_tensor.std().item(): 4.3f} | {tuple(input_tensor.shape)}"
     )
-    print(f"y     : mean {y.mean().item(): 4.3f}, std {y.std().item(): 4.3f} | {tuple(y.shape)}")
+    print(
+        f"y     : mean {y.mean().item(): 4.3f}, std {y.std().item(): 4.3f} | {tuple(y.shape)}"
+    )
     print(
         f"dx/dy : mean {input_tensor.grad.mean().item(): 4.3f}, std {input_tensor.grad.std().item(): 4.3f} | {tuple(input_tensor.grad.shape)}"
     )

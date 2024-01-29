@@ -13,11 +13,18 @@ import timm.optim
 import timm.optim.optim_factory
 import torch.nn as nn
 import torch.optim
+import typing_extensions as TX
 
 from unipercept.log import get_logger
 from unipercept.state import get_process_count
 
-__all__ = ["create_optimizer", "OptimType", "OptimPackage", "OptimizerFactory", "ParameterHPs"]
+__all__ = [
+    "create_optimizer",
+    "OptimType",
+    "OptimPackage",
+    "OptimizerFactory",
+    "ParameterHPs",
+]
 
 _logger = get_logger(__name__)
 
@@ -103,7 +110,9 @@ class OptimizerFactory:
         See: ``create_optimizer``.
         """
         if isinstance(opt, str) or isinstance(opt, OptimType):
-            self._partial = functools.partial(create_optimizer, opt, pkg or OptimPackage.DEFAULT, *args, **kwargs)
+            self._partial = functools.partial(
+                create_optimizer, opt, pkg or OptimPackage.DEFAULT, *args, **kwargs
+            )
         elif isinstance(opt, type) and issubclass(opt, torch.optim.Optimizer):
             raise NotImplementedError("Cannot create optimizer from type")
         else:
@@ -128,7 +137,9 @@ def create_optimizer(
     weight_decay_bias: T.Optional[float] = None,
     lr_factor_fn: T.Optional[T.Callable] = None,
     param_overrides: T.Optional[dict[str, ParameterHPs]] = None,
-    param_fn: T.Optional[T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]] = None,
+    param_fn: T.Optional[
+        T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]
+    ] = None,
     **opt_args: T.Any,
 ) -> Optimizer:
     """
@@ -192,13 +203,21 @@ def create_optimizer(
     # Create the optimizer
     match pkg:
         case OptimPackage.DEFAULT:
-            optimizer = _create_default_optimizer(opt, parameters, momentum=momentum, **opt_args)
+            optimizer = _create_default_optimizer(
+                opt, parameters, momentum=momentum, **opt_args
+            )
         case OptimPackage.APEX:
-            optimizer = _create_apex_optimizer(opt, parameters, momentum=momentum, **opt_args)
+            optimizer = _create_apex_optimizer(
+                opt, parameters, momentum=momentum, **opt_args
+            )
         case OptimPackage.BNB:
-            optimizer = _create_bnb_optimizer(opt, False, parameters, momentum=momentum, **opt_args)
+            optimizer = _create_bnb_optimizer(
+                opt, False, parameters, momentum=momentum, **opt_args
+            )
         case OptimPackage.BNB_8BIT:
-            optimizer = _create_bnb_optimizer(opt, True, parameters, momentum=momentum, **opt_args)
+            optimizer = _create_bnb_optimizer(
+                opt, True, parameters, momentum=momentum, **opt_args
+            )
         case _:
             raise ValueError(f"Invalid optimizer package: {pkg}")
 
@@ -222,20 +241,28 @@ def _create_default_optimizer(
         case OptimType.SGD:
             assert momentum is not None
             opt_args.pop("eps", None)
-            optimizer = torch.optim.SGD(parameters, momentum=momentum, nesterov=True, **opt_args)
+            optimizer = torch.optim.SGD(
+                parameters, momentum=momentum, nesterov=True, **opt_args
+            )
         case OptimType.MOMENTUM:
             assert momentum is not None
             opt_args.pop("eps", None)
-            optimizer = torch.optim.SGD(parameters, momentum=momentum, nesterov=False, **opt_args)
+            optimizer = torch.optim.SGD(
+                parameters, momentum=momentum, nesterov=False, **opt_args
+            )
         case OptimType.SGDP:
             assert isinstance(momentum, int)
-            optimizer = timm.optim.SGDP(parameters, momentum=momentum, nesterov=True, **opt_args)
+            optimizer = timm.optim.SGDP(
+                parameters, momentum=momentum, nesterov=True, **opt_args
+            )
         case OptimType.ADAM:
             optimizer = torch.optim.Adam(parameters, **opt_args)
         case OptimType.ADAMW:
             optimizer = torch.optim.AdamW(parameters, **opt_args)
         case OptimType.ADAMP:
-            optimizer = timm.optim.AdamP(parameters, wd_ratio=0.01, nesterov=True, **opt_args)
+            optimizer = timm.optim.AdamP(
+                parameters, wd_ratio=0.01, nesterov=True, **opt_args
+            )
         case OptimType.NADAM:
             optimizer = timm.optim.Nadam(parameters, **opt_args)
         # case OptimType.NADAMW:
@@ -265,30 +292,46 @@ def _create_default_optimizer(
             optimizer = timm.optim.Lamb(parameters, trust_clip=True, **opt_args)
         case OptimType.LARC:
             assert isinstance(momentum, int)
-            optimizer = timm.optim.Lars(parameters, momentum=momentum, trust_clip=True, **opt_args)
+            optimizer = timm.optim.Lars(
+                parameters, momentum=momentum, trust_clip=True, **opt_args
+            )
         case OptimType.LARS:
             assert isinstance(momentum, int)
             optimizer = timm.optim.Lars(parameters, momentum=momentum, **opt_args)
         case OptimType.NLARC:
             assert isinstance(momentum, int)
-            optimizer = timm.optim.Lars(parameters, momentum=momentum, trust_clip=True, nesterov=True, **opt_args)
+            optimizer = timm.optim.Lars(
+                parameters,
+                momentum=momentum,
+                trust_clip=True,
+                nesterov=True,
+                **opt_args,
+            )
         case OptimType.NLARS:
             assert isinstance(momentum, int)
-            optimizer = timm.optim.Lars(parameters, momentum=momentum, nesterov=True, **opt_args)
+            optimizer = timm.optim.Lars(
+                parameters, momentum=momentum, nesterov=True, **opt_args
+            )
         case OptimType.MADGRAD:
             assert momentum is not None
             optimizer = timm.optim.MADGRAD(parameters, momentum=momentum, **opt_args)
         case OptimType.MADGRADW:
             assert momentum is not None
-            optimizer = timm.optim.MADGRAD(parameters, momentum=momentum, decoupled_decay=True, **opt_args)
+            optimizer = timm.optim.MADGRAD(
+                parameters, momentum=momentum, decoupled_decay=True, **opt_args
+            )
         case OptimType.NOVOGRAD:
             optimizer = timm.optim.NvNovoGrad(parameters, **opt_args)
         case OptimType.RMSPROP:
             assert momentum is not None
-            optimizer = torch.optim.RMSprop(parameters, alpha=0.9, momentum=momentum, **opt_args)
+            optimizer = torch.optim.RMSprop(
+                parameters, alpha=0.9, momentum=momentum, **opt_args
+            )
         case OptimType.RMSPROPTF:
             assert momentum is not None
-            optimizer = timm.optim.RMSpropTF(parameters, alpha=0.9, momentum=momentum, **opt_args)
+            optimizer = timm.optim.RMSpropTF(
+                parameters, alpha=0.9, momentum=momentum, **opt_args
+            )
         case OptimType.LION:
             opt_args.pop("eps", None)
             optimizer = timm.optim.Lion(parameters, **opt_args)
@@ -300,7 +343,9 @@ def _create_default_optimizer(
     return optimizer
 
 
-def _create_apex_optimizer(opt: OptimType, parameters: Params, /, momentum: float, **opt_args) -> torch.optim.Optimizer:
+def _create_apex_optimizer(
+    opt: OptimType, parameters: Params, /, momentum: float, **opt_args
+) -> torch.optim.Optimizer:
     """
     Create an optimizer using the Apex package.
 
@@ -339,7 +384,9 @@ def _create_apex_optimizer(opt: OptimType, parameters: Params, /, momentum: floa
     try:
         import apex.optimizers  # pyright: ignore[reportMissingImports]
     except ImportError:
-        raise RuntimeError("apex optimizers require the 'apex' package to be installed.")
+        raise RuntimeError(
+            "apex optimizers require the 'apex' package to be installed."
+        )
 
     if not torch.cuda.is_available():
         raise RuntimeError("apex optimizers require CUDA to be available.")
@@ -348,22 +395,32 @@ def _create_apex_optimizer(opt: OptimType, parameters: Params, /, momentum: floa
         case OptimType.SGD:
             assert momentum is not None
             opt_args.pop("eps", None)
-            optimizer = apex.optimizers.FusedSGD(parameters, momentum=momentum, nesterov=True, **opt_args)
+            optimizer = apex.optimizers.FusedSGD(
+                parameters, momentum=momentum, nesterov=True, **opt_args
+            )
         case OptimType.MOMENTUM:
             assert momentum is not None
             opt_args.pop("eps", None)
-            optimizer = apex.optimizers.FusedSGD(parameters, momentum=momentum, nesterov=False, **opt_args)
+            optimizer = apex.optimizers.FusedSGD(
+                parameters, momentum=momentum, nesterov=False, **opt_args
+            )
         case OptimType.ADAM:
-            optimizer = apex.optimizers.FusedAdam(parameters, adam_w_mode=False, **opt_args)
+            optimizer = apex.optimizers.FusedAdam(
+                parameters, adam_w_mode=False, **opt_args
+            )
         case OptimType.ADAMW:
-            optimizer = apex.optimizers.FusedAdam(parameters, adam_w_mode=True, **opt_args)
+            optimizer = apex.optimizers.FusedAdam(
+                parameters, adam_w_mode=True, **opt_args
+            )
         case OptimType.LAMB:
             optimizer = apex.optimizers.FusedLAMB(parameters, **opt_args)
         case OptimType.NOVOGRAD:
             opt_args.setdefault("betas", (0.95, 0.98))
             optimizer = apex.optimizers.FusedNovoGrad(parameters, **opt_args)
         case _:
-            raise NotImplementedError(f"Optimizer {opt} not supported in 'apex' package.")
+            raise NotImplementedError(
+                f"Optimizer {opt} not supported in 'apex' package."
+            )
     return optimizer
 
 
@@ -410,7 +467,9 @@ def _create_bnb_optimizer(
     try:
         import bitsandbytes as bnb  # pyright: ignore[reportMissingImports]
     except ImportError:
-        raise RuntimeError("bitsandbytes optimizers require the 'bitsandbytes' package to be installed.")
+        raise RuntimeError(
+            "bitsandbytes optimizers require the 'bitsandbytes' package to be installed."
+        )
 
     if not torch.cuda.is_available():
         raise RuntimeError("bitsandbytes optimizers require CUDA to be available.")
@@ -440,7 +499,9 @@ def _create_bnb_optimizer(
             cls = bnb.optim.Lion if not eight else bnb.optim.Lion8bit
             optimizer = cls(parameters, **opt_args)
         case _:
-            raise NotImplementedError(f"Optimizer {opt} not supported in 'bitsandbytes' package.")
+            raise NotImplementedError(
+                f"Optimizer {opt} not supported in 'bitsandbytes' package."
+            )
     return optimizer
 
 
@@ -453,7 +514,9 @@ def get_optimizer_params(
     weight_decay_bias: T.Optional[float] = None,
     lr_factor_fn: T.Optional[T.Callable] = None,
     param_overrides: T.Optional[dict[str, ParameterHPs]] = None,
-    param_fn: T.Optional[T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]] = None,
+    param_fn: T.Optional[
+        T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]
+    ] = None,
 ) -> list[ParameterDefinition]:
     from ..nn.layers import norm
 
@@ -503,7 +566,9 @@ def get_optimizer_params(
                 hyperparams["weight_decay"] = weight_decay_norm
 
             if callable(param_fn):
-                param_specifc_overrides = param_fn(module_name, module_param_name, hyperparams)
+                param_specifc_overrides = param_fn(
+                    module_name, module_param_name, hyperparams
+                )
                 if param_specifc_overrides is None:
                     value.requires_grad_(False)
                     _logger.debug(
@@ -524,16 +589,22 @@ def get_optimizer_params(
     return _simplify_groups(params)
 
 
-def _expand_param_groups(params: list[ParameterDefinition]) -> list[ParameterDefinition]:
+def _expand_param_groups(
+    params: list[ParameterDefinition],
+) -> list[ParameterDefinition]:
     # Transform parameter groups into per-parameter structure.
     # Later items in `params` can overwrite parameters set in previous items.
     ret = defaultdict(dict)
     for item in params:
         assert "params" in item
-        cur_params = {x: y for x, y in item.items() if x != "params" and x != "param_names"}
+        cur_params = {
+            x: y for x, y in item.items() if x != "params" and x != "param_names"
+        }
         if "param_names" in item:
             for param_name, param in zip(item["param_names"], item["params"]):
-                ret[param].update({"param_names": [param_name], "params": [param], **cur_params})
+                ret[param].update(
+                    {"param_names": [param_name], "params": [param], **cur_params}
+                )
         else:
             for param in item["params"]:
                 ret[param].update({"params": [param], **cur_params})
@@ -544,7 +615,9 @@ def _simplify_groups(params: list[ParameterDefinition]) -> list[ParameterDefinit
     params = _expand_param_groups(params)
     groups = defaultdict(list)  # re-group all parameter groups by their hyperparams
     for item in params:
-        cur_params = tuple((x, y) for x, y in item.items() if x != "params" and x != "param_names")
+        cur_params = tuple(
+            (x, y) for x, y in item.items() if x != "params" and x != "param_names"
+        )
         groups[cur_params].append({"params": item["params"]})
         if "param_names" in item:
             groups[cur_params][-1]["param_names"] = item["param_names"]
@@ -552,8 +625,14 @@ def _simplify_groups(params: list[ParameterDefinition]) -> list[ParameterDefinit
     ret = []
     for param_keys, param_values in groups.items():
         cur = {kv[0]: kv[1] for kv in param_keys}
-        cur["params"] = list(itertools.chain.from_iterable([params["params"] for params in param_values]))
+        cur["params"] = list(
+            itertools.chain.from_iterable([params["params"] for params in param_values])
+        )
         if len(param_values) > 0 and "param_names" in param_values[0]:
-            cur["param_names"] = list(itertools.chain.from_iterable([params["param_names"] for params in param_values]))
+            cur["param_names"] = list(
+                itertools.chain.from_iterable(
+                    [params["param_names"] for params in param_values]
+                )
+            )
         ret.append(cur)
     return ret

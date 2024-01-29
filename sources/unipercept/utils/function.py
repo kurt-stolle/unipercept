@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections.abc
 import inspect
+import typing as T
 from functools import partial, wraps
 from itertools import repeat
 from typing import (
@@ -22,6 +23,7 @@ from typing import (
 )
 
 import torch
+import typing_extensions as TX
 from torch._dynamo import allow_in_graph
 from typing_extensions import TypeVarTuple, Unpack
 
@@ -47,7 +49,16 @@ def multi_apply(
     func: Callable[_Ps, tuple[_R1, _R2, _R3, _R4, _R5, _R6, _R7, _R8]],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4], list[_R5], list[_R6], list[_R7], list[_R8]]:
+) -> tuple[
+    list[_R1],
+    list[_R2],
+    list[_R3],
+    list[_R4],
+    list[_R5],
+    list[_R6],
+    list[_R7],
+    list[_R8],
+]:
     ...
 
 
@@ -195,7 +206,9 @@ def to_ntuple(n: int) -> Callable[[_T | Iterable[_T]], tuple[_T, ...]]:
 
     def parse(x: _T | Iterable[_T]) -> tuple[_T, ...]:
         res: tuple[_T, ...]
-        if (isinstance(x, collections.abc.Iterable) or inspect.isgenerator(x)) and not isinstance(x, str):
+        if (
+            isinstance(x, collections.abc.Iterable) or inspect.isgenerator(x)
+        ) and not isinstance(x, str):
             res = tuple(v for v in x)[:n]
         else:
             res = tuple(repeat(x, n))  # type: ignore
@@ -225,7 +238,9 @@ def to_sequence(x: _T | Sequence[_T]) -> Sequence[_T]:
 _Td = TypeVar("_Td", float, torch.Tensor)
 
 
-def make_divisible(v: _Td, divisor: int = 8, min_value: int | None = None, round_limit: _Td = 0.9) -> _Td:
+def make_divisible(
+    v: _Td, divisor: int = 8, min_value: int | None = None, round_limit: _Td = 0.9
+) -> _Td:
     """Ensure that the input is divisible by `divisor`."""
     min_value = min_value or divisor
     new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)

@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+import typing as T
 from dataclasses import KW_ONLY
 
 import torch
+import typing_extensions as TX
 from torch import Tensor
 
 from unipercept.utils.tensorclass import Tensorclass

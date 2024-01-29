@@ -11,6 +11,7 @@ import torch.autograd
 import torch.autograd.profiler
 import torch.nn as nn
 import torch.utils.data
+import typing_extensions as TX
 from tqdm import tqdm
 
 from unipercept import create_dataset, create_engine, create_model, file_io
@@ -23,8 +24,16 @@ from unipercept.utils.time import get_timestamp
 @command(help="trian a model", description=__doc__)
 @command.with_config
 def profile(subparser: argparse.ArgumentParser):
-    subparser.add_argument("--loader", "-l", type=str, default="train", help="loader to use for profiling")
-    subparser.add_argument("--iterations", "-i", type=int, default=3, help="number of iterations to profile")
+    subparser.add_argument(
+        "--loader", "-l", type=str, default="train", help="loader to use for profiling"
+    )
+    subparser.add_argument(
+        "--iterations",
+        "-i",
+        type=int,
+        default=3,
+        help="number of iterations to profile",
+    )
     subparser.add_argument(
         "--sort-by",
         type=str,
@@ -53,7 +62,9 @@ def profile(subparser: argparse.ArgumentParser):
 
     mode = subparser.add_mutually_exclusive_group(required=False)
     mode.add_argument("--training", "-T", action="store_true", help="profile training")
-    mode.add_argument("--inference", "-I", default=True, action="store_true", help="profile inference")
+    mode.add_argument(
+        "--inference", "-I", default=True, action="store_true", help="profile inference"
+    )
 
     subparser.add_argument("path", nargs="*", type=str)
 
@@ -68,7 +79,9 @@ def _find_session_path(config: T.Any) -> file_io.Path:
     Find the path to the session file.
     """
     try:
-        path = file_io.Path(f"//output/{config.engine.params.project_name}/{config.engine.params.session_name}/profile")
+        path = file_io.Path(
+            f"//output/{config.engine.params.project_name}/{config.engine.params.session_name}/profile"
+        )
     except KeyError:
         path = file_io.Path(f"//output/uncategorized/{get_timestamp()}/profile")
         _logger.warning("No session file found in config, using default path")
@@ -91,7 +104,12 @@ def _analyse_flops(model: nn.Module, loader: torch.utils.data.DataLoader) -> Non
 
 
 def _analyse_memory(
-    model: nn.Module, loader: torch.utils.data.DataLoader, handler, *, iterations: int, path_export: file_io.Path
+    model: nn.Module,
+    loader: torch.utils.data.DataLoader,
+    handler,
+    *,
+    iterations: int,
+    path_export: file_io.Path,
 ) -> None:
     """ """
 
@@ -106,11 +124,19 @@ def _analyse_memory(
     path_snapshot = path_export / "cuda_snapshot.pkl"
     torch.cuda.memory._dump_snapshot(str(path_snapshot))
 
-    _logger.info("Upload the snapshot to https://pytorch.org/memory_viz using local path: %s", path_snapshot)
+    _logger.info(
+        "Upload the snapshot to https://pytorch.org/memory_viz using local path: %s",
+        path_snapshot,
+    )
 
 
 def _analyse_trace(
-    model: nn.Module, loader: torch.utils.data.DataLoader, handler, *, iterations: int, path_export: file_io.Path
+    model: nn.Module,
+    loader: torch.utils.data.DataLoader,
+    handler,
+    *,
+    iterations: int,
+    path_export: file_io.Path,
 ) -> None:
     _logger.info("Profiling model")
 
@@ -165,7 +191,9 @@ def main(args):
         model.eval()
         torch.inference_mode(False)
     else:
-        _logger.error("Unknown mode; provide either the `--training` or `--inference` flag")
+        _logger.error(
+            "Unknown mode; provide either the `--training` or `--inference` flag"
+        )
         exit(1)
 
     _logger.info("Preparing dataset")
@@ -177,9 +205,13 @@ def main(args):
     if args.flops:
         _analyse_flops(model, loader)
     if args.memory:
-        _analyse_memory(model, loader, handler, iterations=args.iterations, path_export=path_export)
+        _analyse_memory(
+            model, loader, handler, iterations=args.iterations, path_export=path_export
+        )
     if args.trace:
-        _analyse_trace(model, loader, handler, iterations=args.iterations, path_export=path_export)
+        _analyse_trace(
+            model, loader, handler, iterations=args.iterations, path_export=path_export
+        )
 
 
 if __name__ == "__main__":

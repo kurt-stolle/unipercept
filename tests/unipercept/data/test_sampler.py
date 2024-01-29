@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import math
+import typing as T
 
 import pytest
+import typing_extensions as TX
 
 from unipercept.data import InferenceSampler, TrainingSampler
 
@@ -23,11 +27,18 @@ def test_inference_sampler():
     assert s.sample_count == q // s.process_count
     assert len(s) == 2
 
-    expected_indices = [2, 3]  # i.e. 2 elements with an offset of 1 from [0, 1, 2, 3, 4, 5, 6, 7]
+    expected_indices = [
+        2,
+        3,
+    ]  # i.e. 2 elements with an offset of 1 from [0, 1, 2, 3, 4, 5, 6, 7]
     actual_indices = list(iter(s))
 
-    assert len(actual_indices) == len(expected_indices), f"{actual_indices=} != {expected_indices=}"
-    assert all(a == b for a, b in zip(actual_indices, expected_indices)), f"{actual_indices=} != {expected_indices=}"
+    assert len(actual_indices) == len(
+        expected_indices
+    ), f"{actual_indices=} != {expected_indices=}"
+    assert all(
+        a == b for a, b in zip(actual_indices, expected_indices)
+    ), f"{actual_indices=} != {expected_indices=}"
 
 
 def test_training_sampler():
@@ -36,7 +47,14 @@ def test_training_sampler():
     rep_r = 0
 
     sm_list = [
-        TrainingSampler(items, process_count=4, process_index=i, epoch=0, selected_round=rep_r, repeat_factor=rep_f)
+        TrainingSampler(
+            items,
+            process_count=4,
+            process_index=i,
+            epoch=0,
+            selected_round=rep_r,
+            repeat_factor=rep_f,
+        )
         for i in range(4)
     ]
     for sm_1 in sm_list:

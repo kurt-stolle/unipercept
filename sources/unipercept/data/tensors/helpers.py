@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import functools
+import typing as T
 from typing import (
     Any,
     Callable,
@@ -18,6 +19,7 @@ from typing import (
 )
 
 import torch
+import typing_extensions as TX
 
 __all__ = ["multi_read", "NoEntriesAction", "get_kwd", "read_pixels"]
 
@@ -30,7 +32,9 @@ def read_pixels(path: str, color: bool, alpha=False) -> torch.Tensor:
     if alpha:
         flags = cv2.IMREAD_UNCHANGED
     else:
-        flags = (cv2.IMREAD_COLOR if color else cv2.IMREAD_GRAYSCALE) | cv2.IMREAD_ANYDEPTH
+        flags = (
+            cv2.IMREAD_COLOR if color else cv2.IMREAD_GRAYSCALE
+        ) | cv2.IMREAD_ANYDEPTH
 
     image = cv2.imread(path, flags)
     if image is None:
@@ -49,7 +53,9 @@ def read_pixels(path: str, color: bool, alpha=False) -> torch.Tensor:
 _KeywordType = TypeVar("_KeywordType")
 
 
-def get_kwd(kwds_dict: dict[str, Any], name: str, cast_as: _KeywordType, /) -> _KeywordType:
+def get_kwd(
+    kwds_dict: dict[str, Any], name: str, cast_as: _KeywordType, /
+) -> _KeywordType:
     try:
         res = kwds_dict.pop(name)
     except KeyError as e:
@@ -85,7 +91,9 @@ def multi_read(
     key: Any,
     *,
     no_entries: Literal[NoEntriesAction.NONE] | Literal["none"] = NoEntriesAction.NONE,
-) -> Callable[Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn | None]:
+) -> Callable[
+    Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn | None
+]:
     ...
 
 
@@ -94,7 +102,9 @@ def multi_read(
     key: Any,
     *,
     no_entries: NoEntriesAction | str = NoEntriesAction.NONE,
-) -> Callable[Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn | None]:
+) -> Callable[
+    Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn | None
+]:
     """
     Call a reader function multiple times and stack the results into a single tensor of the
     same type as the first result.
@@ -148,7 +158,9 @@ def multi_read(
 
     @functools.wraps(reader)
     def wrapped(
-        sources: Sequence[Mapping[Any, Any]], *args: _ReadParams.args, **kwargs: _ReadParams.kwargs
+        sources: Sequence[Mapping[Any, Any]],
+        *args: _ReadParams.args,
+        **kwargs: _ReadParams.kwargs,
     ) -> _ReadReturn | None:
         if not isinstance(sources, Iterable):
             raise TypeError("The first argument must be an iterable of sources")
@@ -159,7 +171,9 @@ def multi_read(
         if not any(key in s for s in sources):
             match NoEntriesAction(no_entries):
                 case NoEntriesAction.ERROR:
-                    raise ValueError(f"At least one of sources must have the '{key}' key")
+                    raise ValueError(
+                        f"At least one of sources must have the '{key}' key"
+                    )
                 case NoEntriesAction.NONE:
                     return None
                 case _:
@@ -187,7 +201,9 @@ def multi_read(
         _apply_imputation_with_default(res_list)
 
         if not all(isinstance(r, type(res_list[0])) for r in res_list):
-            raise TypeError(f"All results must be of the same type, got: {[r for r in res_list]!r}")
+            raise TypeError(
+                f"All results must be of the same type, got: {[r for r in res_list]!r}"
+            )
 
         res_type = type(res_list[0])
         assert issubclass(res_type, torch.Tensor)

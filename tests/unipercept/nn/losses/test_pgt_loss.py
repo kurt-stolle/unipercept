@@ -1,5 +1,10 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
 import torch
+import typing_extensions as TX
 
 from unipercept.nn.losses import PGTLoss
 
@@ -24,7 +29,9 @@ def test_pgt_loss_zeros(pgt_loss):
     target = torch.zeros((16, 100, 100), dtype=torch.float32)
 
     loss = pgt_loss(output, target)
-    assert torch.isclose(loss, torch.tensor(0.0), atol=1e-7), f"Expected loss to be close to 0, got {loss.item()}"
+    assert torch.isclose(
+        loss, torch.tensor(0.0), atol=1e-7
+    ), f"Expected loss to be close to 0, got {loss.item()}"
 
 
 def test_pgt_loss_values(pgt_loss):
@@ -67,4 +74,6 @@ def test_pgt_loss_margin(pgt_loss):
     loss_high = pgt_loss_high_margin(output, target)
     loss = pgt_loss(output, target)
 
-    assert loss_high >= loss, f"Expected higher loss with greater margin, got {loss_high.item()} and {loss.item()}"
+    assert (
+        loss_high >= loss
+    ), f"Expected higher loss with greater margin, got {loss_high.item()} and {loss.item()}"

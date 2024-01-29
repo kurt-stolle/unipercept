@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import typing as T
 
+import typing_extensions as TX
 from typing_extensions import override
 
 import unipercept.data.types as data_types
 from unipercept.log import get_logger
 
-__all__ = ["GroupAdjacentTime", "ExtractIndividualFrames", "QueueGeneratorType", "KnownCaptureSources"]
+__all__ = [
+    "GroupAdjacentTime",
+    "ExtractIndividualFrames",
+    "QueueGeneratorType",
+    "KnownCaptureSources",
+]
 
 
 _logger = get_logger(__name__)
 
-QueueGeneratorType: T.TypeAlias = T.Generator[tuple[str, data_types.QueueItem], None, None]
+QueueGeneratorType: T.TypeAlias = T.Generator[
+    tuple[str, data_types.QueueItem], None, None
+]
 KnownCaptureSources: T.TypeAlias = T.Literal["image", "depth", "panoptic"]
 
 
@@ -45,13 +53,21 @@ class GroupAdjacentTime:
         if required_capture_sources is None:
             self._required_capture_sources = (frozenset({"image"}),) * num_frames
         elif all(isinstance(t, str) for t in required_capture_sources):
-            self._required_capture_sources = (frozenset(map(str, required_capture_sources)),) * num_frames
+            self._required_capture_sources = (
+                frozenset(map(str, required_capture_sources)),
+            ) * num_frames
         elif isinstance(required_capture_sources, T.Iterable):
-            self._required_capture_sources = tuple(map(frozenset, required_capture_sources))
+            self._required_capture_sources = tuple(
+                map(frozenset, required_capture_sources)
+            )
         elif len(required_capture_sources) != num_frames:
-            raise ValueError(f"Expected {num_frames} truth requirements, got {len(required_capture_sources)}!")
+            raise ValueError(
+                f"Expected {num_frames} truth requirements, got {len(required_capture_sources)}!"
+            )
         else:
-            raise TypeError(f"Expected a sequence of strings or a sequence of sequences of strings!")
+            raise TypeError(
+                f"Expected a sequence of strings or a sequence of sequences of strings!"
+            )
 
         self._num_frames = num_frames
         self._use_typecheck = use_typecheck
@@ -96,7 +112,8 @@ class GroupAdjacentTime:
 
                 # Check that all required capture sources are present
                 if not all(
-                    isinstance(caps[n], dict) and self._required_capture_sources[n].issubset(caps[n].keys())
+                    isinstance(caps[n], dict)
+                    and self._required_capture_sources[n].issubset(caps[n].keys())
                     for n in range(self._num_frames)
                 ):
                     if self._verbose:
@@ -131,5 +148,7 @@ class ExtractIndividualFrames(GroupAdjacentTime):
 
     def __init__(self, **kwargs):
         if "num_frames" in kwargs:
-            raise ValueError("num_frames is not a valid argument for ExtractIndividualImages!")
+            raise ValueError(
+                "num_frames is not a valid argument for ExtractIndividualImages!"
+            )
         super().__init__(num_frames=1, **kwargs)

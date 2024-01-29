@@ -3,6 +3,8 @@ Implements the DVPQ and DSTQ metrics.
 
 Code adapted from: https://github.com/joe-siyuan-qiao/ViP-DeepLab
 """
+from __future__ import annotations
+
 import dataclasses as D
 import itertools
 import typing as T
@@ -43,7 +45,9 @@ class DVPSWriter(PanopticWriter, DepthWriter):
     ids_key = "ids"
 
     @TX.override
-    def update(self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase):
+    def update(
+        self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
+    ):
         super().update(storage, inputs, outputs)
 
         storage_keys = storage.keys(include_nested=True, leaves_only=True)
@@ -51,7 +55,9 @@ class DVPSWriter(PanopticWriter, DepthWriter):
             return
 
         combined_id = inputs.get(self.ids_key)
-        assert combined_id.shape[-1] == 2, f"Expected {self.ids_key} to have shape (..., 2). Got {combined_id.shape}."
+        assert (
+            combined_id.shape[-1] == 2
+        ), f"Expected {self.ids_key} to have shape (..., 2). Got {combined_id.shape}."
 
         sequence_id = combined_id[..., 0]
         frame_id = combined_id[..., 1]
@@ -93,9 +99,14 @@ class DVPSEvaluator(DVPSWriter):
 
     @TX.override
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
-        return {}
+        return {
+            "dvpq": self.compute_dvpq(storage, **kwargs),
+            "dstq": self.compute_dstq(storage, **kwargs),
+        }
 
-    def compute_dvpq(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs) -> dict[str, T.Any]:
+    def compute_dvpq(
+        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
+    ) -> dict[str, T.Any]:
         indices_per_sequence: dict[int, list[int]] = {}
 
         # Group by sequence
@@ -108,17 +119,29 @@ class DVPSEvaluator(DVPSWriter):
 
         # Run for each window
         summaries = []
-        for window, threshold in itertools.product(self.dvpq_windows, self.dvpq_thresholds):
+        for window, threshold in itertools.product(
+            self.dvpq_windows, self.dvpq_thresholds
+        ):
             for indices in indices_per_sequence.values():
                 if self.pq_definition & PQDefinition.ORIGINAL:
                     sum = self._compute_dvpq_at(
-                        storage, indices, window, threshold, **kwargs, allow_stuff_instances=True
+                        storage,
+                        indices,
+                        window,
+                        threshold,
+                        **kwargs,
+                        allow_stuff_instances=True,
                     )
                     sum.Definition = "original"
                     summaries.append(sum)
                 if self.pq_definition & PQDefinition.BALANCED:
                     sum = self._compute_dvpq_at(
-                        storage, indices, window, threshold, **kwargs, allow_stuff_instances=False
+                        storage,
+                        indices,
+                        window,
+                        threshold,
+                        **kwargs,
+                        allow_stuff_instances=False,
                     )
                     sum.Definition = "balanced"
                     summaries.append(sum)
@@ -144,9 +167,15 @@ class DVPSEvaluator(DVPSWriter):
                     threshold_key = "t_" + str(threshold).replace(".", "_")
                     result[definition][window_key][threshold_key] = {}
                     for metric, df_m in df_t.groupby("Metric"):
-                        result[definition][window_key][threshold_key]["all"][metric] = df_m["All"].mean()
-                        result[definition][window_key][threshold_key]["thing"][metric] = df_m["Thing"].mean()
-                        result[definition][window_key][threshold_key]["stuff"][metric] = df_m["Stuff"].mean()
+                        result[definition][window_key][threshold_key]["all"][
+                            metric
+                        ] = df_m["All"].mean()
+                        result[definition][window_key][threshold_key]["thing"][
+                            metric
+                        ] = df_m["Thing"].mean()
+                        result[definition][window_key][threshold_key]["stuff"][
+                            metric
+                        ] = df_m["Stuff"].mean()
 
         for definition, df_d in df.groupby("Definition"):
             result[definition]["mean"] = {}
@@ -188,7 +217,9 @@ class DVPSEvaluator(DVPSWriter):
         sample_amt = len(indices)
         n_iter = range(sample_amt)
         if self.show_progress:
-            n_iter = tqdm(n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt)
+            n_iter = tqdm(
+                n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt
+            )
 
         for i in range(len(indices)):
             group = indices[i : i + window]
@@ -225,14 +256,20 @@ class DVPSEvaluator(DVPSWriter):
                 allow_unknown_category=allow_unknown_category,
             )
             true_seg = _preprocess_mask(
-                self.object_ids, self.background_ids, true_seg, void_color=void_color, allow_unknown_category=True
+                self.object_ids,
+                self.background_ids,
+                true_seg,
+                void_color=void_color,
+                allow_unknown_category=True,
             )
 
             result = _panoptic_quality_update_sample(
                 pred_seg,
                 true_seg,
                 void_color=void_color,
-                background_ids=self.background_ids if not allow_stuff_instances else None,
+                background_ids=self.background_ids
+                if not allow_stuff_instances
+                else None,
                 num_categories=num_categories,
             )
 
@@ -259,10 +296,18 @@ class DVPSEvaluator(DVPSWriter):
 
         # Mask out categories that have only true negatives
         tn_mask: torch.Tensor = n_valid > 0
-        th_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.object_ids))
-        st_mask: torch.Tensor = H.isin(torch.arange(num_categories, device=device), list(self.background_ids))
+        th_mask: torch.Tensor = H.isin(
+            torch.arange(num_categories, device=device), list(self.object_ids)
+        )
+        st_mask: torch.Tensor = H.isin(
+            torch.arange(num_categories, device=device), list(self.background_ids)
+        )
 
-        for name, mask in [("All", tn_mask), ("Thing", tn_mask & th_mask), ("Stuff", tn_mask & st_mask)]:
+        for name, mask in [
+            ("All", tn_mask),
+            ("Thing", tn_mask & th_mask),
+            ("Stuff", tn_mask & st_mask),
+        ]:
             n_masked = n_valid[mask].sum().item()
             summary[name] = {
                 "PQ": pq[mask].mean().item(),
@@ -279,7 +324,9 @@ class DVPSEvaluator(DVPSWriter):
 
         return summary_df
 
-    def compute_dstq(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs) -> dict[str, T.Any]:
+    def compute_dstq(
+        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
+    ) -> dict[str, T.Any]:
         return {}
 
     @TX.override

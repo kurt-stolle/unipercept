@@ -1,8 +1,72 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
+import typing_extensions as TX
+import os
+import typing as T
+from multiprocessing import RLock
+
+import pytest
+import typing_extensions as TX
+import wandb
+
+from unipercept import file_io
 
 from unipercept.utils.iopath_webdav import (
-    WebDAVPathHandler,  # Replace with your module's name
+    WebDAVPathHandler,
 )
+
+import os
+import typing as T
+from pathlib import Path
+
+import typing_extensions as TX
+
+from unipercept import file_io
+
+
+def test_file_io_environ():
+    path = file_io.get_local_path("//datasets/")
+    assert path == str(Path(os.environ.get("UNICORE_DATASETS", "datasets")).resolve())
+
+    path = file_io.get_local_path("//cache/")
+    assert path == str(Path(os.environ.get("UNICORE_CACHE", "cache")).resolve())
+
+    path = file_io.get_local_path("//output/")
+    assert path == str(Path(os.environ.get("UNICORE_OUTPUT", "output")).resolve())
+
+
+WANDB_LOCK = RLock()
+
+
+@pytest.fixture()
+def wandb_run(tmp_path):
+    os.environ["WANDB_MODE"] = "dryrun"
+    os.environ["WANDB_DIR"] = str(tmp_path)
+    os.environ["WANDB_API_KEY"] = "test"
+
+    with WANDB_LOCK:
+        if wandb.run is None:
+            wandb.init(project="test", entity="test")
+    yield wandb.run
+    # wandb.finish()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "wandb-artifact://test/artifact/name:version",
+        "wandb-artifact://test/artifact/name:version/",
+        "wandb-artifact://test/artifact/name:version/path/to/file",
+        "wandb-artifact:///test/artifact/name:version/path/to/file",
+    ],
+)
+def test_wandb_artifact(wandb_run, path):
+    with pytest.raises(FileNotFoundError):
+        file_io.get_local_path(path)
+
 
 # Assuming these are the settings for your WebDAV server
 WEBDAV_OPTIONS = {

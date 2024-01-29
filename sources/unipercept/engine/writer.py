@@ -69,7 +69,9 @@ class PersistentTensordictWriter(ResultsWriter):
         self._td: PersistentTensorDict | None = None
         self._td_cursor = 0
         self._td_factory = functools.partial(
-            PersistentTensorDict, batch_size=[len(self)], mode="w" if check_main_process() else "r"
+            PersistentTensorDict,
+            batch_size=[len(self)],
+            mode="w" if check_main_process() else "r",
         )
 
     def __del__(self):
@@ -108,7 +110,9 @@ class PersistentTensordictWriter(ResultsWriter):
     def _write(self):
         data = torch.cat(self._buffer_list, dim=0)  # type: ignore
 
-        assert data.batch_dims == 1, f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
+        assert (
+            data.batch_dims == 1
+        ), f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
 
         # Determine offsets in target storage
         off_l = self._td_cursor
@@ -146,7 +150,9 @@ class PersistentTensordictWriter(ResultsWriter):
             The data to add.
         """
 
-        assert data.batch_dims == 1, f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
+        assert (
+            data.batch_dims == 1
+        ), f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
 
         data = gather_tensordict(data)
         self._append(data)

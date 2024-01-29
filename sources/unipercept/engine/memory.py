@@ -12,6 +12,7 @@ import typing as T
 
 import psutil
 import torch
+import typing_extensions as TX
 
 __all__ = ["MemoryTracker"]
 
@@ -83,7 +84,9 @@ class MemoryTracker:
         self.cpu_mem_used_at_start = self.cpu_mem_used()
         self.peak_monitoring = True
         peak_monitor_event = threading.Event()
-        peak_monitor_thread = threading.Thread(target=self.peak_monitor_func, args=(peak_monitor_event,))
+        peak_monitor_thread = threading.Thread(
+            target=self.peak_monitor_func, args=(peak_monitor_event,)
+        )
         peak_monitor_thread.daemon = True
         peak_monitor_thread.start()
         peak_monitor_event.wait()

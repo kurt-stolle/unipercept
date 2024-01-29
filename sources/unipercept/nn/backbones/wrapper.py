@@ -8,13 +8,20 @@ import typing as T
 
 import torch
 import torchvision.transforms.v2 as tvt2
+import typing_extensions as TX
 from tensordict import TensorDict, TensorDictBase
 from typing_extensions import override
 
 from ._base import Backbone, BackboneFeatureInfo
 from ._normalize import Normalizer
 
-__all__ = ["WrapperBase", "DimensionOrder", "ORDER_CHW", "ORDER_HWC", "infer_feature_info"]
+__all__ = [
+    "WrapperBase",
+    "DimensionOrder",
+    "ORDER_CHW",
+    "ORDER_HWC",
+    "infer_feature_info",
+]
 
 
 class DimensionOrder(enum.Enum):
@@ -79,13 +86,17 @@ class WrapperBase(Backbone, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def forward_extract(self, images: torch.Tensor) -> TensorDictBase:
-        raise NotImplementedError(f"{self.__class__.__name__} is missing required implemention!")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} is missing required implemention!"
+        )
 
     def forward_permute(self, features: TensorDictBase) -> TensorDictBase:
         if self.dimension_order == DimensionOrder.CHW:
             return features
         if self.dimension_order == DimensionOrder.HWC:
-            return features.apply(hwc_to_chw, batch_size=features.batch_size, inplace=not self.training)
+            return features.apply(
+                hwc_to_chw, batch_size=features.batch_size, inplace=not self.training
+            )
         raise NotImplementedError(f"Cannot permute {self.dimension_order}")
 
 

@@ -24,6 +24,7 @@ import torch.nn as nn
 import torch.optim
 import torch.types
 import torch.utils.data
+import typing_extensions as TX
 import wandb
 from omegaconf import OmegaConf
 from PIL import Image as pil_image
@@ -124,7 +125,11 @@ class Engine:
 
         self._dataloaders: T.Final = loaders or {}
         self._stages = list(stages) if stages is not None else []
-        self._evaluators: T.Final = {k: list(v) for k, v in evaluators.items()} if evaluators is not None else {}
+        self._evaluators: T.Final = (
+            {k: list(v) for k, v in evaluators.items()}
+            if evaluators is not None
+            else {}
+        )
 
         self._default_setup()
         self._seed()
@@ -182,7 +187,9 @@ class Engine:
         Returns the local path to the root directory of this engine as a ``pathlib.Path`` class.
         """
         if self._root is None:
-            self._root = file_io.Path(f"//output/{self._params.project_name}/{str(self._session_id)}")
+            self._root = file_io.Path(
+                f"//output/{self._params.project_name}/{str(self._session_id)}"
+            )
             self.xlr  # Force initialization of Accelerator
         return self._root
 
@@ -196,7 +203,7 @@ class Engine:
     @property
     def config_path(self) -> file_io.Path:
         return self.session_dir / "config.yaml"
-    
+
     @property
     def config_name(self) -> str:
         return self.config.get("name", "unnamed")
@@ -239,7 +246,11 @@ class Engine:
         """
         return file_io.Path(self.xlr.project_dir)
 
-    def recover(self, model: nn.Module | None = None, checkpoint: str | file_io.Path | None = None) -> None:
+    def recover(
+        self,
+        model: nn.Module | None = None,
+        checkpoint: str | file_io.Path | None = None,
+    ) -> None:
         """
         Recover a model's state and the engine's state from the given checkpoint. The model is prepared in
         evaluation mode.
@@ -309,13 +320,19 @@ class Engine:
         _logger.info(f"*** Training stage {stage_num} ***")
 
         if not isinstance(stage, EngineStage):
-            raise TypeError(f"Expected stage to be of type EngineStage, got {type(stage)}")
+            raise TypeError(
+                f"Expected stage to be of type EngineStage, got {type(stage)}"
+            )
 
-        loader, steps_per_epoch, updates_per_epoch = self._build_training_dataloader(stage)
+        loader, steps_per_epoch, updates_per_epoch = self._build_training_dataloader(
+            stage
+        )
         model = model_factory(trial)
         scheduled_epochs = stage.get_epochs(steps_per_epoch)
         optimizer = stage.optimizer(model)
-        scheduler, train_epochs = stage.scheduler(optimizer, scheduled_epochs, updates_per_epoch)
+        scheduler, train_epochs = stage.scheduler(
+            optimizer, scheduled_epochs, updates_per_epoch
+        )
 
         _logger.info(f"Training for {train_epochs} total epochs.")
 
@@ -368,7 +385,11 @@ class Engine:
         metrics_overall = {}
 
         for loader_key, handlers in self._evaluators.items():
-            _logger.info("Running inference on loader '%s' for %d handlers", loader_key, len(handlers))
+            _logger.info(
+                "Running inference on loader '%s' for %d handlers",
+                loader_key,
+                len(handlers),
+            )
 
             prefix_suite = "/".join([prefix, loader_key])
 
@@ -401,7 +422,9 @@ class Engine:
 
         return metrics_overall
 
-    def _build_training_dataloader(self, stage: EngineStage) -> tuple[torch.utils.data.DataLoader, int, int]:
+    def _build_training_dataloader(
+        self, stage: EngineStage
+    ) -> tuple[torch.utils.data.DataLoader, int, int]:
         """
         Get the training loader for the given stage.
         """
@@ -417,11 +440,15 @@ class Engine:
         elif callable(stage.dataloader):
             loader = stage.dataloader(stage.batch_size // get_process_count())
         else:
-            raise TypeError(f"Expected dataloader to be a string or a callable, got {type(stage.dataloader)}")
+            raise TypeError(
+                f"Expected dataloader to be a string or a callable, got {type(stage.dataloader)}"
+            )
 
         # Infer the number of steps/updates per epoch
         steps_per_epoch = len(loader) // get_process_count()
-        updates_per_epoch = math.ceil(steps_per_epoch / self._state.gradient_accumulation)
+        updates_per_epoch = math.ceil(
+            steps_per_epoch / self._state.gradient_accumulation
+        )
 
         _logger.debug(
             (
@@ -513,9 +540,13 @@ class Engine:
 
         steps_per_epoch = len(loader)
         start_epoch = math.floor(self._state.epoch)
-        steps_trained_in_current_epoch = self.xlr.step  # int((self._state.epoch - start_epoch) * steps_per_epoch)
+        steps_trained_in_current_epoch = (
+            self.xlr.step
+        )  # int((self._state.epoch - start_epoch) * steps_per_epoch)
 
-        assert steps_trained_in_current_epoch == int((self._state.epoch - start_epoch) * steps_per_epoch), (
+        assert steps_trained_in_current_epoch == int(
+            (self._state.epoch - start_epoch) * steps_per_epoch
+        ), (
             f"Expected {steps_trained_in_current_epoch} to be equal to "
             f"int(({self._state.epoch} - {start_epoch}) * {steps_per_epoch})"
         )
@@ -541,9 +572,14 @@ class Engine:
 
             steps_skipped = 0
             if steps_trained_in_current_epoch > 0:
-                _logger.debug("Skipping the first %d steps in the current epoch", steps_trained_in_current_epoch)
+                _logger.debug(
+                    "Skipping the first %d steps in the current epoch",
+                    steps_trained_in_current_epoch,
+                )
 
-                epoch_iterator = self.xlr.skip_first_batches(epoch_iterator, steps_trained_in_current_epoch)
+                epoch_iterator = self.xlr.skip_first_batches(
+                    epoch_iterator, steps_trained_in_current_epoch
+                )
                 steps_skipped = steps_trained_in_current_epoch
                 steps_trained_in_current_epoch = 0
 
@@ -551,7 +587,9 @@ class Engine:
 
             # -- Epoch inner loop --------------------------------------------------------------------------------------
 
-            step = -1  # If the value of the iterator is still -1 after the loop, something went wrong
+            step = (
+                -1
+            )  # If the value of the iterator is still -1 after the loop, something went wrong
             for step, inputs in enumerate(epoch_iterator):
                 # assert isinstance(inputs, InputType), f"Expected InputType, got {type(inputs)}"
                 total_sesssion_samples += 1
@@ -585,9 +623,12 @@ class Engine:
                     assert tr_loss is not None
 
                 for k, tr_loss_value in tr_loss.items():
-                    tr_loss_step_value = tr_loss_step.get(k, torch.tensor(torch.nan, device=tr_loss_step.device))
+                    tr_loss_step_value = tr_loss_step.get(
+                        k, torch.tensor(torch.nan, device=tr_loss_step.device)
+                    )
                     if self._params.logging_nan_inf_filter and (
-                        torch.isnan(tr_loss_step_value) or torch.isinf(tr_loss_step_value)
+                        torch.isnan(tr_loss_step_value)
+                        or torch.isinf(tr_loss_step_value)
                     ):
                         tr_loss_value += tr_loss_value / (1 + self._state.step - self._globalstep_last_logged)  # type: ignore
                     else:
@@ -597,7 +638,8 @@ class Engine:
                 self._flops += float(_flops(model, inputs))
 
                 is_last_step_and_steps_less_than_grad_acc = (
-                    steps_in_epoch <= self._state.gradient_accumulation and (step + 1) == steps_in_epoch
+                    steps_in_epoch <= self._state.gradient_accumulation
+                    and (step + 1) == steps_in_epoch
                 )
 
                 if (
@@ -607,7 +649,10 @@ class Engine:
                     is_last_step_and_steps_less_than_grad_acc
                 ):
                     # Gradient clipping
-                    if self._params.max_grad_norm is not None and self._params.max_grad_norm > 0:
+                    if (
+                        self._params.max_grad_norm is not None
+                        and self._params.max_grad_norm > 0
+                    ):
                         if hasattr(optimizer, "clip_grad_norm"):
                             # Some optimizers (like the sharded optimizer) have a specific way to do gradient clipping
                             optimizer.clip_grad_norm(self._params.max_grad_norm)  # type: ignore
@@ -623,16 +668,22 @@ class Engine:
                     # Optimizer step
                     optimizer.step()
                     if not self.xlr.optimizer_step_was_skipped:
-                        scheduler.step_update(self._state.step, metric=None)  # TODO metric is not used
+                        scheduler.step_update(
+                            self._state.step, metric=None
+                        )  # TODO metric is not used
                     else:
                         _logger.debug("Step was skipped")
                     optimizer.zero_grad()
                     self._state.step += 1
-                    self._state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
+                    self._state.epoch = (
+                        epoch + (step + 1 + steps_skipped) / steps_in_epoch
+                    )
 
                     del inputs
 
-                    self._edge(Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer)
+                    self._edge(
+                        Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer
+                    )
                     self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
                 else:
                     self._edge(Event.ON_TRAIN_SUBSTEP_END)
@@ -640,7 +691,9 @@ class Engine:
                 total_session_steps += 1
 
                 if self._signal.should_epoch_stop or self._signal.should_training_stop:
-                    _logger.debug(f"Stopping epoch @ step {step} due to signal {self._signal}")
+                    _logger.debug(
+                        f"Stopping epoch @ step {step} due to signal {self._signal}"
+                    )
                     break
 
             # -- End of epoch ------------------------------------------------------------------------------------------
@@ -709,10 +762,14 @@ class Engine:
 
         return predictions
 
-    @status.assert_status(~(EngineStatus.IS_TRAINING_RUN | EngineStatus.IS_EVALUATION_RUN))
+    @status.assert_status(
+        ~(EngineStatus.IS_TRAINING_RUN | EngineStatus.IS_EVALUATION_RUN)
+    )
     @status(EngineStatus.IS_PREDICTION_RUN)
     @torch.no_grad()
-    def predict(self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred") -> TensorDict:
+    def predict(
+        self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred"
+    ) -> TensorDict:
         raise NotImplementedError("TODO: Implement prediction")
 
     @torch.inference_mode()
@@ -746,7 +803,9 @@ class Engine:
         batch_total = get_total_batchsize(dataloader, self.xlr.device)
         samples_total = batch_total * batch_size
 
-        _logger.debug(f"Expecting {samples_total} samples in total across {batch_total} batches")
+        _logger.debug(
+            f"Expecting {samples_total} samples in total across {batch_total} batches"
+        )
 
         # Prepare data loader
         dataloader = self.xlr.prepare_data_loader(dataloader)
@@ -760,7 +819,9 @@ class Engine:
             _logger.info(f"Preparing model for evaluation: {model.__class__.__name__}")
             model = self.xlr.prepare_model(model, evaluation_mode=True)
         else:
-            _logger.info(f"Model is already prepared for evaluation: {model.__class__.__name__}")
+            _logger.info(
+                f"Model is already prepared for evaluation: {model.__class__.__name__}"
+            )
 
         model = self.xlr.unwrap_model(model, keep_fp32_wrapper=False)
         model.eval()
@@ -790,7 +851,9 @@ class Engine:
 
             for inputs in dataloader:
                 samples_in_batch = inputs.batch_size[0]
-                assert samples_in_batch <= batch_size, f"Expected batch size {batch_size}, got {samples_in_batch}"
+                assert (
+                    samples_in_batch <= batch_size
+                ), f"Expected batch size {batch_size}, got {samples_in_batch}"
 
                 # Prediction step - i.e. run the model in inference mode
                 with profile(timings, "model"):
@@ -800,7 +863,13 @@ class Engine:
                 with profile(timings, "update"):
                     KEY_VALID = "valid"
                     results_merged = TensorDict(
-                        {KEY_VALID: torch.ones(samples_in_batch, dtype=torch.bool, device=self.xlr.device)},
+                        {
+                            KEY_VALID: torch.ones(
+                                samples_in_batch,
+                                dtype=torch.bool,
+                                device=self.xlr.device,
+                            )
+                        },
                         [samples_in_batch],
                         self.xlr.device,
                         names=["B"],
@@ -814,7 +883,12 @@ class Engine:
 
                     # write_index += samples_in_batch
                     samples_processed += samples_in_batch
-                self._edge(Event.ON_INFERENCE_STEP, loader=dataloader, inputs=inputs, outputs=outputs)
+                self._edge(
+                    Event.ON_INFERENCE_STEP,
+                    loader=dataloader,
+                    inputs=inputs,
+                    outputs=outputs,
+                )
 
             results_mem.write()
 
@@ -825,7 +899,12 @@ class Engine:
                 timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
             )
 
-            self._edge(Event.ON_INFERENCE_END, timings=timings, results=results_mem, results_path=results_path)
+            self._edge(
+                Event.ON_INFERENCE_END,
+                timings=timings,
+                results=results_mem,
+                results_path=results_path,
+            )
 
             # Wait for everyone to finish writing
             self.xlr.wait_for_everyone()
@@ -842,10 +921,16 @@ class Engine:
                         step_amount=math.ceil(samples_processed * get_process_count()),
                     )
                 )
-                assert results_mem is not None, "Expected results memory to be initialized"
+                assert (
+                    results_mem is not None
+                ), "Expected results memory to be initialized"
                 for evaluator in handlers or []:
                     _logger.debug(f"Running evaluation handler: {evaluator}")
-                    metrics.update(evaluator.compute(results_mem.tensordict, device=self.xlr.device))
+                    metrics.update(
+                        evaluator.compute(
+                            results_mem.tensordict, device=self.xlr.device
+                        )
+                    )
                     visuals.update(evaluator.plot(results_mem.tensordict))
 
                 # Store visualizations
@@ -886,7 +971,9 @@ class Engine:
         """
         Called internally on every event.
         """
-        self._signal = self._delegate(event, self._params, self._state, self._signal, **kwargs)
+        self._signal = self._delegate(
+            event, self._params, self._state, self._signal, **kwargs
+        )
 
     def _start_experiment_trackers(self, *, restart: bool = True) -> None:
         """
@@ -956,7 +1043,11 @@ class Engine:
             config=self.config,
             init_kwargs=specific_kwargs,
         )
-        self._edge(Event.ON_TRACKERS_SETUP, config_path=str(self.config_path), session_id=session_id)
+        self._edge(
+            Event.ON_TRACKERS_SETUP,
+            config_path=str(self.config_path),
+            session_id=session_id,
+        )
         self.xlr.wait_for_everyone()
 
     def _train_handle_signals(
@@ -989,7 +1080,9 @@ class Engine:
             tr_loss.apply_(lambda _l: _l - _l)
 
             for k, v in tr_loss_scalar.items():
-                logs["losses/" + k] = round(v / (self._state.step - self._globalstep_last_logged), 4)
+                logs["losses/" + k] = round(
+                    v / (self._state.step - self._globalstep_last_logged), 4
+                )
 
             self._globalstep_last_logged = self._state.step
             # self.store_flops()
@@ -997,7 +1090,11 @@ class Engine:
 
         # SIGNAL: save model
         if self._signal.should_save:
-            _logger.info("Saving state and model at step %d (epoch %d)", self._state.step, self._state.epoch)
+            _logger.info(
+                "Saving state and model at step %d (epoch %d)",
+                self._state.step,
+                self._state.epoch,
+            )
 
             # Save the training state (for recovery on in this environment)
             try:
@@ -1018,7 +1115,11 @@ class Engine:
 
         # SIGNAL: evaluate model
         if self._signal.should_evaluate:
-            _logger.info("Starting evaluation cycle @ step %d / epoch %d", self._state.step, self._state.epoch)
+            _logger.info(
+                "Starting evaluation cycle @ step %d / epoch %d",
+                self._state.step,
+                self._state.epoch,
+            )
 
             self.run_evaluation(lambda _: model, trial=trial)
 
@@ -1091,7 +1192,9 @@ class Engine:
 
             if path_models is not None:
                 # Cleanup old checkpoints only when using automatic naming
-                _cleanup_generated_items(path_models, self._params.save_total_limit or 1)
+                _cleanup_generated_items(
+                    path_models, self._params.save_total_limit or 1
+                )
 
         return path
 
@@ -1108,10 +1211,15 @@ class Engine:
         else:
             auto_dir = os.path.join(self.xlr.project_dir, "checkpoints")
             if not file_io.isdir(auto_dir) or len(file_io.ls(auto_dir)) == 0:
-                _logger.debug("No engine state path given and no automatic checkpoints found.")
+                _logger.debug(
+                    "No engine state path given and no automatic checkpoints found."
+                )
                 return
             else:
-                _logger.debug("No engine state path given. Defaulting to last automatic checkpoint in %s", auto_dir)
+                _logger.debug(
+                    "No engine state path given. Defaulting to last automatic checkpoint in %s",
+                    auto_dir,
+                )
         self.xlr.load_state(path)  # type: ignore
 
     def _save_state(self, path: T.Optional[str]) -> str:
@@ -1122,24 +1230,33 @@ class Engine:
             path = file_io.get_local_path(path)
         return self.xlr.save_state(path)  # type: ignore
 
-    def _store_visualizations(self, visuals: dict[str, pil_image.Image], prefix: str) -> None:
+    def _store_visualizations(
+        self, visuals: dict[str, pil_image.Image], prefix: str
+    ) -> None:
         """
         Store visualizations that are provided as a mapping of (key) -> (PIL image).
         """
 
-        _logger.info(f"Storing visualizations ({len(visuals)} total): {list(visuals.keys())}")
+        _logger.info(
+            f"Storing visualizations ({len(visuals)} total): {list(visuals.keys())}"
+        )
 
         for key, img in visuals.items():
             if self._params.eval_write_visuals:
                 img_path = (
-                    file_io.Path(self.xlr.project_dir) / "visuals" / f"{prefix}-{self._state.step}" / f"{key}.png"
+                    file_io.Path(self.xlr.project_dir)
+                    / "visuals"
+                    / f"{prefix}-{self._state.step}"
+                    / f"{key}.png"
                 )
                 img_path.parent.mkdir(parents=True, exist_ok=True)
                 img.save(img_path)
 
             wandb_run = self.xlr.get_tracker("wandb")
             if wandb_run is not None:
-                wandb_run.log({f"{prefix}/{key}": wandb.Image(img)}, step=self._state.step)
+                wandb_run.log(
+                    {f"{prefix}/{key}": wandb.Image(img)}, step=self._state.step
+                )
 
     def _default_setup(self):
         """
@@ -1200,7 +1317,11 @@ def _get_learning_rate(optimizer: torch.optim.Optimizer) -> float:
 
 
 def _build_speed_metrics(
-    prefix: str, start_time: float, *, sample_amount: int | None = None, step_amount: int | None = None
+    prefix: str,
+    start_time: float,
+    *,
+    sample_amount: int | None = None,
+    step_amount: int | None = None,
 ) -> dict[str, T.Any]:
     """
     Measure and return speed performance metrics.
@@ -1256,7 +1377,9 @@ def _sort_children_by_suffix(path: file_io.Path | str) -> T.Iterable[str]:
     """
     items = file_io.ls(str(path))
     items = map(lambda p: (p, _RE_NUMERIC_SUFFIX.search(p)), items)
-    items = T.cast(list[tuple[str, re.Match]], filter(lambda p: p[1] is not None, items))
+    items = T.cast(
+        list[tuple[str, re.Match]], filter(lambda p: p[1] is not None, items)
+    )
     items = sorted(items, key=lambda p: int(p[1].group(1)))
 
     for item, _ in items:
@@ -1318,8 +1441,9 @@ def _generate_session_id() -> ULID:
     Must be called after the process group has been initialized.
     """
 
-    from unipercept.state import check_distributed, check_main_process
     from torch.distributed import broadcast_object_list, is_available, is_initialized
+
+    from unipercept.state import check_distributed, check_main_process
 
     def _read_session_name():
         return ULID.generate()

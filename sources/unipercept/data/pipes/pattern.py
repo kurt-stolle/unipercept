@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+import typing as T
 import warnings
 from enum import Enum
 from typing import Iterator
 
+import typing_extensions as TX
 from torchdata.datapipes import functional_datapipe
 from torchdata.datapipes.iter import IterDataPipe
 from typing_extensions import override
@@ -34,7 +36,12 @@ class PatternMatcher(IterDataPipe):
     Iterable pipe that performs pattern matching.
     """
 
-    def __init__(self, source: IterDataPipe[str], pattern: str | re.Pattern, mode: str | MatchMode) -> None:
+    def __init__(
+        self,
+        source: IterDataPipe[str],
+        pattern: str | re.Pattern,
+        mode: str | MatchMode,
+    ) -> None:
         self.source = source
         self.pattern = re.compile(pattern)
         self.mode = MatchMode(mode)
@@ -46,9 +53,14 @@ class PatternMatcher(IterDataPipe):
             if m is None:
                 match self.mode:
                     case MatchMode.ERROR:
-                        raise ValueError(f"Item '{item}' does not match pattern: {self.pattern}")
+                        raise ValueError(
+                            f"Item '{item}' does not match pattern: {self.pattern}"
+                        )
                     case MatchMode.WARN:
-                        warnings.warn(f"Item '{item}' does not match pattern: {self.pattern}", stacklevel=2)
+                        warnings.warn(
+                            f"Item '{item}' does not match pattern: {self.pattern}",
+                            stacklevel=2,
+                        )
                     case MatchMode.FILTER:
                         continue
                     case MatchMode.IGNORE:
@@ -62,7 +74,9 @@ class PatternFilter(IterDataPipe):
     Iterable pipe that performs pattern matching and filtering.
     """
 
-    def __init__(self, source: IterDataPipe[str], pattern: str | re.Pattern, reverse=False) -> None:
+    def __init__(
+        self, source: IterDataPipe[str], pattern: str | re.Pattern, reverse=False
+    ) -> None:
         self.source = source
         self.pattern = re.compile(pattern)
         self.reverse = reverse

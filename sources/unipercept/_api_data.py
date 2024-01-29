@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import typing as T
 
+import typing_extensions as TX
+
 if T.TYPE_CHECKING:
     import unipercept.data.sets as unisets
 
@@ -13,22 +15,30 @@ __all__ = ["get_dataset", "get_info", "list_datasets", "list_info"]
 
 
 @T.overload
-def get_dataset(name: T.Literal["cityscapes"]) -> type[unisets.cityscapes.CityscapesDataset]:
+def get_dataset(
+    name: T.Literal["cityscapes"],
+) -> type[unisets.cityscapes.CityscapesDataset]:
     ...
 
 
 @T.overload
-def get_dataset(name: T.Literal["cityscapes-vps"]) -> type[unisets.cityscapes.CityscapesVPSDataset]:
+def get_dataset(
+    name: T.Literal["cityscapes-vps"],
+) -> type[unisets.cityscapes.CityscapesVPSDataset]:
     ...
 
 
 @T.overload
-def get_dataset(name: T.Literal["kitti-360"]) -> type[unisets.kitti_360.KITTI360Dataset]:
+def get_dataset(
+    name: T.Literal["kitti-360"],
+) -> type[unisets.kitti_360.KITTI360Dataset]:
     ...
 
 
 @T.overload
-def get_dataset(name: T.Literal["kitti-sem"]) -> type[unisets.kitti_sem.SemKITTIDataset]:
+def get_dataset(
+    name: T.Literal["kitti-sem"],
+) -> type[unisets.kitti_sem.SemKITTIDataset]:
     ...
 
 

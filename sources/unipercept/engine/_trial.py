@@ -12,6 +12,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 import wandb
 from torch.utils.data import DataLoader
 from typing_extensions import override

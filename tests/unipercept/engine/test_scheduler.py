@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import typing as T
+
 import pytest
 import torch.optim
+import typing_extensions as TX
 from timm.scheduler.cosine_lr import CosineLRScheduler as TimmCosineLRScheduler
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 

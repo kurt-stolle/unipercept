@@ -1,7 +1,11 @@
+from __future__ import annotations
+
+import typing as T
 import warnings
 from typing import Tuple
 
 import torch
+import typing_extensions as TX
 from torch import Tensor
 
 from ._acos import acos_linear_extrapolation
@@ -140,7 +144,9 @@ def so3_exponential_map(log_rot: Tensor, eps: float = 0.0001) -> Tensor:
     return so3_exp_map(log_rot, eps)
 
 
-def _so3_exp_map(log_rot: Tensor, eps: float = 0.0001) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+def _so3_exp_map(
+    log_rot: Tensor, eps: float = 0.0001
+) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """
     A helper function that computes the so3 exponential map and,
     apart from the rotation matrix, also returns intermediate variables

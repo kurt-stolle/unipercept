@@ -7,6 +7,8 @@ from __future__ import annotations
 import re
 import typing as T
 
+import typing_extensions as TX
+
 from unipercept.utils.dataset import Dataset
 from unipercept.utils.registry import Registry
 
@@ -27,7 +29,14 @@ class DataManager(T.Generic[_D_co, _I_co]):
     Data manager for registering datasets and their info functions.
     """
 
-    __slots__ = ("name", "variant_separator", "id_pattern", "base", "__info__", "__data__")
+    __slots__ = (
+        "name",
+        "variant_separator",
+        "id_pattern",
+        "base",
+        "__info__",
+        "__data__",
+    )
 
     def __init__(
         self,
@@ -45,7 +54,9 @@ class DataManager(T.Generic[_D_co, _I_co]):
         """
         self.variant_separator: T.Final[str] = variant_separator
         self.id_pattern: T.Final[re.Pattern[str]] = id_pattern
-        self.__info__ = T.cast(Registry[T.Callable[..., _I_co], str], Registry(self.parse_key))
+        self.__info__ = T.cast(
+            Registry[T.Callable[..., _I_co], str], Registry(self.parse_key)
+        )
         self.__data__ = T.cast(Registry[type[_D_co], str], Registry(self.parse_key))
 
     def parse_key(self, key: str | type[_D_co], *, check_valid: bool = True) -> str:
@@ -125,12 +136,16 @@ class DataManager(T.Generic[_D_co, _I_co]):
             if key in self.list_datasets():
                 raise KeyError(f"Already registered: {key}")
             if key in self.list_info():
-                raise KeyError(f"Already registered as info: {key}. Dataset keys cannot be dually registered.")
+                raise KeyError(
+                    f"Already registered as info: {key}. Dataset keys cannot be dually registered."
+                )
 
             self.__data__[key] = ds
 
             if info is None:
-                raise ValueError(f"Dataset {key} has no info function and no info function was provided.")
+                raise ValueError(
+                    f"Dataset {key} has no info function and no info function was provided."
+                )
             if callable(info):
                 self.__info__[key] = info
             else:

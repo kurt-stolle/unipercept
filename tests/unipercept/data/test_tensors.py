@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+import typing as T
+
+import typing_extensions as TX
+
 from unipercept.data import tensors
 
 
@@ -5,7 +11,12 @@ def test_pixel_map_registry():
     reg = tensors.registry.pixel_maps
     assert reg is not None
 
-    known_pixel_maps = (tensors.OpticalFlow, tensors.Mask, tensors.Image, tensors.PanopticMap)
+    known_pixel_maps = (
+        tensors.OpticalFlow,
+        tensors.Mask,
+        tensors.Image,
+        tensors.PanopticMap,
+    )
 
     assert len(reg) >= len(known_pixel_maps)
 

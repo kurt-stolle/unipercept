@@ -1,9 +1,19 @@
+from __future__ import annotations
+
 import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 
-__all__ = ["EPS_FLOAT", "EPS_HALF", "EPS_BF16", "ScaledLossMixin", "StableLossMixin", "split_into_patches"]
+__all__ = [
+    "EPS_FLOAT",
+    "EPS_HALF",
+    "EPS_BF16",
+    "ScaledLossMixin",
+    "StableLossMixin",
+    "split_into_patches",
+]
 
 EPS_FLOAT: T.Final[float] = torch.finfo(torch.float).eps
 EPS_HALF: T.Final[float] = torch.finfo(torch.half).eps

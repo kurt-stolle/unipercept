@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import collections
 import enum
+import typing as T
 
 import torch
+import typing_extensions as TX
 
 from unipercept.log import get_logger
 
@@ -17,7 +19,13 @@ class DebugMode(enum.IntFlag):
 
 
 class DebugUnderflowOverflow:
-    def __init__(self, model, max_frames_to_save=21, trace_batch_nums=[], abort_after_batch_num=None):
+    def __init__(
+        self,
+        model,
+        max_frames_to_save=21,
+        trace_batch_nums=[],
+        abort_after_batch_num=None,
+    ):
         self.model = model
         self.trace_batch_nums = trace_batch_nums
         self.abort_after_batch_num = abort_after_batch_num
@@ -77,14 +85,20 @@ class DebugUnderflowOverflow:
             self.expand_frame(f"{'not a tensor':>17} {ctx}")
 
     def batch_start_frame(self):
-        self.expand_frame(f"\n\n{self.prefix} *** Starting batch number={self.batch_number} ***")
+        self.expand_frame(
+            f"\n\n{self.prefix} *** Starting batch number={self.batch_number} ***"
+        )
         self.expand_frame(f"{'abs min':8} {'abs max':8} metadata")
 
     def batch_end_frame(self):
-        self.expand_frame(f"{self.prefix} *** Finished batch number={self.batch_number-1} ***\n\n")
+        self.expand_frame(
+            f"{self.prefix} *** Finished batch number={self.batch_number-1} ***\n\n"
+        )
 
     def create_frame(self, module, input, output):
-        self.expand_frame(f"{self.prefix} {self.module_names[module]} {module.__class__.__name__}")
+        self.expand_frame(
+            f"{self.prefix} {self.module_names[module]} {module.__class__.__name__}"
+        )
 
         # params
         for name, p in module.named_parameters(recurse=False):
@@ -158,7 +172,10 @@ class DebugUnderflowOverflow:
             )
 
         # abort after certain batch if requested to do so
-        if self.abort_after_batch_num is not None and self.batch_number > self.abort_after_batch_num:
+        if (
+            self.abort_after_batch_num is not None
+            and self.batch_number > self.abort_after_batch_num
+        ):
             raise ValueError(
                 f"DebugUnderflowOverflow: aborting after {self.batch_number} batches due to"
                 f" `abort_after_batch_num={self.abort_after_batch_num}` arg"
@@ -215,6 +232,8 @@ def detect_overflow(var, ctx):
         print(f"min={var.min():9.2e} max={var.max():9.2e}")
 
     if 0:
-        print(f"min={var.min():9.2e} max={var.max():9.2e} var={var.var():9.2e} mean={var.mean():9.2e} ({ctx})")
+        print(
+            f"min={var.min():9.2e} max={var.max():9.2e} var={var.var():9.2e} mean={var.mean():9.2e} ({ctx})"
+        )
 
     return detected

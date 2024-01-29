@@ -1,5 +1,10 @@
+from __future__ import annotations
+
+import typing as T
+
 import pytest
 import torch
+import typing_extensions as TX
 
 from unipercept.nn.losses import DGPLoss
 

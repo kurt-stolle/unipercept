@@ -7,6 +7,7 @@ from __future__ import annotations
 import typing as T
 
 import torch
+import typing_extensions as TX
 from tqdm import tqdm
 
 import unipercept
@@ -17,12 +18,19 @@ from ._command import command, logger
 __all__ = []
 
 
-def extract_depth_stats(ds: unipercept.data.sets.PerceptionDataset, output_dir: file_io.Path | None = None):
+def extract_depth_stats(
+    ds: unipercept.data.sets.PerceptionDataset, output_dir: file_io.Path | None = None
+):
     dep_min = float("inf")
     dep_max = float("-inf")
 
     loader = torch.utils.data.DataLoader(
-        ds.datapipe, batch_size=1, num_workers=0, pin_memory=False, prefetch_factor=4, persistent_workers=False
+        ds.datapipe,
+        batch_size=1,
+        num_workers=0,
+        pin_memory=False,
+        prefetch_factor=4,
+        persistent_workers=False,
     )
 
     for inputs in loader:
@@ -73,11 +81,15 @@ def handle_request(args) -> T.Any:
         available_kwargs = {}
         for name, param in params.items():
             if param.kind == inspect.Parameter.KEYWORD_ONLY:
-                available_kwargs[name] = param.default if param.default != inspect.Parameter.empty else None
+                available_kwargs[name] = (
+                    param.default if param.default != inspect.Parameter.empty else None
+                )
 
         logger.info(
             f"Required arguments: %s",
-            ", ".join([name for name, default in available_kwargs.items() if default is None]),
+            ", ".join(
+                [name for name, default in available_kwargs.items() if default is None]
+            ),
         )
 
         kwargs = input("Enter keyword arguments as YAML object:\n")
@@ -94,7 +106,9 @@ def handle_request(args) -> T.Any:
 
             seqs = {}
             for seq_id, seq in mfst["sequences"].items():
-                seqs[seq_id] = "{} captures @ {} fps".format(len(seq.get("captures")), seq.get("fps", "???"))
+                seqs[seq_id] = "{} captures @ {} fps".format(
+                    len(seq.get("captures")), seq.get("fps", "???")
+                )
 
             return seqs
         elif args.frames:
@@ -103,7 +117,9 @@ def handle_request(args) -> T.Any:
             frames = {}
             for seq_id, seq in mfst["sequences"].items():
                 for frame in seq["captures"]:
-                    frames[frame["primary_key"]] = "Ground truths: {}".format(", ".join(frame["sources"].keys()))
+                    frames[frame["primary_key"]] = "Ground truths: {}".format(
+                        ", ".join(frame["sources"].keys())
+                    )
 
             return frames
         else:
@@ -133,7 +149,13 @@ def main(args):
         from pprint import pformat
         from shutil import get_terminal_size
 
-        res = pformat(res_dict, indent=1, compact=False, depth=2, width=get_terminal_size().columns - 1)
+        res = pformat(
+            res_dict,
+            indent=1,
+            compact=False,
+            depth=2,
+            width=get_terminal_size().columns - 1,
+        )
         logger.info("Result (Python): %s", res)
     elif format == "yaml":
         import yaml
@@ -146,16 +168,26 @@ def main(args):
 
 @command(help="describe a dataset to std")
 def describe(parser):
-    parser.add_argument("--format", default="pprint", help="output format", choices=["yaml", "pprint"])
     parser.add_argument(
-        "--output", "-o", help="directory to store output data and visualizations", default=None, type=file_io.Path
+        "--format", default="pprint", help="output format", choices=["yaml", "pprint"]
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        help="directory to store output data and visualizations",
+        default=None,
+        type=file_io.Path,
     )
 
     mp = parser.add_mutually_exclusive_group()
     mp.add_argument("--info", help="show dataset info", action="store_true")
     mp.add_argument("--manifest", help="show dataset manifest", action="store_true")
-    mp.add_argument("--sequences", help="show information about the sequences", action="store_true")
-    mp.add_argument("--frames", help="show information about the frames", action="store_true")
+    mp.add_argument(
+        "--sequences", help="show information about the sequences", action="store_true"
+    )
+    mp.add_argument(
+        "--frames", help="show information about the frames", action="store_true"
+    )
     mp.add_argument("--depth", help="show depth statistics", action="store_true")
 
     parser.add_argument("dataset", help="dataset name")

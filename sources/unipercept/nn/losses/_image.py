@@ -4,6 +4,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = ["ReconstructionLoss", "SSIMLoss"]
@@ -18,9 +19,15 @@ class ReconstructionLoss(nn.Module):
 
     @override
     def forward(self, output: torch.Tensor, target: torch.Tensor):
-        ssim = self.ssim(output, target).mean(dim=1, keepdim=True)  # (N, 1, H, W), average channels
-        l1 = self.l1(output, target).mean(dim=1, keepdim=True)  # (N, 1, H, W), average channels
-        return 0.5 * self.alpha * ssim + (1 - self.alpha) * l1  # NOTE: ssim is already (1-ssim)
+        ssim = self.ssim(output, target).mean(
+            dim=1, keepdim=True
+        )  # (N, 1, H, W), average channels
+        l1 = self.l1(output, target).mean(
+            dim=1, keepdim=True
+        )  # (N, 1, H, W), average channels
+        return (
+            0.5 * self.alpha * ssim + (1 - self.alpha) * l1
+        )  # NOTE: ssim is already (1-ssim)
 
 
 class SSIMLoss(nn.Module):
@@ -73,12 +80,18 @@ class SSIMLoss(nn.Module):
         target_sigma = self.avg_pool(target**2) - target_mu  # variance of target
 
         # Calculate covvariance between output and target.
-        output_target_sigma = self.avg_pool(output * target) - output_mu * target_mu  # covariance of output and target
+        output_target_sigma = (
+            self.avg_pool(output * target) - output_mu * target_mu
+        )  # covariance of output and target
 
         # Numerator of SSIM
-        numerator = (2 * output_mu * target_mu + self.c1) * (2 * output_target_sigma + self.c2)
+        numerator = (2 * output_mu * target_mu + self.c1) * (
+            2 * output_target_sigma + self.c2
+        )
         # Denominator of SSIM
-        denominator = (output_mu**2 + target_mu**2 + self.c1) * (output_sigma + target_sigma + self.c2)
+        denominator = (output_mu**2 + target_mu**2 + self.c1) * (
+            output_sigma + target_sigma + self.c2
+        )
         # Compute SSIM
         _ssim = numerator / denominator  # ssim \in [-1, 1]
         # Normalize SSIM

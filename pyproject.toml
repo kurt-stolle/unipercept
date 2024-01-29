@@ -202,7 +202,7 @@ per-file-ignores = """
 """
 extend-ignore = [
     # "E203", # whitespace before ':'
-    # "E501", # line too long
+    "E501", # line too long
     # "E722", # do not use bare 'except'
     # "W503", # line break before binary operator
     "B001", # assert used
@@ -402,7 +402,7 @@ overgeneral-exceptions = ["BaseException", "Exception"]
 
 [tool.isort]
 profile = "black"
-required-imports = ["from __future__ import annotations"]
+add_imports = ["from __future__ import annotations"]
 
 [tool.mypy]
 python_version = "3.11"

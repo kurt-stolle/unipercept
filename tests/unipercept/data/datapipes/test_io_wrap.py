@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+import typing as T
 from pathlib import Path
 
+import typing_extensions as TX
 from torchdata.datapipes import iter, map
 
 from unipercept.data.pipes.io_wrap import UniCoreFileLister

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import copy
+import typing as T
 from collections import defaultdict
 from functools import cached_property
 from typing import Any, Dict, Mapping, Tuple
 
 import torch
 import torch.nn as nn
+import typing_extensions as TX
 import unitrack
 from tensordict import TensorDict, TensorDictBase
 from torch import Tensor
@@ -58,7 +60,11 @@ class _MemoryReadWriter(nn.Module):
         self.memory = memory
 
     @override
-    def forward(self, write: bool, transaction: int | tuple[TensorDictBase, TensorDictBase, TensorDictBase]):
+    def forward(
+        self,
+        write: bool,
+        transaction: int | tuple[TensorDictBase, TensorDictBase, TensorDictBase],
+    ):
         if write:
             ctx, obs, new = transaction
             return self.memory.write(ctx, obs, new)
@@ -102,7 +108,9 @@ class StatefulTracker(nn.Module):
     mem_buffers: Mapping[str | int, dict[str, torch.Tensor]]
     mem_params: dict[str, torch.Tensor]
 
-    def __init__(self, tracker: unitrack.MultiStageTracker, memory: unitrack.TrackletMemory):
+    def __init__(
+        self, tracker: unitrack.MultiStageTracker, memory: unitrack.TrackletMemory
+    ):
         super().__init__()
 
         self.tracker = tracker
@@ -117,11 +125,15 @@ class StatefulTracker(nn.Module):
     #     return _MemoryWriter(memory=self.memory).to("meta")
 
     @cached_property
-    def memory_storage(self) -> tuple[dict[str, torch.nn.Parameter], dict[str, torch.Tensor], defaultdict]:
+    def memory_storage(
+        self,
+    ) -> tuple[dict[str, torch.nn.Parameter], dict[str, torch.Tensor], defaultdict]:
         prefix = "memory"
         memory = self.memory_delegate.memory
         params = dict(memory.named_parameters(prefix=prefix))
-        buffers_shared, buffers_unique = _split_persistent_buffers(memory, prefix=prefix)
+        buffers_shared, buffers_unique = _split_persistent_buffers(
+            memory, prefix=prefix
+        )
         buffers_unique_map = defaultdict(lambda: copy.deepcopy(buffers_unique))
 
         return params, buffers_shared, buffers_unique_map
@@ -131,7 +143,9 @@ class StatefulTracker(nn.Module):
         # Read
         params, buffers_shared, buffers_unique = self.memory_storage
         pbd = (params, {**buffers_shared, **buffers_unique[key]})
-        state_ctx, state_obs = torch.func.functional_call(self.memory_delegate, pbd, (False, (frame,)), strict=True)
+        state_ctx, state_obs = torch.func.functional_call(
+            self.memory_delegate, pbd, (False, (frame,)), strict=True
+        )
 
         # Step
         if not isinstance(x, TensorDictBase):
@@ -139,6 +153,8 @@ class StatefulTracker(nn.Module):
         state_obs, new = self.tracker(state_ctx, state_obs, x)
 
         # Write
-        ids = torch.func.functional_call(self.memory_delegate, pbd, (True, (state_ctx, state_obs, new)), strict=True)
+        ids = torch.func.functional_call(
+            self.memory_delegate, pbd, (True, (state_ctx, state_obs, new)), strict=True
+        )
 
         return ids

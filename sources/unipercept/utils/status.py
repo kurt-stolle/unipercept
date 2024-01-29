@@ -5,7 +5,15 @@ import enum as E
 import functools
 import typing as T
 
-__all__ = ["assert_status", "modify_status", "pop_status", "put_status", "StatusDescriptor"]
+import typing_extensions as TX
+
+__all__ = [
+    "assert_status",
+    "modify_status",
+    "pop_status",
+    "put_status",
+    "StatusDescriptor",
+]
 
 _O_contra = T.TypeVar("_O_contra", bound=object, contravariant=True)
 _P = T.ParamSpec("_P")
@@ -89,7 +97,9 @@ def assert_status(
     return decorator
 
 
-def with_status(attr: _StatusAttrType, status: int) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
+def with_status(
+    attr: _StatusAttrType, status: int
+) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
     """
     Decorator that applies a status to an attribute, and removes it on exit.
     """
@@ -108,7 +118,11 @@ def with_status(attr: _StatusAttrType, status: int) -> T.Callable[[_StatusDecoFu
 
 
 def modify_status(
-    attr: _StatusAttrType, status: int, *, on_exit=False, action: T.Literal["put", "pop"] = "put"
+    attr: _StatusAttrType,
+    status: int,
+    *,
+    on_exit=False,
+    action: T.Literal["put", "pop"] = "put",
 ) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
     """
     Decorator that applies a status to an attribute.
@@ -179,7 +193,9 @@ class StatusDescriptor(T.Generic[_S]):
 
     def __set_name__(self, owner, name) -> None:
         if self._owner is not None:
-            raise RuntimeError(f"StatusAttribute {self} already bound to {self._owner}.")
+            raise RuntimeError(
+                f"StatusAttribute {self} already bound to {self._owner}."
+            )
         self._owner = owner
         self._name = name
 
@@ -192,7 +208,9 @@ class StatusDescriptor(T.Generic[_S]):
     def __set__(self, obj, value: _S | int) -> None:
         obj.__dict__[self._name] = value
 
-    def __call__(self, status: _S | int) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
+    def __call__(
+        self, status: _S | int
+    ) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
         """
         Run the decorated method with a certain status.
         """
@@ -233,13 +251,17 @@ class StatusDescriptor(T.Generic[_S]):
         else:
             self &= ~status
 
-    def pop_status(self, status: _S | int, on_exit=False) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
+    def pop_status(
+        self, status: _S | int, on_exit=False
+    ) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
         """
         Remove a status on entering or exiting a method.
         """
         return pop_status(self, status, on_exit=on_exit)
 
-    def put_status(self, status: _S | int, on_exit=False) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
+    def put_status(
+        self, status: _S | int, on_exit=False
+    ) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
         """
         Apply a status on entering or exiting a method.
         """
@@ -253,7 +275,9 @@ class StatusDescriptor(T.Generic[_S]):
         """
         return modify_status(self, status, on_exit=on_exit, action=action)
 
-    def assert_status(self, status: _S | int, on_exit=False) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
+    def assert_status(
+        self, status: _S | int, on_exit=False
+    ) -> T.Callable[[_StatusDecoFuncType], _StatusDecoFuncType]:
         """
         Assert that a status is set on entering or exiting a method.
         """

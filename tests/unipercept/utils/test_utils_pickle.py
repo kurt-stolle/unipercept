@@ -2,11 +2,14 @@
 Implements tests for `unipercept.utils.pickleable`.
 """
 
+from __future__ import annotations
+
 import pickle
 import typing as T
 from functools import partial
 
 import pytest
+import typing_extensions as TX
 
 from unipercept.utils.pickle import as_picklable, pickles
 
@@ -57,7 +60,9 @@ def test_pickles(fn, r, should_pickle):
     check_pickled_return(fn, r, does_pickle)
 
 
-@pytest.mark.parametrize("fn, r, should_pickle", filter(lambda tpl: not tpl[2], MOCK_FNS))
+@pytest.mark.parametrize(
+    "fn, r, should_pickle", filter(lambda tpl: not tpl[2], MOCK_FNS)
+)
 def test_as_picklable(fn, r, should_pickle):
     """
     Test if an object can be pickled.
@@ -72,4 +77,6 @@ def test_as_picklable(fn, r, should_pickle):
         res_original = fn()
         res_wrapped = fn_wrap()
 
-        assert res_original == res_wrapped, f"Expected {res_original}, got {res_wrapped}"
+        assert (
+            res_original == res_wrapped
+        ), f"Expected {res_original}, got {res_wrapped}"

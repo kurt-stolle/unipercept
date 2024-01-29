@@ -2,8 +2,11 @@
 Used to apply monkeypatching when the program is started.
 """
 
+from __future__ import annotations
+
 import typing as T
 
+import typing_extensions as TX
 from tensordict import TensorDict
 
 from unipercept.log import get_logger
@@ -36,7 +39,9 @@ def __patch_tensor_repr():
             shape = str(tuple(self.shape)).replace(" ", "").replace(",", "×")[1:-1]
         name = self.__class__.__name__
         dtype = str(self.dtype).replace("torch.", "")
-        kwargs = ", ".join([f"{k}={getattr(self, k)}" for k in ["device", "requires_grad"]])
+        kwargs = ", ".join(
+            [f"{k}={getattr(self, k)}" for k in ["device", "requires_grad"]]
+        )
 
         # if self.ndim == 0:
         #     values = f"\t{self.item()}"

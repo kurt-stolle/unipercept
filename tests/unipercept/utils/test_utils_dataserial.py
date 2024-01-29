@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+import typing as T
 from dataclasses import dataclass
 
 import pytest
+import typing_extensions as TX
 
 from unipercept.utils.dataserial import (
     SerializeRegistry,

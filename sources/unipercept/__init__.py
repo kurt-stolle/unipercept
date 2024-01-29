@@ -8,7 +8,7 @@ from __future__ import annotations
 
 __version__ = "5.1.1"
 
-from . import (
+from unipercept import (
     config,
     data,
     engine,
@@ -21,6 +21,6 @@ from . import (
     state,
     utils,
 )
-from ._api_config import *
-from ._api_data import *
-from ._monkeypatch import *
+from unipercept._api_config import *
+from unipercept._api_data import *
+from unipercept._monkeypatch import *

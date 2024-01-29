@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import typing as T
 import warnings
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import torch
+import typing_extensions as TX
 from torch import Tensor, device
 
 from ._se3 import se3_log_map
@@ -137,9 +139,14 @@ class Transform3d:
         """
 
         if M.ndim not in (2, 3):
-            raise ValueError(f"'matrix' has to be a 2- or a 3-dimensional tensor, " f"got {M.ndim}!")
+            raise ValueError(
+                f"'matrix' has to be a 2- or a 3-dimensional tensor, " f"got {M.ndim}!"
+            )
         if M.shape[-2] != 4 or M.shape[-1] != 4:
-            raise ValueError(f"'matrix' has to be a tensor of shape (minibatch, 4, 4) or " f"(4, 4), got {M.shape}!")
+            raise ValueError(
+                f"'matrix' has to be a tensor of shape (minibatch, 4, 4) or "
+                f"(4, 4), got {M.shape}!"
+            )
 
         self._matrix = M.view(-1, 4, 4)
         self._transforms: List[Any] = []
@@ -347,7 +354,9 @@ class Transform3d:
 
     #     return Transform3d(matrix, tt=TransformType.DEFAULT)
 
-    def transform_points(self, points: torch.Tensor, eps: Optional[float] = None) -> Tensor:
+    def transform_points(
+        self, points: torch.Tensor, eps: Optional[float] = None
+    ) -> Tensor:
         """
         Use this transform to transform a set of 3D points. Assumes row major
         ordering of the input points.
@@ -657,7 +666,9 @@ def _handle_input(
 
 
 @torch.jit.unused
-def _handle_angle_input(x, dtype: torch.dtype, device: Optional[Device], name: str) -> Tensor:
+def _handle_angle_input(
+    x, dtype: torch.dtype, device: Optional[Device], name: str
+) -> Tensor:
     """
     Helper function for building a rotation function using angles.
     The output is always of shape (N,).

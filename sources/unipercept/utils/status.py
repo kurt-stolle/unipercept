@@ -29,6 +29,7 @@ def _get_error_bad_attr(attr: T.Any) -> TypeError:
 
 def _get_attr(obj: _O_contra, attr: _StatusAttrType, default=None) -> int:
     if isinstance(attr, property):
+        assert attr.fget is not None
         value = attr.fget(obj)
     elif isinstance(attr, str):
         value = getattr(obj, attr, default)
@@ -43,6 +44,7 @@ def _get_attr(obj: _O_contra, attr: _StatusAttrType, default=None) -> int:
 
 def _set_attr(obj: _O_contra, attr: _StatusAttrType, status: int) -> None:
     if isinstance(attr, property):
+        assert attr.fset is not None
         attr.fset(obj, status)
     elif isinstance(attr, str):
         setattr(obj, attr, status)

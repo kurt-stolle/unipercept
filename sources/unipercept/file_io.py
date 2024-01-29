@@ -1,5 +1,5 @@
 """
-Implements a path manager for UniCore using IoPath.
+Implements a path manager using ``iopath``.
 """
 
 from __future__ import annotations
@@ -8,7 +8,6 @@ import functools
 import os
 import typing as T
 
-import typing_extensions as TX
 from iopath.common.file_io import (
     HTTPURLHandler,
     OneDrivePathHandler,
@@ -17,9 +16,8 @@ from iopath.common.file_io import (
     PathManagerFactory,
 )
 
-from unipercept.utils.iopath_environ import EnvironPathHandler
+from unipercept.utils.iopath_handlers import EnvironPathHandler, WandBArtifactHandler
 from unipercept.utils.iopath_path import IoPath
-from unipercept.utils.iopath_wandb import WandBArtifactHandler
 
 __all__ = ["Path"]
 
@@ -185,7 +183,7 @@ if T.TYPE_CHECKING:
 
     def open(
         path: str, mode: str = "r", buffering: int = -1, **kwargs: T.Any
-    ) -> IO[str] | T.IO[bytes]:
+    ) -> T.IO[str] | T.IO[bytes]:
         ...
 
     def opena(

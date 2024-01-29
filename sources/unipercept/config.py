@@ -587,11 +587,11 @@ def instantiate(cfg: T.Mapping[T.Any, LazyObject[_L]], /) -> T.Mapping[T.Any, _L
 
 def instantiate(cfg: T.Any, /) -> T.Any:
     """
-    Recursively instantiate objects defined in dictionaries by "_target_" and 
+    Recursively instantiate objects defined in dictionaries by "_target_" and
     arguments.
 
-    Our version differs from Detectron2's in that it never returns a 
-    configuration object, but always returns the instantiated object (e.g. a 
+    Our version differs from Detectron2's in that it never returns a
+    configuration object, but always returns the instantiated object (e.g. a
     ListConfig is always converted to a list).
     """
     if cfg is None or isinstance(

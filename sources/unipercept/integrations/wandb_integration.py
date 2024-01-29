@@ -9,15 +9,13 @@ from __future__ import annotations
 import dataclasses as D
 import enum as E
 import functools
-import os
-import tempfile
 import typing as T
 
 import torch.nn as nn
 import typing_extensions as TX
 import wandb
 
-from unipercept import file_io, read_config
+from unipercept import file_io
 from unipercept.engine import EngineParams
 from unipercept.engine.callbacks import CallbackDispatcher, Signal, State
 from unipercept.log import get_logger
@@ -27,9 +25,10 @@ from unipercept.utils.time import ProfileAccumulator
 if T.TYPE_CHECKING:
     from wandb.sdk.wandb_run import Run as WandBRun
 
-__all__ = ["WandBCallback", "pull_config", "pull_engine", "ArtifactType", "skip_no_run"]
 
 _logger = get_logger(__name__)
+
+WANDB_RUN_PREFIX = "wandb-run://"  # prefix for WandB run URIs
 
 
 class ArtifactType(E.StrEnum):
@@ -50,23 +49,20 @@ class WandBWatchMode(E.StrEnum):
     ALL = E.auto()
 
 
-def pull_config(name: str):
+def read_run(path: str) -> WandBRun:
     """
-    Pulls a configuration file from a WandB artifact.
+    Reads a WandB run from a file.
     """
 
-    artifact = wandb.Api().artifact(name, type=ArtifactType.CONFIG.value)
-    with tempfile.TemporaryDirectory() as temp_dir:
-        artifact.checkout(root=temp_dir)
-        config = read_config(os.path.join(temp_dir, "config.yaml"))
-    return config
+    assert path.startswith(WANDB_RUN_PREFIX)
 
+    _logger.info("Reading W&B configuration from %s", path)
 
-def pull_engine(name: str):
-    """
-    Pulls the engine state from a WandB artifact.
-    """
-    pass
+    run_name = path[len(WANDB_RUN_PREFIX) :]
+    wandb_api = wandb.Api()
+    run = wandb_api.run(run_name)
+
+    return run
 
 
 _P = T.ParamSpec("_P")

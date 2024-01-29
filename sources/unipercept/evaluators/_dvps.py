@@ -17,10 +17,8 @@ from tensordict import TensorDictBase
 from tqdm import tqdm
 
 import unipercept.evaluators.helpers as H
-from unipercept.log import get_logger
-
-from ._depth import PRED_DEPTH, TRUE_DEPTH, DepthWriter
-from ._panoptic import (
+from unipercept.evaluators._depth import PRED_DEPTH, TRUE_DEPTH, DepthWriter
+from unipercept.evaluators._panoptic import (
     PRED_PANOPTIC,
     TRUE_PANOPTIC,
     PanopticWriter,
@@ -29,6 +27,7 @@ from ._panoptic import (
     _panoptic_quality_update_sample,
     _preprocess_mask,
 )
+from unipercept.log import get_logger
 
 FRAME_ID = "frame_id"
 SEQUENCE_ID = "sequence_id"
@@ -136,25 +135,25 @@ class DVPSEvaluator(DVPSWriter):
 
         result = {}
 
-        for definition, df in df.groupby("Definition"):
+        for definition, df_d in df.groupby("Definition"):
             result[definition] = {}
-            for window, df in df.groupby("Window"):
+            for window, df_w in df_d.groupby("Window"):
                 window_key = "w_" + str(window).replace(".", "_")
                 result[definition][window_key] = {}
-                for threshold, df in df.groupby("Threshold"):
+                for threshold, df_t in df_w.groupby("Threshold"):
                     threshold_key = "t_" + str(threshold).replace(".", "_")
                     result[definition][window_key][threshold_key] = {}
-                    for metric, df in df.groupby("Metric"):
-                        result[definition][window_key][threshold_key]["all"][metric] = df["All"].mean()
-                        result[definition][window_key][threshold_key]["thing"][metric] = df["Thing"].mean()
-                        result[definition][window_key][threshold_key]["stuff"][metric] = df["Stuff"].mean()
+                    for metric, df_m in df_t.groupby("Metric"):
+                        result[definition][window_key][threshold_key]["all"][metric] = df_m["All"].mean()
+                        result[definition][window_key][threshold_key]["thing"][metric] = df_m["Thing"].mean()
+                        result[definition][window_key][threshold_key]["stuff"][metric] = df_m["Stuff"].mean()
 
-        for definition, df in df.groupby("Definition"):
+        for definition, df_d in df.groupby("Definition"):
             result[definition]["mean"] = {}
-            for metric, df in df.groupby("Metric"):
-                result[definition]["mean"]["all"][metric] = df["All"].mean()
-                result[definition]["mean"]["thing"][metric] = df["Thing"].mean()
-                result[definition]["mean"]["stuff"][metric] = df["Stuff"].mean()
+            for metric, df_m in df_d.groupby("Metric"):
+                result[definition]["mean"]["all"][metric] = df_m["All"].mean()
+                result[definition]["mean"]["thing"][metric] = df_m["Thing"].mean()
+                result[definition]["mean"]["stuff"][metric] = df_m["Stuff"].mean()
 
         return result
 

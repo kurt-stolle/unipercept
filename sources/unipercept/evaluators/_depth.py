@@ -94,7 +94,7 @@ class DepthWriter(Evaluator):
         result = super().plot(storage)
         for i in range(self.plot_samples):
             for key in plot_keys:
-                result[f"{key}_{i}"] = draw_image_depth(storage.get_at(key, i).clone(), self.info)
+                result[f"{key}_{i}"] = draw_image_depth(storage.get_at(key, i).clone().float(), self.info)
         return result
 
 

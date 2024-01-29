@@ -46,7 +46,9 @@ _logger = get_logger(__name__)
 
 DEFAULT_NUM_WORKERS = max(
     1,
-    get_env(int, "UNI_DATALOADER_WORKERS", "SLURM_CPUS_PER_GPU", default=M.cpu_count() // 2),
+    get_env(
+        int, "UNIPERCEPT_DATALOADER_WORKERS", default=get_env(int, "SLURM_CPUS_PER_GPU", default=M.cpu_count()) // 2
+    ),
 )
 
 

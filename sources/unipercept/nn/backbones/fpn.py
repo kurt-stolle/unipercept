@@ -5,7 +5,6 @@ The original implementation can be found here:
     https://pytorch.org/vision/stable/_modules/torchvision/ops/feature_pyramid_network.html
 """
 
-import enum as E
 import typing as T
 from collections import OrderedDict
 
@@ -14,8 +13,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import typing_extensions as TX
 
-from ..layers import SqueezeExcite2d, conv
-from ._base import Backbone
+from unipercept.nn.backbones._base import Backbone
+from unipercept.nn.layers import SqueezeExcite2d, conv
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
 
@@ -206,15 +205,33 @@ class LastLevelP6P7(ExtraFPNBlock):
     This module is used in RetinaNet to generate extra layers, P6 and P7.
     """
 
-    def __init__(self, channels: int):
-        super().__init__()
-        self.p6 = conv.Conv2d(channels, channels, 3, stride=2, padding=1)
-        self.p7 = conv.Conv2d(channels, channels, 3, stride=2, padding=1)
+    if T.TYPE_CHECKING:
+        # Backwards compatability
+        def __init__(self, channels: int):
+            ...
 
-        for module in [self.p6, self.p7]:
-            nn.init.kaiming_uniform_(module.weight, a=1)
-            nn.init.constant_(module.bias, 0)
+    else:
 
+        def __init__(self, channels=None, **kwargs):
+            super().__init__()
+
+            if channels is None:
+                try:
+                    in_channels = kwargs["in_channels"]
+                    out_channels = kwargs["out_channels"]
+                except KeyError:
+                    raise ValueError("channels must be provided")
+                assert in_channels == out_channels
+                channels = in_channels
+
+            self.p6 = conv.Conv2d(channels, channels, 3, stride=2, padding=1)
+            self.p7 = conv.Conv2d(channels, channels, 3, stride=2, padding=1)
+
+            for module in [self.p6, self.p7]:
+                nn.init.kaiming_uniform_(module.weight, a=1)
+                nn.init.constant_(module.bias, 0)
+
+    @TX.override
     def forward(
         self,
         x: T.List[torch.Tensor],

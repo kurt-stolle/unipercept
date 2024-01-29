@@ -17,10 +17,10 @@ from unipercept import file_io
 from unipercept.log import get_logger
 from unipercept.model import ModelFactory
 
+from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX, read_run as _read_run_wandb
 if T.TYPE_CHECKING:
     import torch.types
 
-    from unipercept.config.templates import LazyConfigFile
     from unipercept.data.ops import Op
     from unipercept.data.sets import Metadata
     from unipercept.engine import Engine
@@ -28,7 +28,7 @@ if T.TYPE_CHECKING:
 
     StateParam: T.TypeAlias = str | os.PathLike | dict[str, torch.Tensor] | Engine
     StateDict: T.TypeAlias = dict[str, torch.Tensor]
-    ConfigParam: T.TypeAlias = str | os.PathLike | DictConfig | LazyConfigFile
+    ConfigParam: T.TypeAlias = str | os.PathLike | DictConfig
     ImageParam: T.TypeAlias = str | os.PathLike | pil_image.Image | np.ndarray | torch.Tensor
 
 __all__ = [
@@ -52,7 +52,6 @@ _KEY_CHECKPOINT = "_model_weights_"  # Key used to store the path used to initia
 # SUPPORT FOR W&B REMOTE #
 ##########################
 
-WANDB_RUN_PREFIX = "wandb-run://"
 
 
 def _read_config_wandb(path: str) -> DictConfig:
@@ -60,16 +59,7 @@ def _read_config_wandb(path: str) -> DictConfig:
     Read a configuration file from W&B. Prefix wandb-run://entity/project/name
     """
 
-    import wandb
-
-    assert path.startswith(WANDB_RUN_PREFIX)
-
-    _logger.info("Reading W&B configuration from %s", path)
-
-    run_name = path[len(WANDB_RUN_PREFIX) :]
-    wandb_api = wandb.Api()
-    run = wandb_api.run(run_name)
-
+    run = _read_run_wandb(path)
     config = DictConfig(run.config)
     config[_KEY_CHECKPOINT] = path
 
@@ -81,17 +71,10 @@ def _read_model_wandb(path: str) -> str:
     Read a model from W7B. Prefix wandb-run://entity/project/name
     """
 
-    import wandb
-
-    assert path.startswith(WANDB_RUN_PREFIX)
-
-    _logger.info("Reading W&B model checkpoint from %s", path)
-
-    run_name = path[len(WANDB_RUN_PREFIX) :]
-    wandb_api = wandb.Api()
-    run = wandb_api.run(run_name)
-
+    run = _read_run_wandb(path)
     model_artifact_name = f"{run.entity}/{run.project}/{run.id}-model:latest/model.safetensors"
+
+    _logger.info("Downloading model artifact %s", model_artifact_name)
 
     return file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
 

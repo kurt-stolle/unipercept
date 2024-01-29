@@ -4,10 +4,7 @@ Model profiling entry point.
 from __future__ import annotations
 
 import argparse
-import enum as E
-import time
 import typing as T
-from pprint import pformat
 
 import torch
 import torch.autograd
@@ -17,11 +14,10 @@ import torch.utils.data
 from tqdm import tqdm
 
 from unipercept import create_dataset, create_engine, create_model, file_io
+from unipercept.cli._command import command
 from unipercept.log import get_logger
 from unipercept.model import ModelAdapter
 from unipercept.utils.time import get_timestamp
-
-from ._command import command
 
 
 @command(help="trian a model", description=__doc__)
@@ -55,9 +51,9 @@ def profile(subparser: argparse.ArgumentParser):
     )
     subparser.add_argument("--weights", "-w", default=None, type=str)
 
-    mode = subparser.add_mutually_exclusive_group(required=True)
+    mode = subparser.add_mutually_exclusive_group(required=False)
     mode.add_argument("--training", "-T", action="store_true", help="profile training")
-    mode.add_argument("--inference", "-I", action="store_true", help="profile inference")
+    mode.add_argument("--inference", "-I", default=True, action="store_true", help="profile inference")
 
     subparser.add_argument("path", nargs="*", type=str)
 

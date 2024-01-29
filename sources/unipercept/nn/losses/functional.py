@@ -13,7 +13,6 @@ import torch.nn as nn
 #####################
 
 
-@torch.jit.script
 def split_into_patches(
     x: torch.Tensor, sizes: T.Tuple[int, int], strides: T.Optional[T.Tuple[int, int]] = None
 ) -> torch.Tensor:
@@ -38,8 +37,6 @@ def split_into_patches(
 ##############################
 
 
-@torch.jit.script
-# @torch.compile(mode="reduce-overhead")
 def scale_invariant_logarithmic_error(x: torch.Tensor, y: torch.Tensor, num: int, eps: float) -> torch.Tensor:
     r"""
     Scale invariant logarithmic error.
@@ -58,8 +55,6 @@ def scale_invariant_logarithmic_error(x: torch.Tensor, y: torch.Tensor, num: int
     return (sile_1 - sile_2.clamp(max=sile_1)) / num_2
 
 
-@torch.jit.script
-# @torch.compile(mode="reduce-overhead")
 def relative_absolute_squared_error(
     x: torch.Tensor, y: torch.Tensor, num: int, eps: float
 ) -> T.Tuple[torch.Tensor, torch.Tensor]:
@@ -81,7 +76,6 @@ def relative_absolute_squared_error(
 ###################################
 
 
-@torch.jit.script
 def depth_guided_segmentation_loss(
     seg_feat: torch.Tensor, dep_true: torch.Tensor, eps: float, tau: int, patch_size: int
 ):
@@ -111,7 +105,6 @@ def depth_guided_segmentation_loss(
     return loss, mask
 
 
-@torch.jit.script
 def segmentation_guided_triplet_loss(
     dep_feat: torch.Tensor, seg_true: torch.Tensor, margin: float, threshold: int, patch_height: int, patch_width: int
 ):

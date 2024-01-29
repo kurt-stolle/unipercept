@@ -13,14 +13,14 @@ keywords = [
     "deep learning",
     "object detection",
     "instance segmentation",
-    "semantic segmentation"
+    "semantic segmentation",
 ]
 authors = [{ name = "Kurt Stolle", email = "k.h.w.stolle@gmail.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: Implementation :: CPython"
+    "Programming Language :: Python :: Implementation :: CPython",
 ]
 dependencies = [
     "evaluators >= 1.0.1",
@@ -63,7 +63,14 @@ exclude = ["tests"]
 namespaces = false
 
 [project.optional-dependencies]
-notebooks = ["jupyterlab", "ipywidgets", "ipykernel", "ipython-autotime", "matplotlib", "seaborn"]
+notebooks = [
+    "jupyterlab",
+    "ipywidgets",
+    "ipykernel",
+    "ipython-autotime",
+    "matplotlib",
+    "seaborn",
+]
 docs = ["sphinx", "sphinx-rtd-theme"]
 tests = [
     "hypothesis",
@@ -120,7 +127,7 @@ recursive = true
 targets = "sources"
 
 [tool.black]
-line-length = 120
+line-length = 88
 fast = true
 target-version = ['py311']
 
@@ -131,9 +138,10 @@ branch = true
 fail_under = 100
 
 [tool.flake8]
-max-complexity = 50
-max-line-length = 120
-select = "F,E,W,B,B901,B902,B903"
+max-complexity = 20
+max-line-length = 80
+select = "F,E,W,B,"
+ignore = ["E722", "B001", "W503", "E203"]
 exclude = [
     ".eggs",
     ".git",
@@ -147,13 +155,14 @@ exclude = [
     "swagger_client",
     "*.pyi",
 ]
-extend-ignore = ["E203"]
-ignore = ["E722", "B001", "W503", "E203"]
+extend-ignore = ["E203", "E501", "E704"]
+extend-select = ["B901", "B902", "B903", "B904", "B905", "B906", "B907", "B950"]
 per-file-ignores = """
     __init__.py: F401, F403
     __init__.pyi: F401, F403
     conftest.py: F401, F403, E402
 """
+
 
 [tool.pyright]
 include = ["sources"]
@@ -260,7 +269,7 @@ variable-naming-style = "snake_case"
 ignore-long-lines = "^\\s*(# )?.*['\"]?<?https?://\\S+>?"
 indent-after-paren = 4
 indent-string = '    '
-max-line-length = 120
+max-line-length = 88
 max-module-lines = 1000
 single-line-class-stmt = "no"
 single-line-if-stmt = "no"

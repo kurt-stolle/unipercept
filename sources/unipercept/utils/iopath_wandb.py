@@ -12,10 +12,15 @@ import typing_extensions as TX
 from iopath import file_lock, get_cache_dir
 from iopath.common.file_io import PathHandler
 
+from unipercept.log import get_logger
+
 if T.TYPE_CHECKING:
     from wandb import Artifact as WandBArtifact
 
 __all__ = ["WandBArtifactHandler"]
+
+
+_logger = get_logger(__name__)
 
 
 class WandBArtifactHandler(PathHandler):
@@ -55,6 +60,8 @@ class WandBArtifactHandler(PathHandler):
         elif name.startswith("/"):
             name = name[1:]
 
+        name = name.strip("/")
+        name = name.replace("//", "/")
         name = f"{name}:{version}"
 
         # Name is the netloc + name, where netloc could be empty
@@ -64,8 +71,10 @@ class WandBArtifactHandler(PathHandler):
         import wandb
 
         if self.use_run and wandb.run is not None:
+            _logger.debug("Using W&B artifact within a run")
             return wandb.run.use_artifact(name)
         elif self.use_api:
+            _logger.debug("Using W&B artifact using the API (without a run)")
             return wandb.Api().artifact(name)
         else:
             raise RuntimeError("No W&B run or API available")
@@ -93,7 +102,7 @@ class WandBArtifactHandler(PathHandler):
             path = os.path.join(get_cache_dir(cache_dir), name)
             with file_lock(path):
                 if not os.path.exists(path) or force:
-                    path = artifact.checkout(path)
+                    path = artifact.download(path)
                 elif os.path.isfile(path):
                     raise FileExistsError(f"A file exists at {path!r}")
             path = os.path.join(path, file) if file is not None else path

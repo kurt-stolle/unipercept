@@ -16,7 +16,7 @@ class PseudoGenerator:
     def __init__(
         self,
         depth_model="facebook/dpt-dinov2-large-kitti",  # "sayakpaul/glpn-kitti-finetuned-diode-221214-123047",
-        depth_factor: float = 8.0,
+        depth_factor: float = 1.0,
     ):
         self.depth_name = depth_model
         self.depth_factor = depth_factor

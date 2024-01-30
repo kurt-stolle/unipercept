@@ -72,6 +72,7 @@ for h in (
     WandBArtifactHandler(),
     EnvironPathHandler(
         "//datasets/",
+        "UP_DATASETS",
         "UNIPERCEPT_DATASETS",
         "UNICORE_DATASETS",
         "DETECTRON2_DATASETS",

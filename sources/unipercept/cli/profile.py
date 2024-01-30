@@ -11,7 +11,6 @@ import torch.autograd
 import torch.autograd.profiler
 import torch.nn as nn
 import torch.utils.data
-import typing_extensions as TX
 from tqdm import tqdm
 
 from unipercept import create_dataset, create_engine, create_model, file_io

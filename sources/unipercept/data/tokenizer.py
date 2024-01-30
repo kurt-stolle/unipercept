@@ -5,11 +5,9 @@ import gzip
 import html
 import os
 import re
-import typing as T
 
 import ftfy
 import torch
-import typing_extensions as TX
 
 
 @F.lru_cache()

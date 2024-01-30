@@ -14,7 +14,6 @@ import warnings
 
 import torch
 import torch.distributed as dist
-import typing_extensions as TX
 from torch.utils.data import (
     DataLoader,
     Dataset,

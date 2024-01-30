@@ -7,12 +7,10 @@ Paper: https://arxiv.org/abs/1904.04971
 from __future__ import annotations
 
 import math
-import typing as T
 from functools import partial
 
 import numpy as np
 import torch
-import typing_extensions as TX
 from torch import nn as nn
 from torch.nn import functional as F
 from typing_extensions import override

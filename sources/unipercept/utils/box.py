@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import typing as T
-from typing import Tuple
 
 import torch
-import typing_extensions as TX
 
 
 @torch.jit.script_if_tracing

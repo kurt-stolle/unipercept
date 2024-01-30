@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import math
-import typing as T
-from typing import Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import typing_extensions as TX
 from einops import parse_shape, rearrange
 from einops.layers.torch import EinMix
 from torch import Tensor

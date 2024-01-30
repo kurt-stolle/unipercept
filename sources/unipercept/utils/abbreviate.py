@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import re
-import typing as T
 from typing import Any
 
-import typing_extensions as TX
 
 
 def full_name(mod: Any) -> str:

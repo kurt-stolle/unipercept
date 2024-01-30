@@ -9,7 +9,6 @@ import multiprocessing
 import os
 import typing as T
 
-import typing_extensions as TX
 
 from unipercept.config import get_env
 

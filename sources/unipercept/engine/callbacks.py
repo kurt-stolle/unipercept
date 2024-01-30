@@ -195,7 +195,6 @@ class CallbackDispatcher:
         """
         Event called at the end of the initialization of the ``Engine``.
         """
-        pass
 
     def on_trackers_setup(
         self,
@@ -210,7 +209,6 @@ class CallbackDispatcher:
         Event called just before the initialization of the trackers, such that the user can pass additional keyword
         arguments to the tracker by modifying the ``init_kwargs`` dictionary.
         """
-        pass
 
     def on_train_begin(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -218,7 +216,6 @@ class CallbackDispatcher:
         """
         Event called at the beginning of training.
         """
-        pass
 
     def on_train_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -226,7 +223,6 @@ class CallbackDispatcher:
         """
         Event called at the end of training.
         """
-        pass
 
     def on_train_epoch_begin(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -234,7 +230,6 @@ class CallbackDispatcher:
         """
         Event called at the beginning of an epoch.
         """
-        pass
 
     def on_train_epoch_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -242,7 +237,6 @@ class CallbackDispatcher:
         """
         Event called at the end of an epoch.
         """
-        pass
 
     def on_train_step_begin(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -251,7 +245,6 @@ class CallbackDispatcher:
         Event called at the beginning of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
-        pass
 
     def on_train_substep_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -259,7 +252,6 @@ class CallbackDispatcher:
         """
         Event called at the end of an substep during gradient accumulation.
         """
-        pass
 
     def on_train_step_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -268,7 +260,6 @@ class CallbackDispatcher:
         Event called at the end of a training step. If using gradient accumulation, one training step might take
         several inputs.
         """
-        pass
 
     def on_evaluate(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -276,7 +267,6 @@ class CallbackDispatcher:
         """
         Event called after an evaluation phase.
         """
-        pass
 
     def on_predict(
         self, params: EngineParams, state: State, control: Signal, metrics, **kwargs
@@ -284,19 +274,16 @@ class CallbackDispatcher:
         """
         Event called after a successful prediction.
         """
-        pass
 
     def on_save(self, params: EngineParams, state: State, control: Signal, **kwargs):
         """
         Event called after a checkpoint save.
         """
-        pass
 
     def on_log(self, params: EngineParams, state: State, control: Signal, **kwargs):
         """
         Event called after logging the last logs.
         """
-        pass
 
     def on_inference_begin(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -304,7 +291,6 @@ class CallbackDispatcher:
         """
         Event called after a prediction step.
         """
-        pass
 
     def on_inference_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -312,7 +298,6 @@ class CallbackDispatcher:
         """
         Event called after a prediction step.
         """
-        pass
 
     def on_inference_step(
         self, params: EngineParams, state: State, control: Signal, **kwargs
@@ -320,7 +305,6 @@ class CallbackDispatcher:
         """
         Event called after a prediction step.
         """
-        pass
 
 
 ########################################

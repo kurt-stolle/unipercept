@@ -18,7 +18,6 @@ import numpy as np
 import numpy.typing as NP
 import torch
 import torch.utils.data
-import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept import file_io

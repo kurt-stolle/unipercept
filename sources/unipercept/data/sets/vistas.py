@@ -7,22 +7,19 @@ from __future__ import annotations
 import typing as T
 from datetime import datetime
 
-import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept import file_io
 
-from ..types import (
+from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,
     Manifest,
     ManifestSequence,
-    MotionRecord,
-    MotionSources,
 )
-from ._base import PerceptionDataset, SClass, SType, info_factory
-from ._pseudo import PseudoGenerator
-from .cityscapes import CAMERA
+from unipercept.data.sets._base import PerceptionDataset, SClass, SType, create_metadata
+from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.sets.cityscapes import CAMERA
 
 CLASSES_AS_CITYSCAPES = [
     SClass(
@@ -962,7 +959,7 @@ def get_info(variant: str = ""):
             use_cityscapes = False
         case _:
             raise ValueError(f"Unknown variant {variant!r}")
-    return info_factory(
+    return create_metadata(
         CLASSES if not use_cityscapes else CLASSES_AS_CITYSCAPES,
         depth_max=80.0,
         fps=17.0,

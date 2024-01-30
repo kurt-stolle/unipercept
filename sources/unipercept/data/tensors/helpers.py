@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import enum
 import functools
-import typing as T
 from typing import (
     Any,
     Callable,
@@ -10,7 +9,6 @@ from typing import (
     Iterable,
     Literal,
     Mapping,
-    MutableSequence,
     ParamSpec,
     Sequence,
     TypeVar,
@@ -19,7 +17,6 @@ from typing import (
 )
 
 import torch
-import typing_extensions as TX
 
 __all__ = ["multi_read", "NoEntriesAction", "get_kwd", "read_pixels"]
 

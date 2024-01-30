@@ -24,7 +24,6 @@ import torch.nn as nn
 import torch.optim
 import torch.types
 import torch.utils.data
-import typing_extensions as TX
 import wandb
 from omegaconf import OmegaConf
 from PIL import Image as pil_image

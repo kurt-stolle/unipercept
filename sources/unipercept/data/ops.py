@@ -20,14 +20,13 @@ import torch.utils.data as torch_data
 import torchvision.ops
 import torchvision.transforms.v2 as tvt2
 import torchvision.transforms.v2.functional
-import typing_extensions as TX
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
 
 from unipercept.log import get_logger
 from unipercept.utils.pickle import as_picklable
 
-from .tensors import BoundingBoxes, BoundingBoxFormat, DepthMap, PanopticMap
+from .tensors import BoundingBoxes, BoundingBoxFormat, PanopticMap
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData
@@ -122,7 +121,7 @@ class TorchvisionOp(Op):
 
     @override
     def _run(self, inputs: InputData) -> InputData:
-        from .tensors.registry import pixel_maps
+        pass
 
         if inputs.motions is not None:
             raise NotImplementedError("Transforms for motion data not supported!")

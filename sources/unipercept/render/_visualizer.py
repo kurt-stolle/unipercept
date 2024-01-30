@@ -13,7 +13,6 @@ import matplotlib.figure as mplfigure
 import numpy as np
 import pycocotools.mask as mask_util
 import torch
-import typing_extensions as TX
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from ._colormap import colormap, random_color, random_jitters

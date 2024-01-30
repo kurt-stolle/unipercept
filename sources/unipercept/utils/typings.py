@@ -7,9 +7,7 @@ from __future__ import annotations
 import datetime
 import os
 import pathlib
-import typing as T
 
-import typing_extensions as TX
 
 __all__ = ["Pathable", "Buffer"]
 

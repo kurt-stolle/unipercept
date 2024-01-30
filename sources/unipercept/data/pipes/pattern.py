@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import re
-import typing as T
 import warnings
 from enum import Enum
 from typing import Iterator
 
-import typing_extensions as TX
 from torchdata.datapipes import functional_datapipe
 from torchdata.datapipes.iter import IterDataPipe
 from typing_extensions import override

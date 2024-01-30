@@ -20,17 +20,8 @@ from unipercept.utils.tensorclass import Tensorclass
 
 if T.TYPE_CHECKING:
     from unipercept.data.collect import ExtractIndividualFrames
-    from unipercept.model import InputData, CaptureData, MotionData, CameraModel
 
-from ..types import (
-    CaptureRecord,
-    CaptureSources,
-    COCOCategory,
-    Manifest,
-    MotionRecord,
-    MotionSources,
-    QueueItem,
-)
+from unipercept.data.types import COCOCategory, Manifest, QueueItem
 
 __all__ = [
     "PerceptionDataset",
@@ -38,7 +29,7 @@ __all__ = [
     "SClass",
     "SType",
     "StuffMode",
-    "info_factory",
+    "create_metadata",
     "catalog",
 ]
 
@@ -453,7 +444,7 @@ class SClass:
         return ccat
 
 
-def info_factory(
+def create_metadata(
     sem_seq: T.Sequence[SClass],
     *,
     depth_max: float,

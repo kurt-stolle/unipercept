@@ -5,14 +5,11 @@ Trace command. This command is used to profile a model using FX tracing.
 from __future__ import annotations
 
 import argparse
-import typing as T
 
 import torch.fx
-import typing_extensions as TX
 
 from unipercept import create_model
-
-from ._command import command
+from unipercept.cli._command import command
 
 
 def main(args):
@@ -61,4 +58,4 @@ def trace(subparser: argparse.ArgumentParser):
 
 
 if __name__ == "__main__":
-    main()
+    command.root("trace")

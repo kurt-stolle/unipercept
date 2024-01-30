@@ -2,30 +2,23 @@ from __future__ import annotations
 
 import collections.abc
 import inspect
-import typing as T
 from functools import partial, wraps
 from itertools import repeat
 from typing import (
-    Annotated,
     Any,
     Callable,
     Iterable,
-    List,
     Literal,
-    Optional,
     ParamSpec,
     Sequence,
-    Tuple,
-    TypeAlias,
     TypeVar,
     cast,
     overload,
 )
 
 import torch
-import typing_extensions as TX
 from torch._dynamo import allow_in_graph
-from typing_extensions import TypeVarTuple, Unpack
+from typing_extensions import TypeVarTuple
 
 __all__ = []
 

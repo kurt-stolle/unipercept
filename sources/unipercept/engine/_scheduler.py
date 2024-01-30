@@ -6,7 +6,6 @@ import enum
 import functools
 import typing as T
 
-import typing_extensions as TX
 from timm.scheduler.scheduler import Scheduler
 from torch.optim import Optimizer
 

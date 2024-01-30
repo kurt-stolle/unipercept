@@ -4,9 +4,8 @@ import argparse
 import functools
 import inspect
 import typing as T
-from typing import Callable, Concatenate, Generic, Optional, ParamSpec, TypeAlias
+from typing import Callable, Concatenate, Generic, ParamSpec, TypeAlias
 
-import typing_extensions as TX
 
 import unipercept
 import unipercept.log
@@ -92,7 +91,7 @@ class command(Generic[CommandParams]):
         import sys
 
         if name is not None:
-            sys.argv.insert(0, "train")
+            sys.argv.insert(0, name)
 
         parser = cls.get_parser()
         args = parser.parse_args(*args, **kwargs)

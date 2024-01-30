@@ -4,7 +4,6 @@ import typing as T
 
 import torch.nn as nn
 import torch.utils.data
-import typing_extensions as TX
 
 __all__ = [
     "DataLoaderFactory",

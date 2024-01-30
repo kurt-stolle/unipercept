@@ -10,7 +10,6 @@ import typing as T
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.utils.inspect import locate_object

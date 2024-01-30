@@ -3,21 +3,17 @@
 from __future__ import annotations
 
 import typing
-import typing as T
 from enum import StrEnum
 from typing import (
     Any,
     Iterable,
     NoReturn,
-    Optional,
     TypeAlias,
     TypedDict,
     TypeGuard,
     TypeVar,
-    get_type_hints,
 )
 
-import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = []

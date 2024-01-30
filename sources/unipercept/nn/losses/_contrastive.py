@@ -4,11 +4,9 @@ Utilities for contrastive loss functions
 
 from __future__ import annotations
 
-import typing as T
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 
 from unipercept.nn.losses.mixins import ScaledLossMixin
 

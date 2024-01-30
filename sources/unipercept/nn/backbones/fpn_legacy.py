@@ -10,16 +10,14 @@ import typing as T
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
-from tensordict import TensorDictBase
 from torch.utils.checkpoint import checkpoint
 from typing_extensions import override
 
 import unipercept.nn.layers as _ML
 from unipercept.log import get_logger
-from unipercept.nn.layers.activation import ActivationSpec, get_activation
+from unipercept.nn.layers.activation import ActivationSpec
 from unipercept.nn.layers.conv import Conv2d as ConvModule
-from unipercept.nn.layers.norm import NormSpec, get_norm
+from unipercept.nn.layers.norm import NormSpec
 
 from ._base import Backbone, BackboneFeatureInfo, BackboneFeatures
 

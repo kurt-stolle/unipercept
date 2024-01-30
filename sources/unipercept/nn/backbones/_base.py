@@ -4,14 +4,11 @@
 
 from __future__ import annotations
 
-import abc
 import typing as T
 from collections import OrderedDict
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
-from tensordict import TensorDictBase
 
 __all__ = ["Backbone", "BackboneFeatureInfo", "BackboneFeatures"]
 

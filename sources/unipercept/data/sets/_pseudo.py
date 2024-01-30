@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import functools
-import typing as T
 
 import safetensors.torch as safetensors
 import torch
 import torch.utils.data
-import typing_extensions as TX
 from PIL import Image
 
 from unipercept import file_io
@@ -17,7 +15,7 @@ __all__ = ["PseudoGenerator"]
 class PseudoGenerator:
     def __init__(
         self,
-        depth_model="sayakpaul/glpn-kitti-finetuned-diode-221214-123047",
+        depth_model="facebook/dpt-dinov2-large-kitti",  # "sayakpaul/glpn-kitti-finetuned-diode-221214-123047",
         depth_factor: float = 8.0,
     ):
         self.depth_name = depth_model

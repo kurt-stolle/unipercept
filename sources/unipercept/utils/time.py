@@ -8,7 +8,6 @@ import typing as T
 from datetime import datetime
 
 import pandas as pd
-import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = ["get_timestamp", "ProfileAccumulator", "profile"]

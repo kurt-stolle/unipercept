@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import collections
 import enum
-import typing as T
 
 import torch
-import typing_extensions as TX
 
 from unipercept.log import get_logger
 

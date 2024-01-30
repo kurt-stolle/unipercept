@@ -22,22 +22,26 @@ from __future__ import annotations
 import typing as T
 import zipfile
 
-import typing_extensions as TX
 from tqdm import tqdm
 from typing_extensions import override
 
 from unipercept import file_io
-from unipercept.utils.time import get_timestamp
-
-from ..types import (
+from unipercept.data.sets._base import (
+    RGB,
+    Metadata,
+    PerceptionDataset,
+    SClass,
+    SType,
+    create_metadata,
+)
+from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,
     Manifest,
     ManifestSequence,
-    MotionSources,
 )
-from ._base import RGB, Metadata, PerceptionDataset, SClass, SType, info_factory
-from ._pseudo import PseudoGenerator
+from unipercept.utils.time import get_timestamp
 
 __all__ = ["SemKITTIDataset"]
 
@@ -184,7 +188,7 @@ def get_info() -> Metadata:
         ),
     ]
 
-    return info_factory(
+    return create_metadata(
         sem_list,
         depth_max=80.0,
         fps=17.0,

@@ -12,7 +12,6 @@ import typing as T
 
 import psutil
 import torch
-import typing_extensions as TX
 
 __all__ = ["MemoryTracker"]
 

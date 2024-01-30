@@ -5,11 +5,10 @@ Entry point for the CLI.
 from __future__ import annotations
 
 import sys
-import typing as T
 
-import typing_extensions as TX
+from unipercept.cli import backbones, command, echo, profile, trace, train
 
-from unipercept.cli import command
+__all__ = ["backbones", "echo", "profile", "trace", "train"]
 
 command.root()
 sys.exit(0)

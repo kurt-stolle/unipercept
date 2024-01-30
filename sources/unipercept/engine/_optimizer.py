@@ -13,7 +13,6 @@ import timm.optim
 import timm.optim.optim_factory
 import torch.nn as nn
 import torch.optim
-import typing_extensions as TX
 
 from unipercept.log import get_logger
 from unipercept.state import get_process_count
@@ -518,7 +517,7 @@ def get_optimizer_params(
         T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]
     ] = None,
 ) -> list[ParameterDefinition]:
-    from ..nn.layers import norm
+    pass
 
     if param_overrides is None:
         param_overrides = {}

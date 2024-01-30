@@ -6,11 +6,9 @@ Now uses the `torchvision.ops.DeformConv2d` module to do the heavy lifting.
 
 from __future__ import annotations
 
-import typing as T
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 from torchvision.ops import DeformConv2d
 from typing_extensions import override
 

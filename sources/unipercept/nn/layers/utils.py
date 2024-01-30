@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import collections.abc
-import typing as T
 from itertools import repeat
 
-import typing_extensions as TX
 
 
 def _ntuple(n):

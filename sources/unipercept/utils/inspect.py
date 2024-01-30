@@ -8,7 +8,6 @@ import sys
 import types
 import typing as T
 
-import typing_extensions as TX
 
 
 def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:

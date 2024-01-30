@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import typing as T
 
-import typing_extensions as TX
 
 try:
     import datasets
 except ImportError:
     datasets = None
 
-from ._base import PerceptionDataset, info_factory
+from ._base import PerceptionDataset
 
 __all__ = []
 

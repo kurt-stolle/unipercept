@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import os
-import typing as T
 from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 
 import torch
-import typing_extensions as TX
-from typing_extensions import override
 
 from unipercept import file_io
 

@@ -7,10 +7,8 @@ Paper: https://arxiv.org/abs/1907.09595
 
 from __future__ import annotations
 
-import typing as T
 
 import torch
-import typing_extensions as TX
 from torch import nn as nn
 from typing_extensions import override
 

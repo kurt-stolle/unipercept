@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import typing as T
 from typing import Mapping, NotRequired, Sequence, TypedDict
 
-import typing_extensions as TX
 
 __all__ = ["COCOAnnotation", "COCOCategory", "COCOImage", "COCOManifest"]
 

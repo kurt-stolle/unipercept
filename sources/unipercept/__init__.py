@@ -1,12 +1,16 @@
 """
-UniPercept
-----------
 
-A framework for computer vision research and development based on PyTorch.
+UniPercept: A framework for computer vision research based on PyTorch.
+
+======================================================================
+
 """
+
 from __future__ import annotations
 
 __version__ = "5.1.1"
+
+from unipercept._monkeypatch import *  # isort: skip; noqa: F401, F403; black: skip
 
 from unipercept import (
     config,
@@ -23,4 +27,3 @@ from unipercept import (
 )
 from unipercept._api_config import *
 from unipercept._api_data import *
-from unipercept._monkeypatch import *

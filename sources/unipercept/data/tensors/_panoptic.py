@@ -5,7 +5,6 @@ from enum import StrEnum, auto
 
 import safetensors.torch as safetensors
 import torch
-import typing_extensions as TX
 from torchvision.tv_tensors import Mask as _Mask
 from typing_extensions import override
 

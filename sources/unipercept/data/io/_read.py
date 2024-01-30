@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import functools
 import typing as T
 
 import torch
-import typing_extensions as TX
 from PIL import Image as pil_image
 from torchvision.io import ImageReadMode
 from torchvision.transforms.v2.functional import to_dtype, to_image
@@ -33,7 +31,6 @@ MAX_CACHE: T.Final = 1000
 def read_image(path: str, *, mode=ImageReadMode.RGB) -> up.data.tensors.Image:
     """Read an image from the disk."""
 
-    from unipercept.data.tensors import Image
 
     with pil_image.open(path) as img_pil:
         img_pil = img_pil.convert("RGB")

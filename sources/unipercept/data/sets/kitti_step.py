@@ -1,17 +1,41 @@
 """
-KITTI STEP dataset
+KITTI STEP dataset.
+
+===================
+
+See Also
+--------
+
+`cvlibs <https://www.cvlibs.net/datasets/kitti//eval_step.php>`_
 """
 
 from __future__ import annotations
 
+import dataclasses as D
+import functools
+import re
 import typing as T
 
 import typing_extensions as TX
+from tqdm import tqdm
 
 from unipercept import file_io
-from unipercept.utils.image import size as get_image_size
-
-from ._base import RGB, PerceptionDataset, SClass, SType, info_factory
+from unipercept.data.sets._base import (
+    RGB,
+    PerceptionDataset,
+    SClass,
+    SType,
+    create_metadata,
+)
+from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.sets.cityscapes import CLASSES
+from unipercept.data.types import (
+    CaptureRecord,
+    CaptureSources,
+    Manifest,
+    ManifestSequence,
+    PinholeModelParameters,
+)
 
 __all__ = ["KITTISTEPDataset"]
 
@@ -157,76 +181,218 @@ CLASSES: T.Final[T.Sequence[SClass]] = [
 ]
 
 
-def get_info():
-    return info_factory(
-        CLASSES,
-        depth_max=80.0,
-        fps=17.0,
+@D.dataclass(frozen=True, slots=True)
+class FileID:
+    """
+    Unique representation of each captured sample in the dataset.
+    Files are organized as the following examples:
+
+        - **/{seq}/{frame}.{ext}
+    """
+
+    seq: str
+    frame: str
+    ext: str
+
+    pattern: T.ClassVar[re.Pattern[str]] = re.compile(
+        r"(?P<drive>\d\d\d\d_\d\d_\d\d_drive_\d\d\d\d_sync)[\\/]"
+        r"(?P<camera>image_\d\d)[\\/]"
+        r"(?P<kind>[\w_]+)[\\/]"
+        r"(?P<frame>\d+)"
+        r"(?P<ext>\..+)$"  # noqa: 501
     )
 
+    @classmethod
+    def from_path(cls, path: str) -> T.Self:
+        match = cls.pattern.search(path)
+        assert match is not None
+        return cls(
+            seq=match.group("seq"),
+            frame=match.group("frame"),
+            ext=match.group("ext"),
+        )
 
-class KITTISTEPDataset(PerceptionDataset, info=get_info, id="kitti-step"):
-    """Implements KITTI-STEP."""
+    @classmethod
+    def attach_id(cls, path: str) -> tuple[T.Self, str]:
+        """
+        Transforms a path into an ID and a dictionary of paths indexed by key.
+        """
+        return cls.from_path(path), path
 
-    root = "//datasets/kitti-step"
+
+class KITTISTEPDataset(
+    PerceptionDataset,
+    info=functools.partial(create_metadata, CLASSES, depth_max=80, fps=15),
+    id="kitti-step",
+):
     split: T.Literal["train", "val", "test"]
+    root: str = "//datasets/kitti-step"
 
     @property
     def root_path(self) -> file_io.Path:
         return file_io.Path(self.root)
 
     @property
-    def labels_path(self) -> file_io.Path:
-        return self.root_path / "panoptic_maps" / self.split
+    def is_installed(self) -> bool:
+        return file_io.isdir(self.root)
 
-    @property
-    def depths_path(self) -> file_io.Path:
-        return self.root_path / "proj_depth" / self.split
+    def _discover_files(self) -> T.Iterable[FileID]:
+        """
+        The dataset has a peculiar structure:
 
-    @property
-    def images_path(self) -> file_io.Path:
-        return self.root_path / self.split
+        - {root}
+            - training
+                - {sequence_training}
+                    - {frame}.png  <-- input image
+            - testing
+                - {sequence_testing}
+                    - {frame}.png  <-- input image
+            - panoptic_maps
+                - train
+                    - {sequence_training}
+                        - {frame}.png  <-- panoptic segmentation
+                - val
+                    - {sequence_training}
+                        - {frame}.png  <-- panoptic segmentation
 
-    def discover(self):
-        # Images in `image_dir` are organized as `{seq_id}/{frame_id}.png`
-        for seq_path in self.images_path.iterdir():
-            if not seq_path.is_dir():
-                raise ValueError(f"Not a directory: {seq_path}")
 
-            seq_id = seq_path.name
+        We discover the files by reading the input images and in the case of train/val
+        use the panoptic map sequence lists to exclude/include sequences.
+        """
 
-            for frame_path in seq_path.iterdir():
-                frame_id = frame_path.name.replace(".png", "")
-                width, height = get_image_size(frame_path)
+        # Read the sequence lists from the panoptic maps
+        if self.split != "test":
+            seq_list = [
+                p
+                for p in (self.root_path / "panoptic_maps" / self.split).glob("*")
+                if p.is_dir()
+            ]
 
-                record = Record(
-                    image_id=frame_id,
-                    frame=int(frame_id),
-                    sequence_id=seq_id,
-                    image=FileResource(path=frame_path.as_posix(), type="image"),
-                    camera=CameraSpec(
-                        intrinsic={
-                            "fx": 707.09,
-                            "fy": 707.09,
-                            "u0": float(width / 2),
-                            "v0": float(height / 2),
-                        },
-                        extrinsic={},
-                    ),
-                    height=height,
-                    width=width,
+            if len(seq_list) == 0:
+                msg = (
+                    f"No sequences found in {self.root_path} for {self.split}. "
+                    "Did you download the panoptic maps?"
                 )
+                raise RuntimeError(msg)
+        else:
+            seq_list = None
 
-                panseg_path = self.labels_path / seq_id / f"{frame_id}.png"
-                if panseg_path.is_file():
-                    record["panseg"] = FileResource(
-                        path=panseg_path.as_posix(), type="kitti"
-                    )
+        for path in (
+            self.root_path
+            / ("training" if self.split != "test" else "testing")
+            / "image_02"
+        ).glob("**/*.png"):
+            id = FileID.from_path(path.as_posix())
+            if seq_list is not None and id.seq not in seq_list:
+                continue
+            yield id
 
-                depth_path = self.depths_path / seq_id / f"{frame_id}.png"
-                if depth_path.is_file():
-                    record["depth"] = FileResource(
-                        path=depth_path.as_posix(), type="depth"
-                    )
+    def _discover_sources(self) -> T.Mapping[FileID, CaptureSources]:
+        sources_map: dict[FileID, CaptureSources] = {}
+        pseudo_gen = PseudoGenerator(depth_factor=80 / 10.0)
 
-                yield record
+        # Create mapping of ID -> dt.CaptureSources
+        files_list = sorted(self._discover_files(), key=lambda id: (id.seq, id.frame))
+        for id in tqdm(files_list, desc="Discovering and generating pseudolabels"):
+            if id.seq != "data_rect":
+                continue
+            image_path = (
+                self.root_path
+                / ("training" if self.split != "test" else "testing")
+                / id.seq
+                / f"{id.frame}{id.ext}"
+            )
+            assert image_path.is_file(), f"File {image_path} does not exist"
+
+            panseg_path = (
+                self.root_path / "panoptic_maps" / self.split / f"{id.frame}.png"
+            )
+
+            if not panseg_path.is_file():
+                panseg_path = None
+
+            depth_path = (
+                self.root_path / "mono_depth" / id.seq / f"{id.frame}.safetensors"
+            )
+            if not depth_path.is_file():
+                pseudo_gen.create_depth_source(image_path, depth_path)
+
+            partial_sources: CaptureSources = {
+                "image": {
+                    "path": image_path.as_posix(),
+                },
+                "depth": {
+                    "path": depth_path.as_posix(),
+                    "meta": {
+                        "format": "safetensors",
+                    },
+                },
+            }
+            if panseg_path is not None:
+                partial_sources["panoptic"] = {
+                    "path": panseg_path.as_posix(),
+                    "meta": {
+                        "format": "kitti",
+                    },
+                }
+            sources_map[id] = partial_sources
+
+        if len(sources_map) == 0:
+            raise RuntimeError("No files were discovered!")
+
+        return sources_map
+
+    def _get_camera_intrinsics(self, id: FileID) -> PinholeModelParameters:
+        """
+        Returns the camera intrinsics for the given sequence and camera.
+        """
+
+        # TODO: return something that is not a stub
+        camera_intrinsics: PinholeModelParameters = {
+            "focal_length": [0.0, 0.0],
+            "image_size": [512, 1024],
+            "principal_point": [0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0],
+            "translation": [0.0, 0.0, 0.0],
+        }
+
+        return camera_intrinsics
+
+    @TX.override
+    def _build_manifest(self) -> Manifest:
+        sources_map = self._discover_sources()
+
+        # Create the sequences map
+        sequences: dict[str, ManifestSequence] = {}
+        for id, sources in tqdm(sources_map.items(), desc="Building manifest"):
+            if id.seq != "data_rect":
+                continue
+
+            seq_key = f"{self.split[:3]}{id.seq}"
+
+            cap: CaptureRecord = {
+                "primary_key": f"kitti-step/{seq_key}/{id.frame}",
+                "time": float(id.frame) / self.info.fps,  # t = frame / fps
+                "observer": "image_02",
+                "meta": {},
+                "sources": sources,
+            }
+
+            seq_key = f"{self.split[:3]}{id.seq}"
+            seq = sequences.setdefault(
+                seq_key,
+                ManifestSequence(
+                    camera=self._get_camera_intrinsics(id),
+                    fps=self.info.fps,
+                    motions=[],
+                    captures=[],
+                ),
+            )
+            seq["captures"].append(cap)
+
+        # Sort each sequence's captures and motions by time
+        for seq in sequences.values():
+            seq["captures"].sort(key=lambda c: c["time"])
+            seq["motions"].sort(key=lambda m: m["frames"][0])
+
+        return {"sequences": sequences, "timestamp": "2023-01-30", "version": "1.0.0"}

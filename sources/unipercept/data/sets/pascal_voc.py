@@ -10,7 +10,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Mapping
 
-import typing_extensions as TX
 from tqdm import tqdm
 from typing_extensions import override
 
@@ -20,8 +19,14 @@ from unipercept.render import colormap
 
 _logger = get_logger(__name__)
 
-from ._base import RGB, PerceptionDataset, SClass, SType, info_factory
-from ._pseudo import PseudoGenerator
+from unipercept.data.sets._base import (
+    RGB,
+    PerceptionDataset,
+    SClass,
+    SType,
+    create_metadata,
+)
+from unipercept.data.sets._pseudo import PseudoGenerator
 
 if T.TYPE_CHECKING:
     import unipercept as up
@@ -73,7 +78,7 @@ def get_info() -> up.data.sets.Metadata:
             )
         )
 
-    return info_factory(
+    return create_metadata(
         sem_list,
         depth_max=80.0,
         fps=15.0,

@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import copy
 import re
-import typing as T
 from types import MappingProxyType
 from typing import ClassVar, Mapping, Optional, Sequence
 
-import typing_extensions as TX
 from typing_extensions import Self, override
 
 

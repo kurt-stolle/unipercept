@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import typing as T
 
 import torch
-import typing_extensions as TX
 from torch import Tensor
 
 from ._so3 import _so3_exp_map, hat, so3_log_map

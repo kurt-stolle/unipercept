@@ -15,7 +15,6 @@ import typing as T
 from collections import Counter
 from typing import Optional
 
-import typing_extensions as TX
 from tabulate import tabulate
 from termcolor import colored
 from typing_extensions import override
@@ -121,11 +120,24 @@ def _canonicalize_name(name: str) -> str:
     """
     Canonicalizes a logger name into a full module name without private submodules.
     """
+    from pathlib import Path
 
-    name_parts = name.split(".")
-    while name_parts[-1].startswith("_"):
-        name_parts.pop()
-    name = ".".join(name_parts)
+    if name.endswith(".py"):
+        file = Path(name)
+        root = Path(__file__).parent
+        if file.is_relative_to(root):
+            name = file.relative_to(root).with_suffix("").as_posix()
+            name = name.replace("/", ".")
+        else:
+            raise ValueError(f"Cannot canonicalize name: {name}")
+
+    try:
+        name_parts = name.split(".")
+        while name_parts[-1].startswith("_"):
+            name_parts.pop()
+        name = ".".join(name_parts)
+    except IndexError:
+        name = "unipercept"
     return name
 
 

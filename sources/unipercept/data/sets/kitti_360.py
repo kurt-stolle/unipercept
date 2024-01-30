@@ -11,26 +11,22 @@ import re
 import typing as T
 from pathlib import Path
 
-import typing_extensions as TX
 from tqdm import tqdm
 
 from unipercept import file_io
-from unipercept.utils.formatter import formatter
-
-from ..types import (
+from unipercept.data.sets._base import Metadata, PerceptionDataset, create_metadata
+from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.sets.cityscapes import CLASSES
+from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,
     Manifest,
     ManifestSequence,
-    MotionRecord,
     PinholeModelParameters,
 )
-from ._base import Metadata, PerceptionDataset, SClass, StuffMode, SType, info_factory
-from ._pseudo import PseudoGenerator
-from .cityscapes import CLASSES
 
 
-@D.dataclass(frozen=True)
+@D.dataclass(frozen=True, slots=True)
 class FileID:
     """
     Unique representation of each file in the dataset. Files are organized as the following examples:
@@ -41,8 +37,6 @@ class FileID:
         - /datasets/kitti-360/data_2d_semantics/train/2013_05_28_drive_0000_sync/image_00/instance/0000000000.png
 
     """
-
-    __slots__ = ("drive", "camera", "kind", "frame", "ext")
 
     drive: str
     camera: str
@@ -79,7 +73,7 @@ class FileID:
 
 
 def get_info() -> Metadata:
-    return info_factory(CLASSES, depth_max=80, fps=15)
+    return create_metadata(CLASSES, depth_max=80, fps=15)
 
 
 class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):

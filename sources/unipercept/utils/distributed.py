@@ -8,7 +8,6 @@ import typing as T
 
 import torch
 import torch.distributed as D
-import typing_extensions as TX
 
 __all__ = ["is_main_process", "wait_for_sync"]
 

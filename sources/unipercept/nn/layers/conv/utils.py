@@ -11,7 +11,6 @@ import typing as T
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
@@ -169,7 +168,7 @@ _T = T.TypeVar("_T", bound=nn.Module)
 def _wrap_init(
     init: T.Callable[T.Concatenate[_T, int, int, int, _InitParams], None]
 ) -> T.Callable[T.Concatenate[_T, int, int, int, _InitParams], None]:
-    sig = inspect.signature(init)
+    inspect.signature(init)
 
     # Validate signature has first four expected arguments
     # sig_expected = ("self", "in_channels", "out_channels", "kernel_size")

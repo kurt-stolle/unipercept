@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import typing as T
 
-import typing_extensions as TX
 from typing_extensions import override
 
 import unipercept.data.types as data_types

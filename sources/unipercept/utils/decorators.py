@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import functools
-import typing as T
 from copy import copy, deepcopy
 from types import MethodType
 from typing import Callable, Concatenate, Generic, ParamSpec, TypeVar, overload
 
-import typing_extensions as TX
 
 try:
     from typing import Self  # type: ignore

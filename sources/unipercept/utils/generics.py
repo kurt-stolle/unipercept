@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import functools
 import types
-import typing as T
 from typing import Final, Generic, TypeVar, cast
 
-import typing_extensions as TX
 
 from unipercept.utils.missing import MissingValue
 

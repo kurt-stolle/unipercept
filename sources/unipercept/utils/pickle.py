@@ -7,7 +7,6 @@ import typing as T
 import warnings
 
 import cloudpickle
-import typing_extensions as TX
 from typing_extensions import override
 
 __all__ = ["pickles", "as_picklable"]

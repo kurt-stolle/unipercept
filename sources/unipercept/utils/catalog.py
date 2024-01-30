@@ -7,7 +7,6 @@ from __future__ import annotations
 import re
 import typing as T
 
-import typing_extensions as TX
 
 from unipercept.utils.dataset import Dataset
 from unipercept.utils.registry import Registry

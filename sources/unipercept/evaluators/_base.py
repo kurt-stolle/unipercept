@@ -11,14 +11,12 @@ import typing as T
 import pandas as pd
 import torch
 import torch.types
-import typing_extensions as TX
 from PIL import Image as pil_image
-from tensordict import TensorDict, TensorDictBase
+from tensordict import TensorDictBase
 
 from unipercept.log import get_logger
 
 if T.TYPE_CHECKING:
-    from ..data import DataLoaderFactory
     from ..model import TensorDictBase
 
 __all__ = ["Evaluator", "PlotMode"]

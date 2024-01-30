@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import typing as T
-from typing import Optional
 
 import torch
-import typing_extensions as TX
 from torch import Tensor
 
 from unipercept.utils.tensorclass import Tensorclass

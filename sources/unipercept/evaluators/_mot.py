@@ -4,12 +4,10 @@ Implementation of metrics to evaluate object tracking performance.
 
 from __future__ import annotations
 
-import dataclasses as D
 import typing as T
 
 import torch
 import torch.types
-import typing_extensions as TX
 from tensordict import TensorDict, TensorDictBase
 
 from ._base import Evaluator

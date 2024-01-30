@@ -4,13 +4,8 @@ Implements a Squeeze-and-Excitation layer.
 
 from __future__ import annotations
 
-import functools
-import typing as T
 
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import typing_extensions as TX
 from typing_extensions import override
 
 from .utils import make_divisible

@@ -4,7 +4,6 @@ import types
 import typing as T
 from weakref import WeakValueDictionary
 
-import typing_extensions as TX
 from typing_extensions import override
 
 _O = T.TypeVar("_O", bound=T.Any)

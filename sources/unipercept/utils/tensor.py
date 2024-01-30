@@ -3,7 +3,6 @@ from __future__ import annotations
 import typing as T
 
 import torch
-import typing_extensions as TX
 
 __all__ = []
 

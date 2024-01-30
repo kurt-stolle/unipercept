@@ -16,7 +16,7 @@ import typing_extensions as TX
 from unipercept import file_io
 
 if T.TYPE_CHECKING:
-    from unipercept.engine import EngineParams, EngineStage
+    from unipercept.engine import EngineParams
 
 __all__ = ["Accelerator"]
 

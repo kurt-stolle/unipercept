@@ -8,7 +8,6 @@ import typing as T
 
 import typing_extensions as TX
 
-from .._monkeypatch import *
-from . import backbones, echo, profile, trace, train
-from ._command import *
-from ._config import *
+from unipercept._monkeypatch import *
+from unipercept.cli._command import *
+from unipercept.cli._config import *

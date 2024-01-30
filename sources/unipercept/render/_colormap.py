@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import random
-import typing as T
 
 import numpy as np
-import typing_extensions as TX
 
 __all__ = ["colormap", "random_color", "random_colors"]
 

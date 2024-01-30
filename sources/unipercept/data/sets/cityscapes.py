@@ -10,9 +10,8 @@ import re
 import typing as T
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Literal, Mapping, NamedTuple, Sequence
+from typing import Iterable, Literal, Mapping
 
-import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept import file_io
@@ -20,7 +19,13 @@ from unipercept.data.pipes import UniCoreFileLister
 from unipercept.utils.dataserial import serializable
 from unipercept.utils.formatter import formatter
 
-from ._base import RGB, PerceptionDataset, SClass, SType, info_factory
+from unipercept.data.sets._base import (
+    RGB,
+    PerceptionDataset,
+    SClass,
+    SType,
+    create_metadata,
+)
 
 if T.TYPE_CHECKING:
     import unipercept as up
@@ -290,7 +295,7 @@ CLASSES: T.Final[T.Sequence[SClass]] = [
 
 
 def get_info():
-    return info_factory(
+    return create_metadata(
         CLASSES,
         depth_max=80.0,
         fps=17.0,

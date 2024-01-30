@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import os
 import random
-import typing as T
 
 import numpy as np
 import torch
-import typing_extensions as TX
 
 __all__ = ["seed_worker", "set_seed"]
 

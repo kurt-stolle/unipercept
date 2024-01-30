@@ -8,7 +8,6 @@ from __future__ import annotations
 import importlib
 import typing as T
 
-import typing_extensions as TX
 
 
 def lazy_module_factory(

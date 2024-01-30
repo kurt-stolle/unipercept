@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import typing as T
 
-import typing_extensions as TX
 
-from ._command import command
+from unipercept.cli._command import command
 
 __all__ = []
 
@@ -48,4 +46,4 @@ def read_backbones(name: str, pretrained: bool):
 
 
 if __name__ == "__main__":
-    command.root()
+    command.root("backbones")

@@ -10,7 +10,6 @@ import typing as T
 import timm.models
 import torch.nn as nn
 import torchvision.models.feature_extraction
-import typing_extensions as TX
 
 __all__ = [
     "register_notrace_module",

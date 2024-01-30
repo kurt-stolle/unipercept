@@ -5,7 +5,6 @@ import enum as E
 import functools
 import typing as T
 
-import typing_extensions as TX
 
 __all__ = [
     "assert_status",

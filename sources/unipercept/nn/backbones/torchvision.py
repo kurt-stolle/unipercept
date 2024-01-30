@@ -8,9 +8,6 @@ import warnings
 from collections import OrderedDict
 
 import torch
-import torch.nn as nn
-import typing_extensions as TX
-from tensordict import TensorDict
 from typing_extensions import override
 
 from .wrapper import (

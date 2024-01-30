@@ -6,8 +6,7 @@ import argparse
 import enum
 import typing as T
 
-import typing_extensions as TX
-from bullet import Bullet, Input
+from bullet import Bullet
 from typing_extensions import override
 
 import unipercept as up

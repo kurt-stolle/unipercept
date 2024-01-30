@@ -10,17 +10,10 @@ import dataclasses as D
 import enum as E
 import typing as T
 
-import torch
-import torch.nn as nn
-import typing_extensions as TX
-import wandb
-from torch.utils.data import DataLoader
-from typing_extensions import override
 
-from unipercept.config import LazyObject, instantiate
 
 if T.TYPE_CHECKING:
-    import unipercept as up
+    pass
 
 _W_contra = T.TypeVar("_W_contra", contravariant=True)
 

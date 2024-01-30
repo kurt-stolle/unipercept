@@ -7,9 +7,7 @@ from __future__ import annotations
 import typing as T
 
 import torch
-import torch.nn as nn
 import torch.special
-import typing_extensions as TX
 
 __all__ = ["DTYPE_INT", "DTYPE_FLOAT", "EPS", "stable_divide", "isin"]
 

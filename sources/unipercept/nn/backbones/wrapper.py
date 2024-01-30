@@ -7,9 +7,7 @@ import enum
 import typing as T
 
 import torch
-import torchvision.transforms.v2 as tvt2
-import typing_extensions as TX
-from tensordict import TensorDict, TensorDictBase
+from tensordict import TensorDictBase
 from typing_extensions import override
 
 from ._base import Backbone, BackboneFeatureInfo

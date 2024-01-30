@@ -6,7 +6,6 @@ import typing as T
 from pathlib import Path
 from typing import Any, TypeAlias
 
-import typing_extensions as TX
 
 from unipercept.utils.frozendict import frozendict
 

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import typing as T
 
 import torch
-import typing_extensions as TX
 
 __all__ = ["build_pinhole_intrinsics", "build_pinhole_extrinsics"]
 

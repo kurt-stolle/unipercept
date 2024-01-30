@@ -13,7 +13,6 @@ import numpy as np
 import PIL.Image as pil_image
 import torch
 import torchvision.transforms.functional as F
-import typing_extensions as TX
 from tensordict import TensorDict, TensorDictBase
 
 if T.TYPE_CHECKING:

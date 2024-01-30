@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import typing as T
-import warnings
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, List, Optional
 
 import torch
-import typing_extensions as TX
 from torch import Tensor, device
 
 from ._se3 import se3_log_map

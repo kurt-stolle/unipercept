@@ -5,7 +5,6 @@ import enum as E
 import logging
 import typing as T
 
-import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.data import DataLoaderFactory

@@ -38,6 +38,7 @@ dependencies = [
     "iopath",
     "torchdata",
     "fvcore",
+    "transformers",
     "seaborn",
     "matplotlib",
     "tabulate",
@@ -240,11 +241,18 @@ exclude = ["datasets", "dependencies", "output", "**/prototypes"]
 executionEnvironments = [{ root = "sources" }]
 
 [tool.autoflake]
-check = true
-exclude = ["configs/**/*"]
+check = false
+exclude = [
+    "configs/**/*",
+    "__init__.py",
+    "tests/**/*",
+    "configs/**/*",
+    "docs/**.*",
+]
 imports = [
     "requests",
     "torch",
+    "transformers",
     "torchvision",
     "tensordict",
     "unitrack",

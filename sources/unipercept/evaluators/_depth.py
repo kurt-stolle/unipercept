@@ -8,13 +8,10 @@ import typing as T
 
 import torch
 import torch.types
-import typing_extensions as TX
 from PIL import Image as pil_image
-from tensordict import TensorDict, TensorDictBase
+from tensordict import TensorDictBase
 from typing_extensions import override
 
-from ..data.tensors import DepthMap
-from ..log import get_logger
 from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:

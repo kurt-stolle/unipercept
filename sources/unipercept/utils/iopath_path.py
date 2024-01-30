@@ -4,11 +4,9 @@ Extends `pathlib.Path` to work with `iopath.common.file_io.PathManager`.
 from __future__ import annotations
 
 import os
-import typing as T
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
-import typing_extensions as TX
 from iopath.common.file_io import PathManager
 from typing_extensions import Self, override
 

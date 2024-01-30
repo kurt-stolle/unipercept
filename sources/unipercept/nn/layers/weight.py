@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import typing as T
 from functools import partial
 from types import EllipsisType
-from typing import Callable, Concatenate, Literal, Sequence, Type
+from typing import Callable, Sequence, Type
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 from fvcore.nn.weight_init import c2_xavier_fill
 
 

@@ -6,14 +6,12 @@ import os
 import typing as T
 
 import torch
-import typing_extensions as TX
 from omegaconf import DictConfig
 
 import unipercept as up
-import unipercept.file_io as file_io
 from unipercept.cli._command import command
 
-_logger = up.log.get_logger(__name__)
+_logger = up.log.get_logger()
 _config_t: T.TypeAlias = DictConfig
 
 
@@ -70,45 +68,6 @@ def setup(args) -> _config_t:
         apply_debug_mode(args.config)
 
     return args.config
-
-
-# def launch_simple(args):
-#     cmd, current_env = prepare_simple_launcher_cmd_env(args)
-
-#     process = subprocess.Popen(cmd, env=current_env)
-#     process.wait()
-#     if process.returncode != 0:
-#         if not args.quiet:
-#             raise subprocess.CalledProcessError(returncode=process.returncode, cmd=cmd)
-#         else:
-#             sys.exit(1)
-
-
-# def launch_cuda(args):
-#     from unipercept.utils.cuda import has_p2pib_support
-#     import torch.distributed.run as distrib_run
-
-#     current_env = prepare_multi_gpu_env(args)
-#     if not has_p2pib_support():
-#         current_env["NCCL_P2P_DISABLE"] = "1"
-#         current_env["NCCL_IB_DISABLE"] = "1"
-
-#     debug = getattr(args, "debug", False)
-#     args = _filter_args(
-#         args,
-#         distrib_run.get_args_parser(),
-#         ["--training_script", args.training_script, "--training_script_args", args.training_script_args],
-#     )
-#     with patch_environment(**current_env):
-#         try:
-#             distrib_run.run(args)
-#         except Exception:
-#             if is_rich_available() and debug:
-#                 console = get_console()
-#                 console.print("\n[bold red]Using --debug, `torch.distributed` Stack Trace:[/bold red]")
-#                 console.print_exception(suppress=[__file__], show_locals=False)
-#             else:
-#                 raise
 
 
 def main(args):

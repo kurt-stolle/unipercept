@@ -5,7 +5,6 @@ import typing as T
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 from torch import Tensor
 from torchvision.ops import sigmoid_focal_loss
 from typing_extensions import override

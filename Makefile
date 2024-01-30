@@ -12,6 +12,9 @@ clean:
 # video: 
 # 	ffmpeg -framerate 30 -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p out.mp4
 
+autoflake: 
+	python3 -m autoflake --remove-all-unused-imports --recursive --remove-unused-variables --quiet --in-place sources --exclude=__init__.py
+
 install:
 	./scripts/install.sh
 

@@ -5,9 +5,7 @@ Commmon utilities for working with strings.
 from __future__ import annotations
 
 import re
-import typing as T
 
-import typing_extensions as TX
 
 __all__ = ["convert_word_separator", "to_snake_case", "to_kebab_case"]
 

@@ -8,11 +8,8 @@ import json
 import typing as T
 from datetime import datetime
 
-import typing_extensions as TX
-
 from unipercept import file_io
-
-from ._base import PerceptionDataset, info_factory
+from unipercept.data.sets._base import PerceptionDataset, create_metadata
 
 if T.TYPE_CHECKING:
     import unipercept as up
@@ -294,7 +291,9 @@ def get_info():
             "name": "road-marking(flat)",
         },
     ]
-    return info_factory(categories=categories, depth_max=80.0, label_divisor=int(1e8))
+    return create_metadata(
+        categories=categories, depth_max=80.0, label_divisor=int(1e8)
+    )
 
 
 class WildDashDataset(PerceptionDataset, id="wilddash", info=get_info):

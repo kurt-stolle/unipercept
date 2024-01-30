@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import typing as T
-from logging import warn
 from typing import Any, Sequence, TypedDict, TypeGuard, TypeVar, is_typeddict
 
-import typing_extensions as TX
 
 DictType = TypeVar("DictType", bound=TypedDict)
 

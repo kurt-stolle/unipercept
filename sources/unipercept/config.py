@@ -19,7 +19,6 @@ from distutils.util import strtobool
 from typing import Any, List
 
 import omegaconf
-import typing_extensions as TX
 import yaml
 from omegaconf import DictConfig, ListConfig, OmegaConf, SCMode
 from typing_extensions import override

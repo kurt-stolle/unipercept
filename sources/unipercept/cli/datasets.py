@@ -7,20 +7,16 @@ from __future__ import annotations
 import typing as T
 
 import torch
-import typing_extensions as TX
 from tqdm import tqdm
 
-import unipercept
-from unipercept import file_io
-
-from ._command import command, logger
+from unipercept import file_io, render
+from unipercept.cli._command import command, logger
+from unipercept.data.sets import PerceptionDataset
 
 __all__ = []
 
 
-def extract_depth_stats(
-    ds: unipercept.data.sets.PerceptionDataset, output_dir: file_io.Path | None = None
-):
+def extract_depth_stats(ds: PerceptionDataset, output_dir: file_io.Path | None = None):
     dep_min = float("inf")
     dep_max = float("-inf")
 
@@ -35,7 +31,7 @@ def extract_depth_stats(
 
     for inputs in loader:
         if output_dir is not None:
-            img = unipercept.render.plot_input_data(inputs, info=ds.info)
+            img = render.plot_input_data(inputs, info=ds.info)
             img.save(output_dir / f"{inputs.captures.primary_key}.png")
 
         dep = inputs.captures.depths
@@ -66,7 +62,6 @@ def handle_request(args) -> T.Any:
         return get_info(args.dataset)
     else:
         import inspect
-        import json
 
         import yaml
 
@@ -167,7 +162,7 @@ def main(args):
 
 
 @command(help="describe a dataset to std")
-def describe(parser):
+def datasets(parser):
     parser.add_argument(
         "--format", default="pprint", help="output format", choices=["yaml", "pprint"]
     )
@@ -196,4 +191,4 @@ def describe(parser):
 
 
 if __name__ == "__main__":
-    command.root()
+    command.root("datasets")

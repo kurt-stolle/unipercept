@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import typing as T
 from functools import update_wrapper
 from types import MethodType
 from typing import (
@@ -17,7 +16,6 @@ from typing import (
     overload,
 )
 
-import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept.utils.missing import MissingValue

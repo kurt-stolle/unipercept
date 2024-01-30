@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import copy
-import typing as T
 from collections import defaultdict
 from functools import cached_property
-from typing import Any, Dict, Mapping, Tuple
+from typing import Mapping
 
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 import unitrack
 from tensordict import TensorDict, TensorDictBase
 from torch import Tensor

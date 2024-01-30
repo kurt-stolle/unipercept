@@ -14,7 +14,6 @@ import timm
 import timm.data
 import torch
 import torch.nn as nn
-import typing_extensions as TX
 from typing_extensions import override
 
 from .wrapper import (

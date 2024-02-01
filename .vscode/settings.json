@@ -13,10 +13,10 @@
         "--profile=black"
     ],
     "isort.importStrategy": "fromEnvironment",
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": false,
     "editor.codeActionsOnSave": {
-        "source.organizeImports": "explicit",
-        "source.fixAll": "explicit"
+        // "source.organizeImports": "explicit",
+        // "source.fixAll": "explicit"
     },
     "files.exclude": {
         "**/coverage": true,

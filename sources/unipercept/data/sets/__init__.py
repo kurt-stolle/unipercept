@@ -17,4 +17,3 @@ from . import (
     wilddash,
 )
 from ._base import *
-from ._pseudo import *

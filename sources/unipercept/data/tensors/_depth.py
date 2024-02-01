@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import typing as T
 from enum import StrEnum, auto
-
+import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
 from torch.types import Device
 from torchvision.tv_tensors import Mask
 
-from unipercept import file_io
 from unipercept.data.tensors.helpers import get_kwd, read_pixels
 from unipercept.data.tensors.registry import pixel_maps
+from unipercept.utils.typings import Pathable
 
 __all__ = ["DepthMap", "DepthFormat"]
 
@@ -18,6 +18,7 @@ DEFAULT_DEPTH_DTYPE: T.Final = torch.float32
 
 
 class DepthFormat(StrEnum):
+    TIFF = auto()
     DEPTH_INT16 = auto()
     DISPARITY_INT16 = auto()
     TORCH = auto()
@@ -36,17 +37,61 @@ class DepthMap(Mask):
         """Returns a default instance of this class with the given shape."""
         return cls(torch.zeros(shape, device=device, dtype=torch.float32))  # type: ignore
 
+    def save(self, path: Pathable, format: DepthFormat | str | None = None) -> None:
+        from unipercept import file_io
+
+        path = file_io.Path(path)
+        if format is None:
+            match path.suffix.lower():
+                case ".tiff":
+                    format = DepthFormat.TIFF
+                case ".pth", ".pt":
+                    format = DepthFormat.TORCH
+                case ".safetensors":
+                    format = DepthFormat.SAFETENSORS
+                case _:
+                    msg = f"Could not infer depth format from path: {path}"
+                    raise ValueError(msg)
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        match DepthFormat(format):
+            case DepthFormat.TIFF:
+                depth_image = pil_image.fromarray(
+                    self.float().squeeze_(0).cpu().numpy()
+                )
+                if depth_image.mode != "F":
+                    msg = f"Expected image format 'F'; Got {depth_image.mode!r}"
+                    raise ValueError(msg)
+                depth_image.save(path, format="TIFF")
+            case DepthFormat.SAFETENSORS:
+                safetensors.save_file({"data": torch.as_tensor(self)}, path)
+            case DepthFormat.TORCH:
+                torch.save(torch.as_tensor(self), path)
+            case _:
+                msg = f"Unsupported depth format: {format}"
+                raise NotImplementedError(msg)
+
     @classmethod
     @torch.no_grad()
     def read(
         cls, path: str, dtype: torch.dtype = DEFAULT_DEPTH_DTYPE, **meta_kwds: T.Any
     ) -> T.Self:
+        from unipercept import file_io
+        import numpy as np
+
         path = file_io.get_local_path(path)
         # Switch by depth format
         format = get_kwd(meta_kwds, "format", DepthFormat | str)
         match DepthFormat(format):  # type: ignore
+            case DepthFormat.TIFF:
+                m = pil_image.open(path)
+                if m.mode != "F":
+                    msg = f"Expected image format 'F'; Got {m.format!r}"
+                    raise ValueError(msg)
+                m = torch.from_numpy(np.array(m, copy=True))
             case DepthFormat.DEPTH_INT16:
-                m = read_pixels(path, color=False).to(torch.float64)
+                m = read_pixels(path, color=False)
                 m /= float(2**8)
             case DepthFormat.DISPARITY_INT16:
                 m = cls.read_from_disparity(path, **meta_kwds)

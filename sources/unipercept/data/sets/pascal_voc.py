@@ -26,7 +26,7 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
-from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.pseudolabeler import PseudoGenerator
 
 if T.TYPE_CHECKING:
     import unipercept as up
@@ -135,12 +135,12 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
                 ins_path = Path(
                     src_seg[i].replace("SegmentationClass", "SegmentationObject")
                 )
-                pseudo_gen.create_panoptic_source((seg_path, ins_path), pan_path)
+                pseudo_gen.add_panoptic_merge((seg_path, ins_path), pan_path)
 
             img_path = file_io.Path(src_img[i])
             dep_path = file_io.Path(src_dep[i])
             if not dep_path.is_file():
-                pseudo_gen.create_depth_source(img_path, dep_path)
+                pseudo_gen.add_depth_generator_task(img_path, dep_path)
 
         return list(zip(src_img, src_pan, src_dep))
 

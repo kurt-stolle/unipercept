@@ -18,7 +18,7 @@ from unipercept.data.types import (
     ManifestSequence,
 )
 from unipercept.data.sets._base import PerceptionDataset, SClass, SType, create_metadata
-from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.sets.cityscapes import CAMERA
 
 CLASSES_AS_CITYSCAPES = [
@@ -1015,7 +1015,7 @@ class VistasDataset(PerceptionDataset, info=get_info, id="vistas"):
             if not _source_exists(sources["panoptic"]):
                 del sources["panoptic"]
             if not _source_exists(sources["depth"]):
-                pseudogen.create_depth_source(
+                pseudogen.add_depth_generator_task(
                     sources["image"]["path"], sources["depth"]["path"]
                 )
 

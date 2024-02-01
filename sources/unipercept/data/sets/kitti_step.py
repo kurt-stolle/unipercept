@@ -27,8 +27,7 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
-from unipercept.data.sets._pseudo import PseudoGenerator
-from unipercept.data.sets.cityscapes import CLASSES
+from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,
@@ -36,9 +35,12 @@ from unipercept.data.types import (
     ManifestSequence,
     PinholeModelParameters,
 )
+from unipercept.log import get_logger
 
 __all__ = ["KITTISTEPDataset"]
 
+
+_logger = get_logger(__name__)
 
 CLASSES: T.Final[T.Sequence[SClass]] = [
     SClass(
@@ -195,9 +197,8 @@ class FileID:
     ext: str
 
     pattern: T.ClassVar[re.Pattern[str]] = re.compile(
-        r"(?P<drive>\d\d\d\d_\d\d_\d\d_drive_\d\d\d\d_sync)[\\/]"
         r"(?P<camera>image_\d\d)[\\/]"
-        r"(?P<kind>[\w_]+)[\\/]"
+        r"(?P<seq>[\d_]+)[\\/]"
         r"(?P<frame>\d+)"
         r"(?P<ext>\..+)$"  # noqa: 501
     )
@@ -205,12 +206,20 @@ class FileID:
     @classmethod
     def from_path(cls, path: str) -> T.Self:
         match = cls.pattern.search(path)
-        assert match is not None
-        return cls(
-            seq=match.group("seq"),
-            frame=match.group("frame"),
-            ext=match.group("ext"),
-        )
+        if match is not None:
+            camera = match.group("camera")
+            if camera != "image_02":
+                msg = f"Camera {camera!r} is not supported"
+                raise ValueError(msg)
+
+            return cls(
+                seq=match.group("seq"),
+                frame=match.group("frame"),
+                ext=match.group("ext"),
+            )
+        else:
+            msg = f"Path {path!r} does not match the expected pattern {cls.pattern.pattern!r}"
+            raise ValueError(msg)
 
     @classmethod
     def attach_id(cls, path: str) -> tuple[T.Self, str]:
@@ -263,7 +272,7 @@ class KITTISTEPDataset(
         # Read the sequence lists from the panoptic maps
         if self.split != "test":
             seq_list = [
-                p
+                p.name
                 for p in (self.root_path / "panoptic_maps" / self.split).glob("*")
                 if p.is_dir()
             ]
@@ -274,73 +283,90 @@ class KITTISTEPDataset(
                     "Did you download the panoptic maps?"
                 )
                 raise RuntimeError(msg)
+
+            _logger.debug("Filtering sequences: include %s", seq_list)
         else:
             seq_list = None
 
-        for path in (
+        images_dir = (
             self.root_path
             / ("training" if self.split != "test" else "testing")
             / "image_02"
-        ).glob("**/*.png"):
-            id = FileID.from_path(path.as_posix())
-            if seq_list is not None and id.seq not in seq_list:
-                continue
-            yield id
+        )
+        if not images_dir.is_dir():
+            msg = f"Directory {images_dir} does not exist!"
+            raise FileNotFoundError(msg)
+        images_paths = images_dir.glob("**/*.png")
+        images_paths = (FileID.from_path(p.as_posix()) for p in images_paths)
+        if seq_list is not None:
+            images_paths = filter(lambda id: id.seq in seq_list, images_paths)
+
+        yield from images_paths
 
     def _discover_sources(self) -> T.Mapping[FileID, CaptureSources]:
-        sources_map: dict[FileID, CaptureSources] = {}
-        pseudo_gen = PseudoGenerator(depth_factor=80 / 10.0)
-
-        # Create mapping of ID -> dt.CaptureSources
+        source_map: dict[FileID, CaptureSources] = {}
         files_list = sorted(self._discover_files(), key=lambda id: (id.seq, id.frame))
-        for id in tqdm(files_list, desc="Discovering and generating pseudolabels"):
-            if id.seq != "data_rect":
-                continue
-            image_path = (
-                self.root_path
-                / ("training" if self.split != "test" else "testing")
-                / id.seq
-                / f"{id.frame}{id.ext}"
-            )
-            assert image_path.is_file(), f"File {image_path} does not exist"
+        if len(files_list) == 0:
+            msg = "Input files not found!"
+            raise FileNotFoundError(msg)
 
-            panseg_path = (
-                self.root_path / "panoptic_maps" / self.split / f"{id.frame}.png"
-            )
+        with PseudoGenerator() as pseudo:
+            for id in tqdm(files_list, desc="Discovering dataset files"):
+                image_path = (
+                    self.root_path
+                    / ("training" if self.split != "test" else "testing")
+                    / "image_02"
+                    / id.seq
+                    / f"{id.frame}{id.ext}"
+                )
+                assert image_path.is_file(), f"File {image_path} does not exist"
 
-            if not panseg_path.is_file():
-                panseg_path = None
+                panseg_path = (
+                    self.root_path
+                    / "panoptic_maps"
+                    / self.split
+                    / id.seq
+                    / f"{id.frame}.png"
+                )
 
-            depth_path = (
-                self.root_path / "mono_depth" / id.seq / f"{id.frame}.safetensors"
-            )
-            if not depth_path.is_file():
-                pseudo_gen.create_depth_source(image_path, depth_path)
+                if not panseg_path.is_file():
+                    panseg_path = None
 
-            partial_sources: CaptureSources = {
-                "image": {
-                    "path": image_path.as_posix(),
-                },
-                "depth": {
-                    "path": depth_path.as_posix(),
-                    "meta": {
-                        "format": "safetensors",
+                depth_path = (
+                    self.root_path
+                    / "mono_depth"
+                    / self.split
+                    / id.seq
+                    / f"{id.frame}.tiff"
+                )
+                if not depth_path.is_file():
+                    pseudo.add_depth_generator_task(image_path, depth_path)
+
+                partial_sources: CaptureSources = {
+                    "image": {
+                        "path": image_path.as_posix(),
                     },
-                },
-            }
-            if panseg_path is not None:
-                partial_sources["panoptic"] = {
-                    "path": panseg_path.as_posix(),
-                    "meta": {
-                        "format": "kitti",
+                    "depth": {
+                        "path": depth_path.as_posix(),
+                        "meta": {
+                            "format": "tiff",
+                        },
                     },
                 }
-            sources_map[id] = partial_sources
+                if panseg_path is not None:
+                    partial_sources["panoptic"] = {
+                        "path": panseg_path.as_posix(),
+                        "meta": {
+                            "format": "kitti",
+                        },
+                    }
+                source_map[id] = partial_sources
 
-        if len(sources_map) == 0:
-            raise RuntimeError("No files were discovered!")
+        if len(source_map) == 0:
+            msg = "No files were discovered!"
+            raise RuntimeError(msg)
 
-        return sources_map
+        return source_map
 
     def _get_camera_intrinsics(self, id: FileID) -> PinholeModelParameters:
         """
@@ -365,11 +391,7 @@ class KITTISTEPDataset(
         # Create the sequences map
         sequences: dict[str, ManifestSequence] = {}
         for id, sources in tqdm(sources_map.items(), desc="Building manifest"):
-            if id.seq != "data_rect":
-                continue
-
             seq_key = f"{self.split[:3]}{id.seq}"
-
             cap: CaptureRecord = {
                 "primary_key": f"kitti-step/{seq_key}/{id.frame}",
                 "time": float(id.frame) / self.info.fps,  # t = frame / fps
@@ -377,7 +399,6 @@ class KITTISTEPDataset(
                 "meta": {},
                 "sources": sources,
             }
-
             seq_key = f"{self.split[:3]}{id.seq}"
             seq = sequences.setdefault(
                 seq_key,
@@ -394,5 +415,9 @@ class KITTISTEPDataset(
         for seq in sequences.values():
             seq["captures"].sort(key=lambda c: c["time"])
             seq["motions"].sort(key=lambda m: m["frames"][0])
+
+        if len(sequences) == 0:
+            msg = "No sequences were discovered! Check the dataset installation"
+            raise RuntimeError(msg)
 
         return {"sequences": sequences, "timestamp": "2023-01-30", "version": "1.0.0"}

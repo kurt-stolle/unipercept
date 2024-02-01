@@ -13,3 +13,6 @@ docutils
 
 torchvision
 tqdm
+
+
+-e ..

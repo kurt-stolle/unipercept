@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from unipercept import file_io
 from unipercept.data.sets._base import Metadata, PerceptionDataset, create_metadata
-from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.sets.cityscapes import CLASSES
 from unipercept.data.types import (
     CaptureRecord,
@@ -143,10 +143,10 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
                 / id.drive
                 / id.camera
                 / "mono_depth"
-                / f"{id.frame}.safetensors"
+                / f"{id.frame}.tiff"
             )
             if not depth_path.is_file():
-                pseudo_gen.create_depth_source(image_path, depth_path)
+                pseudo_gen.add_depth_generator_task(image_path, depth_path)
 
             partial_sources: CaptureSources = {
                 "image": {
@@ -161,7 +161,7 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
                 "depth": {
                     "path": depth_path.as_posix(),
                     "meta": {
-                        "format": "safetensors",
+                        "format": "tiff",
                     },
                 },
             }

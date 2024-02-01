@@ -34,7 +34,7 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
-from unipercept.data.sets._pseudo import PseudoGenerator
+from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,
@@ -274,7 +274,7 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
                 semantic_path = cap_path.parent / f"{key}_gtFine_class.png"
                 instance_path = cap_path.parent / f"{key}_gtFine_instance.png"
 
-                pseudo.create_panoptic_source(
+                pseudo.add_panoptic_merge(
                     (semantic_path, instance_path), panoptic_path
                 )
 

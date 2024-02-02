@@ -14,8 +14,8 @@ from pathlib import Path
 from tqdm import tqdm
 
 from unipercept import file_io
-from unipercept.data.sets._base import Metadata, PerceptionDataset, create_metadata
 from unipercept.data.pseudolabeler import PseudoGenerator
+from unipercept.data.sets._base import Metadata, PerceptionDataset, create_metadata
 from unipercept.data.sets.cityscapes import CLASSES
 from unipercept.data.types import (
     CaptureRecord,
@@ -35,7 +35,6 @@ class FileID:
         - /datasets/kitti-360/data_2d_raw/2013_05_28_drive_0000_sync/image_00/data_rgb/0000000001.png
         - /datasets/kitti-360/data_2d_semantics/train/2013_05_28_drive_0000_sync/image_00/semantic/0000000000.png
         - /datasets/kitti-360/data_2d_semantics/train/2013_05_28_drive_0000_sync/image_00/instance/0000000000.png
-
     """
 
     drive: str
@@ -66,9 +65,7 @@ class FileID:
 
     @classmethod
     def attach_id(cls, path: str) -> tuple[T.Self, str]:
-        """
-        Transforms a path into an ID and a dictionary of paths indexed by key.
-        """
+        """Transforms a path into an ID and a dictionary of paths indexed by key."""
         return cls.from_path(path), path
 
 
@@ -104,68 +101,67 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
 
     def _discover_sources(self) -> T.Mapping[FileID, CaptureSources]:
         sources_map: dict[FileID, CaptureSources] = {}
-        pseudo_gen = PseudoGenerator(depth_factor=80 / 10.0)
-
         # Create mapping of ID -> dt.CaptureSources
         files_list = sorted(
             self._discover_files(), key=lambda id: (id.drive, id.camera, id.frame)
         )
-        for id in tqdm(files_list, desc="Discovering and generating pseudolabels"):
-            if id.kind != "data_rect":
-                continue
-            image_path = (
-                self.root_path
-                / "data_2d_raw"
-                / id.drive
-                / id.camera
-                / id.kind
-                / f"{id.frame}{id.ext}"
-            )
-            assert image_path.is_file(), f"File {image_path} does not exist"
+        with PseudoGenerator() as pseudo_gen:
+            for id in tqdm(files_list, desc="Discovering and generating pseudolabels"):
+                if id.kind != "data_rect":
+                    continue
+                image_path = (
+                    self.root_path
+                    / "data_2d_raw"
+                    / id.drive
+                    / id.camera
+                    / id.kind
+                    / f"{id.frame}{id.ext}"
+                )
+                assert image_path.is_file(), f"File {image_path} does not exist"
 
-            panseg_path = (
-                self.root_path
-                / "data_2d_semantics"
-                / "train"
-                / id.drive
-                / id.camera
-                / "instance"
-                / f"{id.frame}.png"
-            )
+                panseg_path = (
+                    self.root_path
+                    / "data_2d_semantics"
+                    / "train"
+                    / id.drive
+                    / id.camera
+                    / "instance"
+                    / f"{id.frame}.png"
+                )
 
-            if not panseg_path.is_file():
-                raise RuntimeError(f"File {panseg_path} does not exist")
+                if not panseg_path.is_file():
+                    raise RuntimeError(f"File {panseg_path} does not exist")
 
-            depth_path = (
-                self.root_path
-                / "data_2d_depth"
-                / "train"
-                / id.drive
-                / id.camera
-                / "mono_depth"
-                / f"{id.frame}.tiff"
-            )
-            if not depth_path.is_file():
-                pseudo_gen.add_depth_generator_task(image_path, depth_path)
+                depth_path = (
+                    self.root_path
+                    / "data_2d_depth"
+                    / "train"
+                    / id.drive
+                    / id.camera
+                    / "mono_depth"
+                    / f"{id.frame}.tiff"
+                )
+                if not depth_path.is_file():
+                    pseudo_gen.add_depth_generator_task(image_path, depth_path)
 
-            partial_sources: CaptureSources = {
-                "image": {
-                    "path": image_path.as_posix(),
-                },
-                "panoptic": {
-                    "path": panseg_path.as_posix(),
-                    "meta": {
-                        "format": "vistas",
+                partial_sources: CaptureSources = {
+                    "image": {
+                        "path": image_path.as_posix(),
                     },
-                },
-                "depth": {
-                    "path": depth_path.as_posix(),
-                    "meta": {
-                        "format": "tiff",
+                    "panoptic": {
+                        "path": panseg_path.as_posix(),
+                        "meta": {
+                            "format": "vistas",
+                        },
                     },
-                },
-            }
-            sources_map[id] = partial_sources
+                    "depth": {
+                        "path": depth_path.as_posix(),
+                        "meta": {
+                            "format": "tiff",
+                        },
+                    },
+                }
+                sources_map[id] = partial_sources
 
         if len(sources_map) == 0:
             raise RuntimeError("No files were discovered!")
@@ -173,9 +169,7 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
         return sources_map
 
     def _get_camera_intrinsics(self, id: FileID) -> PinholeModelParameters:
-        """
-        Camera intrinsics are stored in ``{root}/data_2d_raw/{id.drive}/calib_cam_to_cam.txt``.
-        """
+        """Camera intrinsics are stored in ``{root}/data_2d_raw/{id.drive}/calib_cam_to_cam.txt``."""
 
         # TODO: return something that is not a stub
         camera_intrinsics: PinholeModelParameters = {

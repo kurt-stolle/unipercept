@@ -1,34 +1,33 @@
-"""
-Pseudo label generation manager for finding missing labels during dataset discovery.
-"""
+"""Pseudo label generation manager for finding missing labels during dataset discovery."""
 
 from __future__ import annotations
 
 import functools
-import numpy as np
-import torch.nn as nn
 import typing as T
-import typing_extensions as TX
+
+import numpy as np
 import safetensors.torch as safetensors
 import torch
+import torch.nn as nn
 import torch.utils.data
+import typing_extensions as TX
 from PIL import Image
 from tqdm import tqdm
 
+from unipercept import file_io
+from unipercept.data.pipes import PILImageLoaderDataset
 from unipercept.log import get_logger
 
 from ..utils.typings import Pathable
 
-from unipercept.data.pipes import PILImageLoaderDataset
-from unipercept import file_io
-
 if T.TYPE_CHECKING:
-    from unipercept.data.tensors import PanopticMap, DepthMap
     from PIL.Image import Image as PILImage
     from transformers.pipelines import (
         DepthEstimationPipeline,
         ImageSegmentationPipeline,
     )
+
+    from unipercept.data.tensors import DepthMap, PanopticMap
 
 
 __all__ = ["PseudoGenerator"]
@@ -183,15 +182,13 @@ class PseudoGenerator:
         image_path: Pathable,
         depth_path: Pathable,
     ) -> None:
-        """
-        Add a depth generation task to the queue.
-        """
+        """Add a depth generation task to the queue."""
         self._depth_generate_queue.append((image_path, depth_path))
 
     def run_depth_generator_queue(self):
-        """
-        Run the depth generator on the queue.
-        """
+        """Run the depth generator on the queue."""
+
+        from unipercept.data.tensors import DepthMap
 
         if len(self._depth_generate_queue) == 0:
             return
@@ -231,9 +228,7 @@ class PseudoGenerator:
     def run_depth_generator(
         self, image: torch.Tensor | PILImage | np.ndarray
     ) -> torch.Tensor:
-        """
-        Run the depth generator on a single image.
-        """
+        """Run the depth generator on a single image."""
         from torchvision.transforms.v2.functional import to_pil_image
 
         if isinstance(image, (torch.Tensor, np.ndarray)):

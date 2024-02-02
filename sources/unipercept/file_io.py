@@ -15,7 +15,6 @@ from iopath.common.file_io import (
     PathManager,
     PathManagerFactory,
 )
-
 from unipercept.utils.iopath_handlers import EnvironPathHandler, WandBArtifactHandler
 from unipercept.utils.iopath_path import IoPath
 

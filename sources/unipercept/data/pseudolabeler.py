@@ -19,6 +19,9 @@ from unipercept.log import get_logger
 
 from ..utils.typings import Pathable
 
+from unipercept.data.pipes import PILImageLoaderDataset
+from unipercept import file_io
+
 if T.TYPE_CHECKING:
     from unipercept.data.tensors import PanopticMap, DepthMap
     from PIL.Image import Image as PILImage
@@ -186,9 +189,6 @@ class PseudoGenerator:
         """
         Run the depth generator on the queue.
         """
-        from unipercept.data.tensors import DepthMap
-        from unipercept.data.pipes import PILImageLoaderDataset
-        from unipercept import file_io
 
         # Use a dataset to load the images in parallel
         ds = PILImageLoaderDataset(
@@ -202,7 +202,11 @@ class PseudoGenerator:
             tqdm(to, desc="Depth generation", total=len(to)),
             strict=True,
         ):
-            width, height = pred["depth"].size  # is a PIL image
+            # NOTE: we have to resize the depth map ("predicted_depth") **tensor**
+            # to the original size, and then save it. It is not possible to directly
+            # save the output PIL image ("depth"), because this has been quantized to
+            # 8-bit for visualization purposes.
+            width, height = pred["depth"].size
             depth = (
                 nn.functional.interpolate(
                     pred["predicted_depth"].unsqueeze(0),

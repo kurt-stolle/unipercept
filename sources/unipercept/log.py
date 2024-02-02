@@ -19,9 +19,6 @@ from tabulate import tabulate
 from termcolor import colored
 from typing_extensions import override
 
-from unipercept import file_io
-from unipercept.state import get_process_index
-from unipercept.utils.inspect import caller_identity, calling_module_name
 
 __all__ = []
 
@@ -51,6 +48,8 @@ def log_every_n(
         n (int):
         name (str): name of the logger to use. Will use the caller's module by default.
     """
+    from unipercept.utils.inspect import caller_identity, calling_module_name
+
     caller_module, key = caller_identity()
     _log_counter[key] += 1
     if n == 1 or _log_counter[key] % n == 1:
@@ -109,6 +108,7 @@ def get_logger(name: Optional[str] = None, **kwargs: T.Any) -> logging.Logger:
     """
     Get a logger instance, where the name is automatically set to the calling module name.
     """
+    from unipercept.utils.inspect import caller_identity, calling_module_name
 
     return _get_handler(
         _canonicalize_name(name or calling_module_name(left=1)),
@@ -169,6 +169,8 @@ def _get_handler(
     Get a logger with a default verbose formatter, cached to ensure that the same logger handler is shared across
     all the sites that call this function.
     """
+    from unipercept import file_io
+    from unipercept.state import get_process_index
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
@@ -239,6 +241,9 @@ def _get_stream(filename) -> io.IOBase:
     """
     Taken from the `detectron` implementation.
     """
+
+    from unipercept import file_io
+
     # use 1K buffer if writing to cloud storage
     io = file_io.open(filename, "a", buffering=1024**2)
     atexit.register(io.close)

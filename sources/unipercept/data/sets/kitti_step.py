@@ -126,7 +126,6 @@ CLASSES: T.Final[T.Sequence[SClass]] = [
         dataset_id=10,
         unified_id=10,
         name="sky",
-        depth_fixed=1.0,
     ),
     SClass(
         color=RGB(220, 20, 60),

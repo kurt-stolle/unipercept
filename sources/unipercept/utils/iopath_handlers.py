@@ -272,8 +272,6 @@ class EnvironPathHandler(PathHandler):
                 msg = f"environment variable {env[0]!r} not defined!"
                 raise ValueError(msg)
             else:
-                msg = f"environment variable {env[0]!r} not defined! Using default: {default!r}"
-                warnings.warn(msg, stacklevel=2)
                 value = default
 
         value = os.path.expanduser(value)

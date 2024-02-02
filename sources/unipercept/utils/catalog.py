@@ -198,6 +198,13 @@ class DataManager(T.Generic[_D_co, _I_co]):
         """
         _id, variant = self.split_query(query)
         return self.__info__[_id](*variant)
+    
+    def get_info_at(self, query: str, key: str) -> T.Any:
+        """
+        Return the info for the given dataset ID.
+        """
+        _id, variant = self.split_query(query)
+        return self.__info__[_id](*variant)[key] # type: ignore
 
     def list_info(self) -> list[str]:
         """

@@ -91,7 +91,7 @@ class command(Generic[CommandParams]):
         import sys
 
         if name is not None:
-            sys.argv.insert(0, name)
+            sys.argv.insert(1, name)
 
         parser = cls.get_parser()
         args = parser.parse_args(*args, **kwargs)

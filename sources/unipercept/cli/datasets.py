@@ -8,186 +8,234 @@ import typing as T
 
 import torch
 from tqdm import tqdm
-
+import argparse
 from unipercept import file_io, render
 from unipercept.cli._command import command, logger
 from unipercept.data.sets import PerceptionDataset
 
 __all__ = []
 
+# @command(help="describe a dataset to std")
+# def datasets(parser):
+#     parser.add_argument(
+#         "--format", default="pprint", help="output format", choices=["yaml", "pprint"]
+#     )
+#     parser.add_argument(
+#         "--output",
+#         "-o",
+#         help="directory to store output data and visualizations",
+#         default=None,
+#         type=file_io.Path,
+#     )
 
-def extract_depth_stats(ds: PerceptionDataset, output_dir: file_io.Path | None = None):
-    dep_min = float("inf")
-    dep_max = float("-inf")
+#     mp = parser.add_mutually_exclusive_group()
+#     mp.add_argument("--info", help="show dataset info", action="store_true")
+#     mp.add_argument("--manifest", help="show dataset manifest", action="store_true")
+#     mp.add_argument(
+#         "--sequences", help="show information about the sequences", action="store_true"
+#     )
+#     mp.add_argument(
+#         "--frames", help="show information about the frames", action="store_true"
+#     )
+#     mp.add_argument("--depth", help="show depth statistics", action="store_true")
 
-    loader = torch.utils.data.DataLoader(
-        ds.datapipe,
-        batch_size=1,
-        num_workers=0,
-        pin_memory=False,
-        prefetch_factor=4,
-        persistent_workers=False,
-    )
+#     parser.add_argument("dataset", help="dataset name")
 
-    for inputs in loader:
-        if output_dir is not None:
-            img = render.plot_input_data(inputs, info=ds.info)
-            img.save(output_dir / f"{inputs.captures.primary_key}.png")
-
-        dep = inputs.captures.depths
-        dep = dep[dep > 0]
-
-        dep_min = dep.min().item()
-        dep_max = dep.max().item()
-
-        break
-
-    prog = tqdm(loader)
-    for inputs in prog:
-        dep = inputs.captures.depths
-        dep = dep[dep > 0]
-
-        dep_min = min(dep_min, dep.min().item())
-        dep_max = max(dep_max, dep.max().item())
-
-        prog.set_postfix({"min": dep_min, "max": dep_max})
-
-    print(f"Min: {dep_min}, Max: {dep_max}")
+#     return main
 
 
-def handle_request(args) -> T.Any:
-    if args.info:
-        from unipercept import get_info
+# def extract_depth_stats(ds: PerceptionDataset, output_dir: file_io.Path | None = None):
+#     dep_min = float("inf")
+#     dep_max = float("-inf")
 
-        return get_info(args.dataset)
-    else:
-        import inspect
+#     loader = torch.utils.data.DataLoader(
+#         ds.datapipe,
+#         batch_size=1,
+#         num_workers=0,
+#         pin_memory=False,
+#         prefetch_factor=4,
+#         persistent_workers=False,
+#     )
 
-        import yaml
+#     for inputs in loader:
+#         if output_dir is not None:
+#             img = render.plot_input_data(inputs, info=ds.info)
+#             img.save(output_dir / f"{inputs.captures.primary_key}.png")
 
-        from unipercept import get_dataset
+#         dep = inputs.captures.depths
+#         dep = dep[dep > 0]
 
-        ds_cls = get_dataset(args.dataset)
+#         dep_min = dep.min().item()
+#         dep_max = dep.max().item()
 
-        sig = inspect.signature(ds_cls)
-        params = sig.parameters
+#         break
 
-        # Inform user about available keyword arguments, with their default values
-        available_kwargs = {}
-        for name, param in params.items():
-            if param.kind == inspect.Parameter.KEYWORD_ONLY:
-                available_kwargs[name] = (
-                    param.default if param.default != inspect.Parameter.empty else None
-                )
+#     prog = tqdm(loader)
+#     for inputs in prog:
+#         dep = inputs.captures.depths
+#         dep = dep[dep > 0]
 
-        logger.info(
-            f"Required arguments: %s",
-            ", ".join(
-                [name for name, default in available_kwargs.items() if default is None]
-            ),
-        )
+#         dep_min = min(dep_min, dep.min().item())
+#         dep_max = max(dep_max, dep.max().item())
 
-        kwargs = input("Enter keyword arguments as YAML object:\n")
-        kwargs = yaml.safe_load(kwargs)
+#         prog.set_postfix({"min": dep_min, "max": dep_max})
 
-        ds = ds_cls(**kwargs)
+#     print(f"Min: {dep_min}, Max: {dep_max}")
 
-        if args.depth:
-            return extract_depth_stats(ds, args.output)
-        elif args.manifest:
-            return ds.manifest
-        elif args.sequences:
-            mfst = ds.manifest
 
-            seqs = {}
-            for seq_id, seq in mfst["sequences"].items():
-                seqs[seq_id] = "{} captures @ {} fps".format(
-                    len(seq.get("captures")), seq.get("fps", "???")
-                )
+# def handle_request(args) -> T.Any:
+#     if args.info:
+#         from unipercept import get_info
 
-            return seqs
-        elif args.frames:
-            mfst = ds.manifest
+#         return get_info(args.dataset)
+#     else:
+#         import inspect
 
-            frames = {}
-            for seq_id, seq in mfst["sequences"].items():
-                for frame in seq["captures"]:
-                    frames[frame["primary_key"]] = "Ground truths: {}".format(
-                        ", ".join(frame["sources"].keys())
-                    )
+#         import yaml
 
-            return frames
-        else:
-            from dataclasses import asdict
+#         from unipercept import get_dataset
 
-            return asdict(ds)
+#         ds_cls = get_dataset(args.dataset)
+
+#         sig = inspect.signature(ds_cls)
+#         params = sig.parameters
+
+#         # Inform user about available keyword arguments, with their default values
+#         available_kwargs = {}
+#         for name, param in params.items():
+#             if param.kind == inspect.Parameter.KEYWORD_ONLY:
+#                 available_kwargs[name] = (
+#                     param.default if param.default != inspect.Parameter.empty else None
+#                 )
+
+#         logger.info(
+#             f"Required arguments: %s",
+#             ", ".join(
+#                 [name for name, default in available_kwargs.items() if default is None]
+#             ),
+#         )
+
+#         kwargs = input("Enter keyword arguments as YAML object:\n")
+#         kwargs = yaml.safe_load(kwargs)
+
+#         ds = ds_cls(**kwargs)
+
+#         if args.depth:
+#             return extract_depth_stats(ds, args.output)
+#         elif args.manifest:
+#             return ds.manifest
+#         elif args.sequences:
+#             mfst = ds.manifest
+
+#             seqs = {}
+#             for seq_id, seq in mfst["sequences"].items():
+#                 seqs[seq_id] = "{} captures @ {} fps".format(
+#                     len(seq.get("captures")), seq.get("fps", "???")
+#                 )
+
+#             return seqs
+#         elif args.frames:
+#             mfst = ds.manifest
+
+#             frames = {}
+#             for seq_id, seq in mfst["sequences"].items():
+#                 for frame in seq["captures"]:
+#                     frames[frame["primary_key"]] = "Ground truths: {}".format(
+#                         ", ".join(frame["sources"].keys())
+#                     )
+
+#             return frames
+#         else:
+#             from dataclasses import asdict
+
+#             return asdict(ds)
+
+
+# def main(args):
+#     try:
+#         res_dict = handle_request(args)
+#     except KeyError as e:
+#         from unipercept.data.sets import list_datasets
+
+#         logger.info(f"Unknown dataset: {e}")
+#         avail = list_datasets()
+
+#         if len(avail) == 0:
+#             logger.info("No datasets available.")
+#         else:
+#             avail_str = "\n\t- ".join(list_datasets())
+#             logger.info(f"Available datasets: \n\t- {avail_str}")
+#         return
+
+#     format = args.format
+#     if format == "pprint":
+#         from pprint import pformat
+#         from shutil import get_terminal_size
+
+#         res = pformat(
+#             res_dict,
+#             indent=1,
+#             compact=False,
+#             depth=2,
+#             width=get_terminal_size().columns - 1,
+#         )
+#         logger.info("Result (Python): %s", res)
+#     elif format == "yaml":
+#         import yaml
+
+#         res = yaml.dump(res_dict, allow_unicode=True, default_flow_style=False)
+#         logger.info("Result (YAML): %s", res)
+#     else:
+#         print(f"Unknown format: {format}")
+
+
+@command(help="dataset operations")
+def datasets(prs: argparse.ArgumentParser):
+    """
+    Defines the following subcommands:
+    - ``ls`` - list available datasets
+    - ``info`` - show information about a dataset, also known as 'metadata'.
+    - ``manifest`` - show the manifest of a dataset
+    """
+
+    subprs = prs.add_subparsers(dest="datasets_subcommand", required=True)
+    subprs.add_parser("ls", help="list available datasets")
+
+    info = subprs.add_parser("info", help="show information about a dataset")
+    info.add_argument("dataset", help="dataset name")
+
+    return main
 
 
 def main(args):
-    try:
-        res_dict = handle_request(args)
-    except KeyError as e:
-        from unipercept.data.sets import list_datasets
-
-        logger.info(f"Unknown dataset: {e}")
-        avail = list_datasets()
-
-        if len(avail) == 0:
-            logger.info("No datasets available.")
-        else:
-            avail_str = "\n\t- ".join(list_datasets())
-            logger.info(f"Available datasets: \n\t- {avail_str}")
-        return
-
-    format = args.format
-    if format == "pprint":
-        from pprint import pformat
-        from shutil import get_terminal_size
-
-        res = pformat(
-            res_dict,
-            indent=1,
-            compact=False,
-            depth=2,
-            width=get_terminal_size().columns - 1,
-        )
-        logger.info("Result (Python): %s", res)
-    elif format == "yaml":
-        import yaml
-
-        res = yaml.dump(res_dict, allow_unicode=True, default_flow_style=False)
-        logger.info("Result (YAML): %s", res)
-    else:
-        print(f"Unknown format: {format}")
+    match args.datasets_subcommand:
+        case "ls":
+            list_datasets()
+        case "info":
+            print_info(args.dataset)
+        case _:
+            msg = f"Unknown subcommand: {args.datasets_subcommand}"
+            raise ValueError(msg)
 
 
-@command(help="describe a dataset to std")
-def datasets(parser):
-    parser.add_argument(
-        "--format", default="pprint", help="output format", choices=["yaml", "pprint"]
-    )
-    parser.add_argument(
-        "--output",
-        "-o",
-        help="directory to store output data and visualizations",
-        default=None,
-        type=file_io.Path,
-    )
+def list_datasets():
+    """
+    List available datasets.
+    """
+    from unipercept.data.sets import catalog
 
-    mp = parser.add_mutually_exclusive_group()
-    mp.add_argument("--info", help="show dataset info", action="store_true")
-    mp.add_argument("--manifest", help="show dataset manifest", action="store_true")
-    mp.add_argument(
-        "--sequences", help="show information about the sequences", action="store_true"
-    )
-    mp.add_argument(
-        "--frames", help="show information about the frames", action="store_true"
-    )
-    mp.add_argument("--depth", help="show depth statistics", action="store_true")
+    for ds in catalog.list_datasets():
+        print(ds)
 
-    parser.add_argument("dataset", help="dataset name")
 
-    return main
+def print_info(dataset: str):
+    """
+    Show information about a dataset, also known as 'metadata'.
+    """
+    from unipercept import get_info
+
+    info = get_info(dataset)
+    print(info)
 
 
 if __name__ == "__main__":

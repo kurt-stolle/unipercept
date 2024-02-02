@@ -273,7 +273,7 @@ def create_engine(config: ConfigParam) -> Engine:
     from .config import instantiate
 
     config = read_config(config)
-    engine: Engine = instantiate(config.engine)
+    engine: Engine = instantiate(config.ENGINE)
 
     return engine
 
@@ -284,7 +284,7 @@ def create_model_factory(config: ConfigParam, *, state: str | None) -> ModelFact
     and the configuration file will be used to override them.
     """
     config = read_config(config)
-    model_factory = ModelFactory(config.model, checkpoint_path=state)
+    model_factory = ModelFactory(config.MODEL, checkpoint_path=state)
 
     return model_factory
 
@@ -344,7 +344,7 @@ def create_model(
 
     # Default handling
     config = read_config(config)
-    model: ModelBase = instantiate(config.model)
+    model: ModelBase = instantiate(config.MODEL)
 
     if state is not None:
         load_checkpoint(state, model)
@@ -411,7 +411,7 @@ def create_dataset(
 
     config = read_config(config)
 
-    loaders = dict(config.engine.loaders)
+    loaders = dict(config.ENGINE.loaders)
 
     if isinstance(variant, str) and variant in loaders:
         # Lookup by direct key
@@ -472,7 +472,7 @@ def create_loaders(config: ConfigParam, *, keys: T.Optional[T.Collection[str]] =
     config = read_config(config)
 
     loaders = {}
-    for key, loader in config.engine.loaders.items():
+    for key, loader in config.ENGINE.loaders.items():
         if keys is not None and key not in keys:
             continue
         loaders[key] = instantiate(loader)

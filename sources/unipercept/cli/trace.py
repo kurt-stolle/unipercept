@@ -12,7 +12,23 @@ from unipercept import create_model
 from unipercept.cli._command import command
 
 
-def main(args):
+@command(help="analyse a model using FX tracing", description=__doc__)
+@command.with_config
+def trace(subparser: argparse.ArgumentParser):
+    mode = subparser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--training", "-T", action="store_true", help="profile training")
+    mode.add_argument(
+        "--inference", "-I", action="store_true", help="profile inference"
+    )
+
+    subparser.add_argument(
+        "path", type=str, nargs="*", help="path to submodule to profile"
+    )
+
+    return _main
+
+
+def _main(args):
     model = create_model(args.config)
 
     if args.training:
@@ -39,22 +55,6 @@ def main(args):
     gm.print_readable()
 
     gm.graph.print_tabular()
-
-
-@command(help="analyse a model using FX tracing", description=__doc__)
-@command.with_config
-def trace(subparser: argparse.ArgumentParser):
-    mode = subparser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--training", "-T", action="store_true", help="profile training")
-    mode.add_argument(
-        "--inference", "-I", action="store_true", help="profile inference"
-    )
-
-    subparser.add_argument(
-        "path", type=str, nargs="*", help="path to submodule to profile"
-    )
-
-    return main
 
 
 if __name__ == "__main__":

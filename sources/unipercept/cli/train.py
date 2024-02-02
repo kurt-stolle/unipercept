@@ -10,9 +10,9 @@ from omegaconf import DictConfig
 
 import unipercept as up
 from unipercept.cli._command import command
+from unipercept.cli._config import ConfigFileContentType as config_t
 
 _logger = up.log.get_logger()
-_config_t: T.TypeAlias = DictConfig
 
 
 @command(help="trian a model", description=__doc__)
@@ -51,31 +51,31 @@ def train(p: argparse.ArgumentParser):
         help="run in evaluation mode (no training, only evaluation)",
     )
 
-    return main
+    return _main
 
 
-def apply_debug_mode(lazy_config: _config_t) -> None:
+def _apply_debug_mode(lazy_config: config_t) -> None:
     os.environ["WANDB_OFFLINE"] = "true"
     torch.autograd.set_detect_anomaly(True)
-    lazy_config.engine.params.full_determinism = True
+    lazy_config.ENGINE.params.full_determinism = True
 
 
-def setup(args) -> _config_t:
+def _step(args) -> config_t:
     if args.no_jit:
         _logger.info("Disabling JIT compilation")
         os.environ["PYTORCH_JIT"] = "0"
     if args.debug:
-        apply_debug_mode(args.config)
+        _apply_debug_mode(args.config)
 
     return args.config
 
 
-def main(args):
-    lazy_config: _config_t = setup(args)
+def _main(args):
+    lazy_config: config_t = _step(args)
 
     up.state.barrier()  # Ensure the config file is not created before all processes validate its existence
 
-    engine: up.engine.Engine = up.config.instantiate(lazy_config.engine)
+    engine: up.engine.Engine = up.config.instantiate(lazy_config.ENGINE)
 
     if args.resume:
         if not args.config_path.endswith(".yaml"):
@@ -96,7 +96,7 @@ def main(args):
         up.config.save_config(lazy_config, str(engine.config_path))
 
     # Setup dataloaders
-    model_factory = up.model.ModelFactory(lazy_config.model)
+    model_factory = up.model.ModelFactory(lazy_config.MODEL)
 
     if args.evaluation:
         results = engine.run_evaluation(model_factory, weights=args.weights)

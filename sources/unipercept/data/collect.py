@@ -31,10 +31,10 @@ class GroupAdjacentTime:
     adjacent to each other. This is useful for tasks such as optical flow, where the input is a sequence of images.
     """
 
-    _step_size: frozenset[int]
+    _step_size: frozenset[int] | None
     _required_capture_sources: tuple[frozenset[str], ...]
-    _num_frames: T.Final[int]
-    _use_typecheck: T.Final[bool]
+    _num_frames: int
+    _use_typecheck: bool
 
     def __init__(
         self,
@@ -45,6 +45,7 @@ class GroupAdjacentTime:
         | T.Sequence[set[KnownCaptureSources | str]]
         | None = None,
         verbose: bool = False,
+        step_size: set[int] | None = None,
     ):
         if num_frames <= 0:
             raise ValueError(f"Length must be positive definite, got {num_frames}!")
@@ -71,6 +72,7 @@ class GroupAdjacentTime:
         self._num_frames = num_frames
         self._use_typecheck = use_typecheck
         self._verbose = verbose
+        self._step_size = step_size
 
         _logger.debug(
             f"Using adjacent collector ({num_frames} frames) with required sources {self._required_capture_sources}"

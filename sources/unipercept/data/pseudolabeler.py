@@ -100,10 +100,10 @@ class PseudoGenerator:
         self._panoptic_generate_queue.append((image_path, panoptic_path))
 
     def run_panoptic_generate_queue(self):
-        if len(self._panoptic_generate_queue) > 0:
-            msg = "Panoptic segmentation is not yet implemented!"
-            raise NotImplementedError(msg)
-        self._depth_generate_queue.clear()
+        if len(self._panoptic_generate_queue) == 0:
+            return
+        msg = "Panoptic segmentation is not yet implemented!"
+        raise NotImplementedError(msg)
 
     # ---------------- #
     # Panoptic Merging #
@@ -151,6 +151,9 @@ class PseudoGenerator:
     def run_panoptic_merge_queue(self):
         from unipercept import file_io
 
+        if len(self._panoptic_merge_queue) == 0:
+            return
+
         for items in tqdm(self._panoptic_merge_queue, desc="Panoptic merging"):
             semantic_path, instance_path, panoptic_path = map(file_io.Path, items)
             semantic = Image.open(semantic_path)
@@ -189,6 +192,9 @@ class PseudoGenerator:
         """
         Run the depth generator on the queue.
         """
+
+        if len(self._depth_generate_queue) == 0:
+            return
 
         # Use a dataset to load the images in parallel
         ds = PILImageLoaderDataset(

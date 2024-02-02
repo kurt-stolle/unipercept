@@ -3,8 +3,11 @@ Commands that describe datasets.
 """
 
 from __future__ import annotations
+import sys
 
 import typing as T
+from regex import P
+from tabulate import tabulate_formats
 
 import torch
 from tqdm import tqdm
@@ -12,6 +15,7 @@ import argparse
 from unipercept import file_io, render
 from unipercept.cli._command import command, logger
 from unipercept.data.sets import PerceptionDataset
+import dataclasses as D
 
 __all__ = []
 
@@ -198,27 +202,35 @@ def datasets(prs: argparse.ArgumentParser):
     - ``manifest`` - show the manifest of a dataset
     """
 
+    from tabulate import tabulate_formats
+
     subprs = prs.add_subparsers(dest="datasets_subcommand", required=True)
     subprs.add_parser("ls", help="list available datasets")
 
     info = subprs.add_parser("info", help="show information about a dataset")
+    info.add_argument(
+        "--format",
+        type=str,
+        default="simple",
+        help="output format, options: " + ", ".join(tabulate_formats),
+    )
     info.add_argument("dataset", help="dataset name")
 
-    return main
+    return _main
 
 
-def main(args):
+def _main(args):
     match args.datasets_subcommand:
         case "ls":
-            list_datasets()
+            _main_ls()
         case "info":
-            print_info(args.dataset)
+            _main_info(args)
         case _:
             msg = f"Unknown subcommand: {args.datasets_subcommand}"
             raise ValueError(msg)
 
 
-def list_datasets():
+def _main_ls():
     """
     List available datasets.
     """
@@ -228,14 +240,29 @@ def list_datasets():
         print(ds)
 
 
-def print_info(dataset: str):
+def _main_info(args):
     """
     Show information about a dataset, also known as 'metadata'.
     """
     from unipercept import get_info
+    from tabulate import tabulate
 
-    info = get_info(dataset)
-    print(info)
+    info = get_info(args.dataset)
+    rows = []
+    for key, value in sorted(D.asdict(info).items(), key=lambda x: x[0]):
+        if isinstance(value, T.Mapping):
+            rows.append((key, ""))  # type(value).__name__))
+            for k, v in value.items():
+                rows.append((f"[ {k!r} ]", v))
+        elif isinstance(value, T.Iterable) and not isinstance(value, str):
+            rows.append((key, ""))  # type(value).__name__))
+            for i, v in enumerate(value):
+                rows.append((f"[ {i!r} ]", v))
+        else:
+            rows.append((key, value))
+
+    table = tabulate(rows, tablefmt=args.format)
+    print(table, flush=True, file=sys.stdout)
 
 
 if __name__ == "__main__":

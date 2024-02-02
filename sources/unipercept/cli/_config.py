@@ -11,13 +11,28 @@ from typing_extensions import override
 
 import unipercept as up
 from unipercept import file_io
+from omegaconf import DictConfig
 
-__all__ = ["add_config_args"]
+__all__ = ["add_config_args", "ConfigFileContentType"]
 
 _NONINTERACTIVE_MODE = False
-_BULLET_STYLES = dict(bullet=" >", margin=2, pad_right=2)
+_BULLET_STYLES = {"bullet": " >", "margin": 2, "pad_right": 2}
 
 up.list_datasets()  # trigger dataset registration
+
+if T.TYPE_CHECKING:
+
+    class ConfigFileContentType(DictConfig):
+        @property
+        def ENGINE(self) -> DictConfig:
+            return self.engine
+
+        @property
+        def MODEL(self) -> DictConfig:
+            return self.model
+
+else:
+    ConfigFileContentType: T.TypeAlias = DictConfig
 
 
 class ConfigSource(enum.StrEnum):

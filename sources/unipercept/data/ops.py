@@ -48,9 +48,9 @@ __all__ = [
 ]
 
 
-########################################################################################################################
+########################################################################################
 # BASE CLASS FOR OPS
-########################################################################################################################
+########################################################################################
 
 
 class Op(torch.nn.Module, metaclass=abc.ABCMeta):
@@ -89,9 +89,9 @@ class CloneOp(Op):
         return inputs
 
 
-####################################################
-# TORCHVISION: Wrappers for torchvision transforms #
-####################################################
+########################################################################################
+# TORCHVISION: Wrappers for torchvision transforms 
+########################################################################################
 
 
 class TorchvisionOp(Op):
@@ -106,12 +106,11 @@ class TorchvisionOp(Op):
 
         if isinstance(transforms, tvt2.Compose):
             self._transforms = transforms
-            warnings.warn(
-                "Expected transforms to be a sequence or transform, got a `Compose`!",
-                stacklevel=2,
-            )
         elif isinstance(transforms, T.Sequence):
-            self._transforms = tvt2.Compose(transforms)
+            if len(transforms) == 0:
+                self._transforms = None
+            else:
+                self._transforms = tvt2.Compose(transforms)
         elif isinstance(transforms, tvt2.Transform):
             self._transforms = transforms
         else:
@@ -121,18 +120,18 @@ class TorchvisionOp(Op):
 
     @override
     def _run(self, inputs: InputData) -> InputData:
-        pass
+        if self._transforms is None:
+            return inputs
 
         if inputs.motions is not None:
             raise NotImplementedError("Transforms for motion data not supported!")
-
         inputs.captures = self._transforms(inputs.captures.fix_subtypes_())
         return inputs
 
 
-############
-# CROPPING #
-############
+########################################################################################
+# CROPPING 
+########################################################################################
 
 
 class GuidedRandomCrop(Op):
@@ -275,9 +274,9 @@ class GuidedRandomCrop(Op):
         return inputs
 
 
-#################
-# PSEUDO MOTION #
-#################
+########################################################################################
+# PSEUDO MOTION 
+########################################################################################
 
 
 class PseudoMotion(Op):
@@ -359,9 +358,9 @@ class PseudoMotion(Op):
         return inputs
 
 
-########################################################################################################################
+########################################################################################
 # BOXES FROM MASKS
-########################################################################################################################
+########################################################################################
 
 
 class BoxesFromMasks(Op):
@@ -399,9 +398,9 @@ class BoxesFromMasks(Op):
         return inputs
 
 
-########################################################################################################################
+########################################################################################
 # TRANSFORMED DATASETS
-########################################################################################################################
+########################################################################################
 
 _D = T.TypeVar("_D", bound=torch_data.Dataset, contravariant=True)
 

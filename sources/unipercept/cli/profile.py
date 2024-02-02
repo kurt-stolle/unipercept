@@ -67,7 +67,7 @@ def profile(subparser: argparse.ArgumentParser):
 
     subparser.add_argument("path", nargs="*", type=str)
 
-    return main
+    return _main
 
 
 _logger = get_logger(__name__)
@@ -171,7 +171,7 @@ def _analyse_trace(
     _logger.debug("Finished profiling session.")
 
 
-def main(args):
+def _main(args):
     config: T.Any = args.config
     path_export = _find_session_path(config)
 

@@ -17,8 +17,11 @@ import torch.types
 import torch.utils._pytree as pytree
 import typing_extensions as TX
 from tensordict import TensorDict, TensorDictBase, tensorclass
-from tensordict.tensordict import IndexType as IndexType
-from tensordict.tensordict import NestedKey as NestedKey
+
+if T.TYPE_CHECKING:
+    from tensordict.base import IndexType as IndexType
+    from tensordict.tensordict import NestedKey as NestedKey
+
 from typing_extensions import override
 
 __all__ = ["Tensorclass", "TensorDict", "TensorDictBase"]

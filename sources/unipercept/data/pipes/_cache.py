@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Generic, Iterable, Iterator, Mapping, TypeVar
+import warnings
 
 import torch
 
@@ -37,6 +38,7 @@ class LazyPickleCache(Generic[_K, _V]):
         path = file_io.Path(self.path, force=True)
         with path.open("rb") as fh:
             items = torch.load(fh)  # type: ignore
+
         assert isinstance(items, dict), type(items)
 
         return items

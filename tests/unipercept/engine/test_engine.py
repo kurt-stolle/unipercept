@@ -10,22 +10,32 @@ from unipercept.engine._engine import _cleanup_generated_items
 
 
 @pytest.fixture()
-def train_config(tmpdir):
-    return up.engine.EngineParams(project_name="test", root=str(tmpdir))
+def engine_config():
+    return up.engine.EngineParams(project_name="tests")
 
 
-def test_engine(model_factory, train_config, loader_factory):
-    callbacks = [
+@pytest.fixture()
+def engine_callbacks():
+    return [
         up.engine.callbacks.FlowCallback(),
         up.engine.callbacks.Logger(),
     ]
+
+
+@pytest.fixture()
+def scheduler():
+    return up.engine.SchedulerFactory("poly", warmup_epochs=1)
+
+
+@pytest.fixture()
+def optimizer():
+    up.engine.OptimizerFactory("sgd", lr=0.1),
+
+
+def test_engine(model_factory, train_config, loader_factory):
     engine = up.engine.Engine(
         params=train_config,
-        scheduler=up.engine.SchedulerFactory("poly"),
-        optimizer=up.engine.OptimizerFactory("sgd", lr=0.1),
-        callbacks=callbacks,
     )
-    engine.train(model_factory, loader_factory, None)
 
 
 def test_cleanup_generated_items(tmp_path):

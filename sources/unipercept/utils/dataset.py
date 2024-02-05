@@ -161,14 +161,22 @@ class Dataset(
 
             # Generate the manifest if it is not cached
             if not file_io.isfile(path) and is_main_process():
-                mfst = self._build_manifest()
-                cache.data = mfst
+                cache.data = self._build_manifest()
 
             # Wait while the manifest is being generated
             wait_for_sync()
 
-            self._manifest = cache.data  # type: ignore
-        return self._manifest
+            # Load from cache (also if main process)
+            try:
+                mfst = cache.data  # type: ignore
+            except Exception as e:
+                msg = f"Failed to load manifest from cache file: {path}"
+                raise RuntimeError(msg) from e
+
+            mfst = self._manifest = cache.data  # type: ignore
+        else:
+            mfst = self._manifest
+        return T.cast(_T_MFST, mfst)
 
     # ----- #
     # QUEUE #

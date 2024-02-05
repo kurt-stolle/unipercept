@@ -40,14 +40,16 @@ def model_factory() -> T.Callable[..., nn.Module]:
 
 @pytest.fixture(scope="session")
 def loader_factory(dataset) -> up.data.DataLoaderFactory:
-    config = up.data.DataLoaderConfig(
-        batch_size=2, drop_last=False, pin_memory=True, num_workers=4
-    )
-    factory = up.data.DataLoaderFactory(
+    return up.data.DataLoaderFactory(
         dataset=dataset,
         actions=[],
         sampler=up.data.SamplerFactory("training"),
-        config=config,
+        config=up.data.DataLoaderConfig(
+            drop_last=False,
+            # Below are specific settings for testing
+            pin_memory=False,
+            num_workers=0,
+            prefetch_factor=None,
+            persistent_workers=None,
+        ),
     )
-
-    return factory

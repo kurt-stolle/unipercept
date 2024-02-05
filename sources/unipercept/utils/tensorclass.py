@@ -33,15 +33,16 @@ class _TensorclassMeta(type):
     TensorclassMeta is a metaclass that wraps the `@tensorclass` decorator around the child.
     """
 
-    def __new__(cls, name: str, bases: tuple[type, ...], ns: dict[str, T.Any], **kwds):
+    def __new__(
+        metacls, name: str, bases: tuple[type, ...], ns: dict[str, T.Any], **kwds
+    ):
         # if len(bases) == 0:
         #     return super().__new__(cls, name, tuple(bases), ns, **kwds)
 
         bases = types.resolve_bases(bases)
-        tc = super().__new__(cls, name, tuple(bases), ns, **kwds)
-        tc = tensorclass(tc)  # type: ignore
+        tc = super().__new__(metacls, name, tuple(bases), ns, **kwds)
 
-        return tc
+        return tensorclass(tc)
 
     @override
     def __instancecheck__(cls, ins: T.Any) -> bool:

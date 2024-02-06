@@ -17,6 +17,9 @@ from typing import (
 )
 
 import torch
+from unipercept.file_io import get_local_path
+
+from unipercept.utils.typings import Pathable
 
 __all__ = ["multi_read", "NoEntriesAction", "get_kwd", "read_pixels"]
 
@@ -45,6 +48,14 @@ def read_pixels(path: str, color: bool, alpha=False) -> torch.Tensor:
     tensor_image = torch.from_numpy(image.astype(np.int32))
 
     return tensor_image
+
+
+def write_png(path: Pathable, tensor: torch.Tensor):
+    """Write a tensor to a PNG file."""
+    import cv2
+
+    mat = tensor.cpu().numpy()
+    cv2.imwrite(get_local_path(path), mat)
 
 
 _KeywordType = TypeVar("_KeywordType")

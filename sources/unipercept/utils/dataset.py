@@ -30,7 +30,7 @@ _T_MFST = T.TypeVar("_T_MFST", bound=T.TypedDict)  # Manifest
 _T_QITEM = T.TypeVar("_T_QITEM")  # Item in queue
 _T_DITEM = T.TypeVar("_T_DITEM")  # Item in datapipe
 _T_DINFO = T.TypeVar("_T_DINFO")  # Meta info about the dataset
-_CREATE_INFO = "_create_info"
+_KEY_CREATE_INFO = "_create_info"
 
 
 @T.dataclass_transform(field_specifiers=(D.Field, D.field), kw_only_default=True)
@@ -48,20 +48,20 @@ class DatasetMeta(abc.ABCMeta):
             # If not provided, then 'get_info' is not inherited but copied.
             info = next(
                 (
-                    getattr(base, _CREATE_INFO)
+                    getattr(base, _KEY_CREATE_INFO)
                     for base in bases
-                    if hasattr(base, _CREATE_INFO)
+                    if hasattr(base, _KEY_CREATE_INFO)
                 ),
                 empty_info,
             )
         if callable(info):
-            ns[_CREATE_INFO] = as_picklable(info)
+            ns[_KEY_CREATE_INFO] = as_picklable(info)
         else:
             raise TypeError(f"info must be callable, got {type(info)}")
 
         return ns
 
-    def __new__(mcls, name, bases, ns, *, extra_slots=(), **kwds):
+    def __new__(metacls, name, bases, ns, *, extra_slots=(), **kwds):
         # Check whether slots is defined in the namespace
         has_slots = "__slots__" in ns
         if has_slots:
@@ -69,7 +69,7 @@ class DatasetMeta(abc.ABCMeta):
 
         # Create new class
         bases = types.resolve_bases(bases)
-        ds_cls = super().__new__(mcls, name, bases, ns, **kwds)
+        ds_cls = super().__new__(metacls, name, bases, ns, **kwds)
 
         # Convert to dataclass
         ds_cls = D.dataclass(slots=has_slots, weakref_slot=has_slots, kw_only=True)(ds_cls)  # type: ignore
@@ -108,9 +108,14 @@ class Dataset(
     a specific sub-dataset by switching the parent argument.
     """
 
+    use_manifest_cache: T.ClassVar[bool] = True
+
     @override
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, use_manifest_cache: bool | None = None, **kwargs):
         super().__init_subclass__()
+
+        if use_manifest_cache is not None:
+            cls.use_manifest_cache = use_manifest_cache
 
     # -------- #
     # MANIFEST #
@@ -152,28 +157,44 @@ class Dataset(
         from unipercept.data.pipes import LazyPickleCache  # TODO: nasty dependency
 
         if self._manifest is None:
-            # The manifest should be stored until the cache path provided by the environment
-            file_name = base64.b64encode(repr(self).encode(), "+-".encode()).decode()
-            path = file_io.get_local_path(f"//cache/datasets/manifest_{file_name}.pth")
+            if self.use_manifest_cache:
+                # The manifest should be stored until the cache path provided by the environment
+                file_name = base64.b64encode(
+                    repr(self).encode(), "+-".encode()
+                ).decode()
+                path = file_io.get_local_path(
+                    f"//cache/datasets/manifest_{file_name}.pth"
+                )
 
-            # Load the manifest from cache
-            cache = LazyPickleCache(path)
+                # Load the manifest from cache
+                cache = LazyPickleCache(path)
 
-            # Generate the manifest if it is not cached
-            if not file_io.isfile(path) and is_main_process():
-                cache.data = self._build_manifest()
+                # Generate the manifest if it is not cached
+                if not file_io.isfile(path) and is_main_process():
+                    cache.data = self._build_manifest()
 
-            # Wait while the manifest is being generated
-            wait_for_sync()
+                # Wait while the manifest is being generated
+                wait_for_sync()
 
-            # Load from cache (also if main process)
-            try:
-                mfst = cache.data  # type: ignore
-            except Exception as e:
-                msg = f"Failed to load manifest from cache file: {path}"
-                raise RuntimeError(msg) from e
+                # Load from cache (also if main process)
+                try:
+                    mfst = cache.data  # type: ignore
+                except Exception as e:
+                    msg = f"Failed to load manifest from cache file: {path}"
+                    raise RuntimeError(msg) from e
 
-            mfst = self._manifest = cache.data  # type: ignore
+                mfst = self._manifest = cache.data  # type: ignore
+            else:
+                if is_main_process():
+                    mfst = self._build_manifest()
+                else:
+                    mfst = None
+
+                # Wait while the manifest is being generated
+                wait_for_sync()
+
+                # Send the manifest to all processes
+                mfst = self._manifest = torch.distributed.broadcast(mfst, 0)
         else:
             mfst = self._manifest
         return T.cast(_T_MFST, mfst)

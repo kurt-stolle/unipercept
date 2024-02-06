@@ -75,12 +75,15 @@ class DepthMap(Mask):
     @classmethod
     @torch.no_grad()
     def read(
-        cls, path: str, dtype: torch.dtype = DEFAULT_DEPTH_DTYPE, **meta_kwds: T.Any
+        cls,
+        path: Pathable,
+        dtype: torch.dtype = DEFAULT_DEPTH_DTYPE,
+        **meta_kwds: T.Any,
     ) -> T.Self:
         from unipercept import file_io
         import numpy as np
 
-        path = file_io.get_local_path(path)
+        path = file_io.get_local_path(str(path))
         # Switch by depth format
         format = get_kwd(meta_kwds, "format", DepthFormat | str)
         match DepthFormat(format):  # type: ignore
@@ -91,8 +94,7 @@ class DepthMap(Mask):
                     raise ValueError(msg)
                 m = torch.from_numpy(np.array(m, copy=True))
             case DepthFormat.DEPTH_INT16:
-                m = read_pixels(path, color=False)
-                m /= float(2**8)
+                m = read_pixels(path, color=False) / float(2**8)
             case DepthFormat.DISPARITY_INT16:
                 m = cls.read_from_disparity(path, **meta_kwds)
             case DepthFormat.SAFETENSORS:
@@ -100,7 +102,8 @@ class DepthMap(Mask):
             case DepthFormat.TORCH:
                 m = torch.load(path, map_location="cpu").squeeze_(0).squeeze_(0)
             case _:
-                raise NotImplementedError(f"Unsupported depth format: {format}")
+                msg = f"Unsupported depth format: {format}"
+                raise NotImplementedError(msg)
 
         # TODO: Add angular FOV compensation via metadata
         m = m.to(dtype=dtype)
@@ -108,7 +111,8 @@ class DepthMap(Mask):
         m[m == torch.nan] = 0.0
         m.squeeze_()
         if m.ndim > 2:
-            raise ValueError(f"Depth map has {m.ndim} dimensions, expected 2")
+            msg = f"Depth map has {m.ndim} dimensions, expected 2"
+            raise ValueError(msg)
 
         return cls(m)
 

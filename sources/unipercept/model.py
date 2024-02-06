@@ -146,6 +146,7 @@ class CameraModel(Tensorclass):
     def width(self) -> torch.Tensor:
         return self.image_size[..., 1]
 
+    @TX.override
     def __post_init__(self):
         if self.matrix.shape[-2:] != (4, 4):
             raise ValueError("Camera matrix must be of shape (..., 4, 4)")

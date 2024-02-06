@@ -20,6 +20,8 @@ from unipercept.utils.tensorclass import Tensorclass
 
 if T.TYPE_CHECKING:
     from unipercept.data.collect import ExtractIndividualFrames
+    from unipercept.model import CaptureData
+    from unipercept.data.collect import QueueGeneratorType
 
 from unipercept.data.types import COCOCategory, Manifest, QueueItem
 
@@ -520,9 +522,9 @@ class PerceptionDataset(
 ):
     """Baseclass for datasets that are composed of captures and motions."""
 
-    queue_fn: T.Callable[
-        [Manifest], up.data.collect.QueueGeneratorType
-    ] = dataclasses.field(default_factory=_individual_frames_queue)
+    queue_fn: T.Callable[[Manifest], QueueGeneratorType] = dataclasses.field(
+        default_factory=_individual_frames_queue
+    )
 
     @TX.override
     def __init_subclass__(cls, id: str | None = None, **kwargs):
@@ -535,19 +537,19 @@ class PerceptionDataset(
                     raise ValueError(
                         f"Directly specifying an ID that is not canonical not allowed: '{id}' should be '{id_canon}'!"
                     )
-
-            catalog.register_dataset(id, info=cls._create_info)(cls)  # is a decorator
+                catalog.register_dataset(id, info=cls._create_info)(
+                    cls
+                )  # is a decorator
         elif id is not None:
-            raise ValueError(
-                f"Opinionated: classes starting with '_' should not have an ID, got: {id}"
-            )
+            msg = f"Classes starting with '_' should not have an ID, got: {id}"
+            raise ValueError(msg)
 
         cls._data_cache = {}
 
     @classmethod
     def _load_capture_data(
-        cls, sources: T.Sequence[up.data.types.CaptureSources], info: Metadata
-    ) -> up.model.CaptureData:
+        cls, sources: T.Sequence[CaptureSources], info: Metadata
+    ) -> CaptureData:
         from unipercept.data.io import read_depth_map, read_image, read_segmentation
         from unipercept.data.tensors.helpers import multi_read
         from unipercept.model import CaptureData

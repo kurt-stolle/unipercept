@@ -28,6 +28,7 @@ __all__ = ["Tensorclass", "TensorDict", "TensorDictBase"]
 _CompatibleType: T.TypeAlias = torch.Tensor
 
 
+@T.dataclass_transform()
 class _TensorclassMeta(type):
     """
     TensorclassMeta is a metaclass that wraps the `@tensorclass` decorator around the child.
@@ -43,14 +44,6 @@ class _TensorclassMeta(type):
         tc = super().__new__(metacls, name, tuple(bases), ns, **kwds)
 
         return tensorclass(tc)
-
-    @override
-    def __instancecheck__(cls, ins: T.Any) -> bool:
-        return isinstance(ins, TensorDictBase) or super().__instancecheck__(ins)
-
-    @override
-    def __subclasscheck__(cls, sub: T.Any) -> bool:
-        return issubclass(sub, TensorDictBase) or super().__subclasscheck__(sub)
 
 
 @T.dataclass_transform()

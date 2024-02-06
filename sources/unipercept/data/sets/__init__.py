@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import typing as T
 
-import typing_extensions as TX
-from typing_extensions import deprecated
-
+from ._base import *
+from ._generic import *
 from . import (
     cityscapes,
     huggingface,
@@ -16,4 +15,3 @@ from . import (
     vistas,
     wilddash,
 )
-from ._base import *

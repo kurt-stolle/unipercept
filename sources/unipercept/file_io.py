@@ -17,6 +17,7 @@ from iopath.common.file_io import (
 )
 from unipercept.utils.iopath_handlers import EnvironPathHandler, WandBArtifactHandler
 from unipercept.utils.iopath_path import IoPath
+from unipercept.utils.typings import Pathable
 
 __all__ = ["Path"]
 
@@ -114,15 +115,16 @@ _exports: frozenset[str] = frozenset(
 
 _Params = T.ParamSpec("_Params")
 _Return = T.TypeVar("_Return")
-_PathCallable: T.TypeAlias = T.Callable[T.Concatenate[str, _Params], _Return]
+_PathStrCallable: T.TypeAlias = T.Callable[T.Concatenate[str, _Params], _Return]
+_PathAnyCallable: T.TypeAlias = T.Callable[T.Concatenate[Pathable, _Params], _Return]
 
 
 def with_local_path(
-    fn: _PathCallable | None = None,
+    fn: _PathStrCallable | None = None,
     *,
     manager: PathManager = _manager,
     **get_local_path_kwargs: T.Any,
-) -> _PathCallable | T.Callable[[_PathCallable], _PathCallable]:
+) -> _PathAnyCallable | T.Callable[[_PathStrCallable], _PathAnyCallable]:
     """
     Decorator that converts the first argument of a function to a local path.
 
@@ -150,8 +152,8 @@ def with_local_path(
         return functools.partial(with_local_path, manager=manager, **get_local_path_kwargs)  # type: ignore
 
     @functools.wraps(fn)
-    def Wrapper(path: str, *args: _Params.args, **kwargs: _Params.kwargs):
-        path = manager.get_local_path(path, **get_local_path_kwargs)
+    def Wrapper(path: Pathable, *args: _Params.args, **kwargs: _Params.kwargs):
+        path = manager.get_local_path(str(path), **get_local_path_kwargs)
         return fn(path, *args, **kwargs)
 
     return Wrapper
@@ -162,11 +164,16 @@ def with_local_path(
 #################################
 
 
+@with_local_path
+def get_local_path(path: str, force: bool = False, **kwargs: T.Any) -> str:
+    return _manager.get_local_path(path, force=force, **kwargs)
+
+
 def __getattr__(name: str):
     if name in _exports:
         return getattr(_manager, name)
-    else:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
 
 
 def __dir__():
@@ -208,9 +215,6 @@ if T.TYPE_CHECKING:
         ...
 
     def mv(src_path: str, dst_path: str, **kwargs: T.Any) -> bool:
-        ...
-
-    def get_local_path(path: str, force: bool = False, **kwargs: T.Any) -> str:
         ...
 
     def copy_from_local(

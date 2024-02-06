@@ -14,17 +14,9 @@ from unipercept.engine.debug import DebugMode
 from unipercept.log import LOG_LEVELS, get_logger
 from unipercept.state import check_main_process
 
-__all__ = ["EngineParams", "EngineStage", "InferencePrecision"]
+__all__ = ["EngineParams", "EngineStage", "InferencePrecision", "Interval"]
 
 _logger = get_logger(__name__)
-
-_T = T.TypeVar("_T")
-
-if T.TYPE_CHECKING:
-    _IntervalType: T.TypeAlias = T.Literal["steps", "epochs"]
-else:
-    _IntervalType = str
-
 
 _DEFAULT_EXPERIMENT_TRACKERS: set[str] = {"tensorboard"}
 
@@ -39,6 +31,50 @@ class InferencePrecision(E.StrEnum):
     FULL_BF16 = E.auto()
 
 
+class Interval(T.NamedTuple):
+    """
+    The engine runs on intervals of steps, which can be defined in terms of epochs.
+
+    Traditionally the epoch is defined as the amount of steps to be trained such
+    that the model has 'seen' the full dataset. This is however not always the case or
+    results in vague definitions, e.g. in the case of random clipping or
+    infinite data sources.
+
+    We recommend interpreting the ``steps_per_epoch`` as a
+    hyperparameter that defines when the model has seen the scope of the dataset,
+    i.e. all classes have been seen in most of the possible contexts.
+    """
+
+    amount: int
+    unit: T.Literal["steps", "epochs"]
+
+    def get_steps(self, steps_per_epoch: int) -> int:
+        if self.unit == "steps":
+            return self.amount
+        if self.unit == "epochs":
+            return self.amount * steps_per_epoch
+
+        msg = f"Unknown unit {self.unit}"
+        raise ValueError(msg)
+
+    def get_epochs(self, steps_per_epoch: int) -> float:
+        if self.unit == "steps":
+            return self.amount // steps_per_epoch
+        if self.unit == "epochs":
+            return self.amount
+
+        msg = f"Unknown unit {self.unit}"
+        raise ValueError(msg)
+
+    @classmethod
+    def from_steps(cls, steps: int) -> Interval:
+        return cls(amount=steps, unit="steps")
+
+    @classmethod
+    def from_epochs(cls, epochs: int) -> Interval:
+        return cls(amount=epochs, unit="epochs")
+
+
 @D.dataclass(frozen=True, slots=True)
 class EngineStage:
     """
@@ -49,9 +85,7 @@ class EngineStage:
     batch_size: int
     optimizer: OptimizerFactory
     scheduler: SchedulerFactory
-    iterations: tuple[int, T.Literal["steps", "epochs"]] = D.field(
-        default=(1, "epochs"), metadata={}
-    )
+    iterations: Interval = D.field(default=Interval(1, "epochs"), metadata={})
     gradient_accumulation: int = 1
 
     def get_steps(self, steps_per_epoch: int) -> int:
@@ -139,9 +173,7 @@ class EngineParams:
     # Evaluation
     ########################################
 
-    eval_interval: tuple[int, _IntervalType] = D.field(
-        default=(1, "epochs"), metadata={}
-    )
+    eval_interval: Interval = D.field(default=Interval(1, "epochs"), metadata={})
     eval_write_visuals: bool = D.field(
         default=False,
         metadata={
@@ -224,9 +256,7 @@ class EngineParams:
     # Saving
     #################################################
 
-    save_interval: tuple[int, T.Literal["steps", "epochs"]] = D.field(
-        default=(1, "epochs"), metadata={}
-    )
+    save_interval: Interval = D.field(default=Interval(1, "epochs"), metadata={})
 
     def get_save_interval_steps(self, steps_per_epoch: int) -> int | None:
         """

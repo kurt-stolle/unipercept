@@ -11,39 +11,8 @@ from tensordict import TensorDict
 from unipercept.evaluators import PRED_PANOPTIC, TRUE_PANOPTIC, PanopticEvaluator
 
 
-@pytest.fixture(scope="module")
-def true_info():
-    """
-    The true panoptic segmentation.
-    """
-
-    from unipercept import get_info
-
-    return get_info("kitti-step")
-
-
-@pytest.fixture(scope="module")
-def true_panoptic(true_info):
-    """
-    The true panoptic segmentation.
-    """
-
-    from torch.nn.functional import interpolate
-
-    from unipercept.data.tensors import LabelsFormat, PanopticMap
-
-    panseg = PanopticMap.read(
-        "assets/sample-annotated/segmentation.png", true_info, format=LabelsFormat.KITTI
-    )
-
-    panseg.unsqueeze_(1)
-    panseg = interpolate(panseg.float(), scale_factor=0.25, mode="nearest-exact").long()
-    panseg.squeeze_(1)
-
-    return panseg
-
-
-def test_panoptic_evaluator(true_panoptic: torch.Tensor, true_info):
+def test_panoptic_evaluator(true_panoptic: torch.Tensor, 
+                            pred_panoptic: torch.Tensor, true_info):
     """
     Test the panoptic evaluator.
     """
@@ -54,10 +23,6 @@ def test_panoptic_evaluator(true_panoptic: torch.Tensor, true_info):
     sample_amt = 3
 
     print(f"GT: {true_panoptic.unique().tolist()}")
-
-    pred_panoptic = torch.where(
-        true_panoptic >= 0, true_panoptic, torch.randint(0, 10, true_panoptic.shape)
-    )
 
     storage = TensorDict(
         {

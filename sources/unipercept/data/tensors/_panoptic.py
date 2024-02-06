@@ -9,6 +9,8 @@ from torchvision.tv_tensors import Mask as _Mask
 from typing_extensions import override
 
 from unipercept import file_io
+from unipercept.data.tensors.helpers import write_png
+from unipercept.utils.typings import Pathable
 
 from .registry import pixel_maps
 
@@ -47,12 +49,12 @@ class PanopticMap(_Mask):
 
     @classmethod
     @torch.no_grad()
-    def read(cls, path: str, info: Metadata | None, /, **meta_kwds) -> T.Self:
+    def read(cls, path: Pathable, info: Metadata | None, /, **meta_kwds) -> T.Self:
         """Read a panoptic map from a file."""
         from .helpers import get_kwd, read_pixels
 
         panoptic_format = get_kwd(meta_kwds, "format", LabelsFormat)
-        path = file_io.get_local_path(path)
+        path = file_io.get_local_path(str(path))
 
         match panoptic_format:
             case LabelsFormat.SAFETENSORS:
@@ -175,6 +177,72 @@ class PanopticMap(_Mask):
         labels.remove_instances_(info.background_ids)
 
         return labels
+    
+    def save(self, path: Pathable, format: LabelsFormat | str | None = None) -> None:
+        """
+        Save the panoptic map to a file.
+        """
+        from .helpers import get_kwd
+
+        path = file_io.Path(path)
+        if format is None:
+            match path.suffix.lower():
+                case ".pth", ".pt":
+                    format = LabelsFormat.TORCH
+                case ".safetensors":
+                    format = LabelsFormat.SAFETENSORS
+                case _:
+                    msg = f"Could not infer labels format from path: {path}"
+                    raise ValueError(msg)
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        match LabelsFormat(format):
+            case LabelsFormat.SAFETENSORS:
+                safetensors.save_file({"data": torch.as_tensor(self)}, path)
+            case LabelsFormat.TORCH:
+                torch.save(torch.as_tensor(self), path)
+            case LabelsFormat.CITYSCAPES:
+                divisor = self.DIVISOR
+                ignore_label = self.IGNORE
+                img = torch.empty((*self.shape, 3), dtype=torch.uint8)
+                img[:, :, 0] = self % BYTE_OFFSET
+                img[:, :, 1] = self // BYTE_OFFSET
+                img[:, :, 2] = self // BYTE_OFFSET // BYTE_OFFSET
+                img = torch.where(self == ignore_label * divisor, 0, img)
+                img = torch.where(self < divisor, img * divisor, img - 1)
+
+                write_png(path, img) 
+            case LabelsFormat.CITYSCAPES_VPS:
+                divisor = self.DIVISOR
+                ignore_label = self.IGNORE
+                sem = self.get_semantic_map()
+                ids = self.get_instance_map()
+                img = torch.where(ids > 0, ids - 1 + sem * divisor, sem)
+                img = torch.where(img == ignore_label, 0, img)
+            case LabelsFormat.KITTI:
+                img = torch.empty((*self.shape, 3), dtype=torch.uint8)
+                img[:, :, 0] = self.get_semantic_map()
+                img[:, :, 1] = self.get_instance_map() // BYTE_OFFSET
+                img[:, :, 2] = self.get_instance_map() % BYTE_OFFSET
+                
+            case LabelsFormat.VISTAS:
+                divisor = self.DIVISOR
+                img = torch.empty((*self.shape, 3), dtype=torch.uint8)
+                img[:, :, 0] = self % BYTE_OFFSET
+                img[:, :, 1] = self // BYTE_OFFSET
+                img[:, :, 2] = self // BYTE_OFFSET // BYTE_OFFSET
+            case LabelsFormat.WILD_DASH:
+                divisor = self.DIVISOR
+                ignore_label = self.IGNORE
+                img = torch.empty((*self.shape, 3), dtype=torch.uint8)
+                img[:, :, 0] = self // (BYTE_OFFSET * BYTE_OFFSET)
+                img[:, :, 1] = (self // BYTE_OFFSET) % BYTE_OFFSET
+                img[:, :, 2] = self % BYTE_OFFSET
+                img = torch.where(self == ignore_label * divisor, 0, img)
+            case _:
+                raise NotImplementedError(f"{format=}")
+
 
     @classmethod
     def default(cls, shape: torch.Size, device: torch.device | str = "cpu") -> T.Self:

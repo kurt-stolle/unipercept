@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import typing as T
 
 import pytest
-import typing_extensions as TX
 from torchdata.datapipes import iter
 
-from unipercept.data.pipes.pattern import MatchMode, PatternFilter, PatternMatcher
+from unipercept.data.pipes import MatchMode, PatternFilter, PatternMatcher
 
 
 @pytest.mark.parametrize(
@@ -21,9 +19,9 @@ def test_pattern_matcher_pipe(mode):
 
     match matcher.mode:
         case MatchMode.ERROR:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError):  # noqa: PT011
                 next(it)
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError):  # noqa: PT011
                 next(it)
         case MatchMode.WARN:
             with pytest.warns(UserWarning):

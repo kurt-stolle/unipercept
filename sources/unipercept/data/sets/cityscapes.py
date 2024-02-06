@@ -16,7 +16,6 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pipes import UniCoreFileLister
-from unipercept.utils.dataserial import serializable
 from unipercept.utils.formatter import formatter
 
 from unipercept.data.sets._base import (
@@ -93,7 +92,6 @@ def get_sequence_key(seq_idx: int) -> str:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-@serializable
 class CameraIntrinsic:
     fx: float
     fy: float
@@ -102,7 +100,6 @@ class CameraIntrinsic:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-@serializable
 class CameraExtrinsic:
     baseline: float
     pitch: float
@@ -114,7 +111,6 @@ class CameraExtrinsic:
 
 
 @dataclass(slots=True, frozen=True)
-@serializable
 class CameraCalibration:
     """
     See: https://github.com/mcordts/cityscapesScripts/blob/master/docs/csCalibration.pdf

@@ -6,7 +6,7 @@ import pytest
 import typing_extensions as TX
 from torchdata.datapipes.iter import IterableWrapper
 
-from unipercept.data.pipes.join import LeftIndexJoin
+from unipercept.data.pipes import LeftIndexJoin
 
 
 def test_left_join_pipe():

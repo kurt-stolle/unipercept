@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import typing as T
 
 import pytest
-import typing_extensions as TX
-
 from unipercept.engine import EngineParams
 
 
 @pytest.mark.parametrize(
-    "attr_step, attr_epoch, fn_to_step, fn_to_epoch",
+    ("attr_step, attr_epoch, fn_to_step, fn_to_epoch"),
     [
         ("train_steps", "train_epochs", "get_train_steps", "get_train_epochs"),
         (

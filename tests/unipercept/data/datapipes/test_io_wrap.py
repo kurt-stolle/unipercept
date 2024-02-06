@@ -6,7 +6,7 @@ from pathlib import Path
 import typing_extensions as TX
 from torchdata.datapipes import iter, map
 
-from unipercept.data.pipes.io_wrap import UniCoreFileLister
+from unipercept.data.pipes import UniCoreFileLister
 
 
 def test_file_lister_pipe():

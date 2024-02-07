@@ -16,6 +16,7 @@ import shutil
 import time
 import typing as T
 from uuid import uuid4
+from tabulate import tabulate
 
 import torch
 import torch._dynamo
@@ -100,7 +101,7 @@ class Engine:
     The engine implements processes for training, evaluation, and inference.
     """
 
-    __slots__ = ("_xlr", "_root", "_session_id", "__dict__")
+    __slots__ = ("_xlr", "_root", "dry_run", "session_id", "__dict__")
 
     def __init__(
         self,
@@ -111,8 +112,13 @@ class Engine:
         stages: T.Iterable[EngineStage] | None = None,
         evaluators: T.Mapping[str, T.Iterable[Evaluator]] | None = None,
         log_events: bool = False,
+        dry_run: bool = False,
     ):
-        self._session_id = _generate_session_id()
+        self.session_id = _generate_session_id()
+        self.dry_run = dry_run
+
+        if dry_run:
+            _logger.warning("Running in dry run mode!")
 
         self._mem_tracker = MemoryTracker(enabled=not params.memory_tracker)
         self._mem_tracker.start("init")  # must set up as early as possible
@@ -187,7 +193,7 @@ class Engine:
         """
         if self._root is None:
             self._root = file_io.Path(
-                f"//output/{self._params.project_name}/{str(self._session_id)}"
+                f"//output/{self._params.project_name}/{str(self.session_id)}"
             )
             self.xlr  # Force initialization of Accelerator
         return self._root
@@ -316,7 +322,7 @@ class Engine:
             except ValueError:
                 stage_num = -1
 
-        _logger.info(f"*** Training stage {stage_num} ***")
+        _logger.info(f"Starting training procedure for stage {stage_num}...")
 
         if not isinstance(stage, EngineStage):
             raise TypeError(
@@ -364,7 +370,7 @@ class Engine:
                 steps_per_epoch
             )
             self._state.train_steps = stage.get_steps(steps_per_epoch)
-            self._state.gradient_accumulation = stage.gradient_accumulation
+            self._state.gradient_accumulation = gradient_accumulation
             self._state.best_metric = None
 
             if trial is not None:
@@ -403,7 +409,10 @@ class Engine:
         prefix: str = "evaluation",
         weights: str | None = None,
     ) -> dict[str, float]:
-        _logger.info("*** Starting evaluation ***")
+        if self.dry_run:
+            _logger.info("Dry run: skipping evaluation")
+            return {}
+        _logger.info("Starting evaluation procedure...")
 
         metrics_overall = {}
 
@@ -512,17 +521,22 @@ class Engine:
         steps_per_epoch = len(dl) // get_process_count()
 
         if gradient_accumulation is not None:
-            updates_per_epoch = math.ceil(
-                steps_per_epoch / self._state.gradient_accumulation
-            )
+            updates_per_epoch = math.ceil(steps_per_epoch / gradient_accumulation)
         else:
             updates_per_epoch = None
 
+        # Tabulate and log the loader information
+        table = {
+            "Batch size": batch_size,
+            "Batch count": len(dl),
+            "Gradient acc.": gradient_accumulation,
+            "Processes": get_process_count(),
+            "Steps/Epoch": steps_per_epoch,
+            "Updates/Epoch": updates_per_epoch,
+        }
+
         _logger.debug(
-            "Loader contains %d batches (%d processes, %d steps per epoch)",
-            len(dl),
-            get_process_count(),
-            steps_per_epoch,
+            "Using dataloader settings:\n%s", tabulate(table.items(), tablefmt="simple")
         )
 
         return dl, steps_per_epoch, updates_per_epoch
@@ -598,7 +612,7 @@ class Engine:
 
         self._edge(Event.ON_TRAIN_BEGIN, model=model)
 
-        total_sesssion_samples = 0
+        total_session_samples = 0
         total_session_steps = 0
 
         steps_per_epoch = len(loader)
@@ -655,7 +669,11 @@ class Engine:
             )  # If the value of the iterator is still -1 after the loop, something went wrong
             for step, inputs in enumerate(epoch_iterator):
                 # assert isinstance(inputs, InputType), f"Expected InputType, got {type(inputs)}"
-                total_sesssion_samples += 1
+
+                if total_session_samples > 0 and self.dry_run:
+                    continue
+
+                total_session_samples += 1
 
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
@@ -706,7 +724,7 @@ class Engine:
                 )
 
                 if (
-                    total_sesssion_samples % self._state.gradient_accumulation == 0
+                    total_session_samples % self._state.gradient_accumulation == 0
                     or
                     # last step in epoch but step is always smaller than gradient_accumulation
                     is_last_step_and_steps_less_than_grad_acc
@@ -792,7 +810,7 @@ class Engine:
             _build_speed_metrics(
                 "training",
                 time_start,
-                sample_amount=total_sesssion_samples,
+                sample_amount=total_session_samples,
                 step_amount=total_session_steps,
             )
         )
@@ -855,9 +873,12 @@ class Engine:
             (3) iterate the dataset again, and run the evaluation function of each evaluator
         """
 
-        self._start_experiment_trackers(restart=False)
+        if self.dry_run:
+            _logger.info("Dry run: skipping inference")
+            return {}, 0
 
-        _logger.info("***** Running inference *****")
+        _logger.info("Starting inference procedure...")
+        self._start_experiment_trackers(restart=False)
 
         torch.cuda.empty_cache()
         gc.collect()
@@ -896,7 +917,7 @@ class Engine:
         if results_path is None:
             results_remove_on_exit = True
             results_path = file_io.Path(
-                f"//scratch/{self._params.project_name}/{str(self._session_id)}/{prefix}-results.h5"
+                f"//scratch/{self._params.project_name}/{str(self.session_id)}/{prefix}-results.h5"
             )
         else:
             results_remove_on_exit = False
@@ -1000,6 +1021,7 @@ class Engine:
                 self._store_visualizations(visuals, prefix=prefix)
         except Exception as e:
             _logger.error(f"Exception occurred during inference: {e}")
+            print(e)
             metrics = {}
             samples_processed = 0
         finally:
@@ -1056,6 +1078,10 @@ class Engine:
         """
 
         from unipercept.integrations import wandb_integration
+
+        if self.dry_run:
+            _logger.info("Dry run: skipping experiment trackers")
+            return
 
         if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status and not restart:
             _logger.debug("Trackers already started, skipping setup")

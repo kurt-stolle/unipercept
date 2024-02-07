@@ -47,7 +47,7 @@ class TypeRegistry:
         return len(self._set)
 
     def __contains__(self, cls: type) -> bool:
-        return cls in self._set
+        return cls in self._set or any(issubclass(cls, c) for c in self._set)
 
     def __iter__(self) -> T.Iterator[type]:
         return iter(self._set)

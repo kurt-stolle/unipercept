@@ -44,13 +44,22 @@ __all__ = [
 
 _logger = get_logger(__name__)
 
-DEFAULT_NUM_WORKERS = max(
-    1,
-    get_env(
+DEFAULT_NUM_WORKERS = get_env(
+    int,
+    "UP_DATALOADER_WORKERS",
+    "UNIPERCEPT_DATALOADER_WORKERS",
+    default=get_env(
         int,
-        "UNIPERCEPT_DATALOADER_WORKERS",
-        default=get_env(int, "SLURM_CPUS_PER_GPU", default=M.cpu_count()) // 2,
+        "SLURM_CPUS_PER_GPU",
+        default=M.cpu_count() // get_process_count(),
     ),
+)
+
+DEFAULT_PREFETCH_FACTOR = get_env(
+    int,
+    "UP_DATALOADER_PREFETCH_FACTOR",
+    "UNIPERCEPT_DATALOADER_PREFETCH_FACTOR",
+    default=2,
 )
 
 
@@ -59,7 +68,7 @@ class DataLoaderConfig:
     drop_last: bool = False
     pin_memory: bool = True
     num_workers: int = DEFAULT_NUM_WORKERS
-    prefetch_factor: int | None = 4
+    prefetch_factor: int | None = DEFAULT_PREFETCH_FACTOR
     persistent_workers: bool | None = False
 
 

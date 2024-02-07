@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import typing as T
+from tabulate import tabulate
 
 import torch
 from omegaconf import DictConfig
@@ -13,6 +15,9 @@ from unipercept.cli._command import command
 from unipercept.cli._config import ConfigFileContentType as config_t
 
 _logger = up.log.get_logger()
+
+
+KEY_SESSION_ID = "session_id"
 
 
 @command(help="trian a model", description=__doc__)
@@ -78,6 +83,11 @@ def _main(args):
     engine: up.engine.Engine = up.config.instantiate(lazy_config.ENGINE)
 
     if args.resume:
+        session_id_recovered = lazy_config[KEY_SESSION_ID]
+        if session_id_recovered is None:
+            msg = "Training configuration does not support resumption"
+            raise ValueError(msg)
+
         if not args.config_path.endswith(".yaml"):
             msg = "Cannot resume training without a YAML config file"
             raise ValueError(msg)
@@ -89,26 +99,52 @@ def _main(args):
             msg = "Cannot resume training from a directory without logs"
             raise ValueError(msg)
 
+        engine.session_id = session_id_recovered
         engine.session_dir = resume_dir
-
-    if up.state.check_main_process():
+    elif up.state.check_main_process():
         _logger.info("Storing serialized config to YAML file %s", engine.config_path)
+        lazy_config[KEY_SESSION_ID] = engine.session_id
         up.config.save_config(lazy_config, str(engine.config_path))
+
+    _logger.info(
+        "Starting engine session:\n%s",
+        tabulate(
+            [
+                ("Session ID", engine.session_id),
+                ("Session path", str(engine.session_dir)),
+            ],
+        ),
+    )
 
     # Setup dataloaders
     model_factory = up.model.ModelFactory(lazy_config.MODEL)
 
-    if args.evaluation:
-        results = engine.run_evaluation(model_factory, weights=args.weights)
+    try:
+        if args.evaluation:
+            results = engine.run_evaluation(model_factory, weights=args.weights)
+            _logger.info(
+                "Evaluation results: \n%s", up.log.create_table(results, format="long")
+            )
+        else:
+            engine.run_training(
+                model_factory,
+                trial=None,
+                stage=args.stage if args.stage >= 0 else None,
+                weights=args.weights,
+            )
+    except KeyboardInterrupt:
+        output_path = up.file_io.Path("//output").resolve()
+        config_path = engine.config_path.resolve()
+        if config_path.is_relative_to(output_path):
+            config_path = config_path.relative_to(output_path).as_posix()
+            config_path = f"//output/{config_path}"
+
+        print("\n", flush=True, file=sys.stdout)
+        print("\n", flush=True, file=sys.stderr)
+
         _logger.info(
-            "Evaluation results: \n%s", up.log.create_table(results, format="long")
-        )
-    else:
-        engine.run_training(
-            model_factory,
-            trial=None,
-            stage=args.stage if args.stage >= 0 else None,
-            weights=args.weights,
+            "Training interrupted by user. To resume, use the --resume flag and configuration file: %s",
+            engine.config_path,
         )
 
 

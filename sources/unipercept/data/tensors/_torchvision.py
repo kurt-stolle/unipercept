@@ -48,4 +48,5 @@ class Image(ImageBase):
 
 
 pixel_maps.register(ImageBase)
+pixel_maps.register(Image)
 pixel_maps.register(Mask)

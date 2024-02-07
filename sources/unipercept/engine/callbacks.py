@@ -40,6 +40,12 @@ _logger = unipercept.log.get_logger(__name__)
 
 @D.dataclass(kw_only=True)
 class State:
+    """
+    State class that holds the state of the training loop.
+    The state is saved as part of the training checkpoint and can be used to resume
+    training from a saved checkpoint.
+    """
+
     # Epochs and steps
     epoch: float = 0.0
     step: int = 0

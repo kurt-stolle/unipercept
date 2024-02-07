@@ -66,14 +66,6 @@ class Interval(T.NamedTuple):
         msg = f"Unknown unit {self.unit}"
         raise ValueError(msg)
 
-    @classmethod
-    def from_steps(cls, steps: int) -> Interval:
-        return cls(amount=steps, unit="steps")
-
-    @classmethod
-    def from_epochs(cls, epochs: int) -> Interval:
-        return cls(amount=epochs, unit="epochs")
-
 
 @D.dataclass(frozen=True, slots=True)
 class EngineStage:

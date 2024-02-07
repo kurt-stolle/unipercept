@@ -18,7 +18,7 @@ from unipercept import file_io
 if T.TYPE_CHECKING:
     from unipercept.engine import EngineParams
 
-__all__ = ["Accelerator"]
+__all__ = ["Accelerator", "find_executable_batch_size"]
 
 
 class Accelerator(accelerate.Accelerator):
@@ -88,3 +88,37 @@ class Accelerator(accelerate.Accelerator):
         model = super().prepare_model(model, *args, **kwargs)
 
         return model
+
+
+if T.TYPE_CHECKING:
+    _P = T.ParamSpec("_P")
+    _R = T.TypeVar("_R")
+
+    _Fin: T.TypeAlias = T.Callable[T.Concatenate[int, _P], _R]
+    _Fout: T.TypeAlias = T.Callable[_P, _R]
+
+    @T.overload
+    def find_executable_batch_size(
+        function: _Fin[_P, _R],
+        *,
+        starting_batch_size: int = 128,
+    ) -> _Fout[_P, _R]:
+        ...
+
+    @T.overload
+    def find_executable_batch_size(
+        function: None = None,
+        *,
+        starting_batch_size: int = 128,
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]:
+        ...
+
+    def find_executable_batch_size(
+        function: _Fin | None = None,
+        *,
+        starting_batch_size: int = 128,
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]:
+        ...
+
+else:
+    find_executable_batch_size = accelerate.utils.find_executable_batch_size

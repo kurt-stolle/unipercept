@@ -37,7 +37,7 @@ from unipercept import file_io
 from unipercept.engine._params import EngineParams, EngineStage
 from unipercept.engine._trial import Trial
 from unipercept.engine._types import DataLoaderFactory, ModelFactory
-from unipercept.engine.accelerate import Accelerator
+from unipercept.engine.accelerate import Accelerator, find_executable_batch_size
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
@@ -323,43 +323,67 @@ class Engine:
                 f"Expected stage to be of type EngineStage, got {type(stage)}"
             )
 
-        loader, steps_per_epoch, updates_per_epoch = self._build_training_dataloader(
-            stage
-        )
-        model = model_factory(trial)
-        scheduled_epochs = stage.get_epochs(steps_per_epoch)
-        optimizer = stage.optimizer(model)
-        scheduler, train_epochs = stage.scheduler(
-            optimizer, scheduled_epochs, updates_per_epoch
-        )
+        @find_executable_batch_size(starting_batch_size=stage.batch_size)
+        def train(batch_size: int) -> nn.Module:
+            """
+            This inner function accepts a parameter batch_size, which is automatically
+            tuned to the maximum batch size that fits into memory.
 
-        _logger.info(f"Training for {train_epochs} total epochs.")
+            The batch size is always less than or equal to the starting batch size,
+            and for reproduction purposes, the accumulation steps are adjusted to
+            emulate training at original batch size. Note that this does not guarantee
+            perfect reproducibility.
+            """
+            gradient_accumulation = stage.gradient_accumulation * (
+                stage.batch_size // batch_size
+            )
+            assert (
+                gradient_accumulation > 0
+            ), "Expected gradient accumulation to be greater than 0"
 
-        # Reset the state
-        self._state.reset()
-        self._state.stage = stage_num
-        self._state.logging_steps = self._params.logging_steps
-        self._state.eval_steps = self._params.get_eval_interval_steps(steps_per_epoch)
-        self._state.save_steps = self._params.get_save_interval_steps(steps_per_epoch)
-        self._state.train_steps = stage.get_steps(steps_per_epoch)
-        self._state.gradient_accumulation = stage.gradient_accumulation
-        self._state.best_metric = None
+            loader, steps_per_epoch, updates_per_epoch = self.build_training_dataloader(
+                stage.dataloader, batch_size, gradient_accumulation
+            )
+            model = model_factory(trial)
+            scheduled_epochs = stage.get_epochs(steps_per_epoch)
+            optimizer = stage.optimizer(model)
+            scheduler, train_epochs = stage.scheduler(
+                optimizer, scheduled_epochs, updates_per_epoch
+            )
 
-        if trial is not None:
-            self._state.trial_name = trial.name
-            self._state.trial_params = trial.params
-        else:
-            self._state.trial_name = "training"
-            self._state.trial_params = {}
+            _logger.info(f"Training for {train_epochs} total epochs.")
 
-        result = self.run_training_loop(
-            loader,
-            model,
-            optimizer,
-            scheduler,
-            trial=trial,
-            weights=weights,
-        )
+            # Reset the state
+            self._state.reset()
+            self._state.stage = stage_num
+            self._state.logging_steps = self._params.logging_steps
+            self._state.eval_steps = self._params.get_eval_interval_steps(
+                steps_per_epoch
+            )
+            self._state.save_steps = self._params.get_save_interval_steps(
+                steps_per_epoch
+            )
+            self._state.train_steps = stage.get_steps(steps_per_epoch)
+            self._state.gradient_accumulation = stage.gradient_accumulation
+            self._state.best_metric = None
+
+            if trial is not None:
+                self._state.trial_name = trial.name
+                self._state.trial_params = trial.params
+            else:
+                self._state.trial_name = "training"
+                self._state.trial_params = {}
+
+            return self.run_training_loop(
+                loader,
+                model,
+                optimizer,
+                scheduler,
+                trial=trial,
+                weights=weights,
+            )
+
+        result = train()
 
         if len(self._stages) > stage_num + 1:
             _logger.info("Training completed. Moving to next stage.")
@@ -421,47 +445,87 @@ class Engine:
 
         return metrics_overall
 
-    def _build_training_dataloader(
-        self, stage: EngineStage
+    @T.overload
+    def build_training_dataloader(
+        self,
+        dataloader: str | DataLoaderFactory,
+        batch_size: int,
+        gradient_accumulation: None = None,
+    ) -> tuple[torch.utils.data.DataLoader, int, None]:
+        ...
+
+    @T.overload
+    def build_training_dataloader(
+        self,
+        dataloader: str | DataLoaderFactory,
+        batch_size: int,
+        gradient_accumulation: int,
     ) -> tuple[torch.utils.data.DataLoader, int, int]:
+        ...
+
+    def build_training_dataloader(
+        self,
+        dataloader: str | DataLoaderFactory,
+        batch_size: int,
+        gradient_accumulation: int | None = None,
+    ) -> tuple[torch.utils.data.DataLoader, int, int | None]:
         """
-        Get the training loader for the given stage.
+        Build a training dataloader.
+
+        Parameters
+        ----------
+        dataloader : str | DataLoaderFactory
+            The key of the dataloader or a callable that returns a dataloader.
+        batch_size : int
+            The batch size to use for training.
+        gradient_accumulation : int | None
+            The number of gradient accumulation steps. When None, the amount of updates
+            per epoch is not calculated.
+
+        Returns
+        -------
+        torch.utils.data.DataLoader
+            The training dataloader.
+        int
+            The number of steps per epoch.
+        int | None
+            The number of updates per epoch. When ``gradient_accumulation`` is None,
+            this value is None.
         """
+
         # Divide batch size over the amount of processes
-        assert stage.batch_size % get_process_count() == 0, (
-            f"Training batch size {stage.batch_size} must be divisible over the amount of "
+        assert batch_size % get_process_count() == 0, (
+            f"Training batch size {batch_size} must be divisible over the amount of "
             f"processes {get_process_count()}."
         )
 
-        if isinstance(stage.dataloader, str):
-            loader_factory = self._dataloaders[stage.dataloader]
-            loader = loader_factory(stage.batch_size // get_process_count())
-        elif callable(stage.dataloader):
-            loader = stage.dataloader(stage.batch_size // get_process_count())
+        if isinstance(dataloader, str):
+            dl_factory = self._dataloaders[dataloader]
+            dl = dl_factory(batch_size // get_process_count())
+        elif callable(dataloader):
+            dl = dataloader(batch_size // get_process_count())
         else:
             raise TypeError(
-                f"Expected dataloader to be a string or a callable, got {type(stage.dataloader)}"
+                f"Expected dataloader to be a string or a callable, got {type(dataloader)}"
             )
 
-        # Infer the number of steps/updates per epoch
-        steps_per_epoch = len(loader) // get_process_count()
-        updates_per_epoch = math.ceil(
-            steps_per_epoch / self._state.gradient_accumulation
-        )
+        steps_per_epoch = len(dl) // get_process_count()
+
+        if gradient_accumulation is not None:
+            updates_per_epoch = math.ceil(
+                steps_per_epoch / self._state.gradient_accumulation
+            )
+        else:
+            updates_per_epoch = None
 
         _logger.debug(
-            (
-                "Loader contains %d batches (%d processes, %d steps per epoch, %d accumulation steps, "
-                "%d steps per optimization)"
-            ),
-            len(loader),
+            "Loader contains %d batches (%d processes, %d steps per epoch)",
+            len(dl),
             get_process_count(),
             steps_per_epoch,
-            self._state.gradient_accumulation,
-            updates_per_epoch,
         )
 
-        return loader, steps_per_epoch, updates_per_epoch
+        return dl, steps_per_epoch, updates_per_epoch
 
     def run_training_step(self, model: nn.Module, inputs: InputType) -> TensorDict:
         """

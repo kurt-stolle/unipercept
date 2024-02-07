@@ -6,7 +6,6 @@ from __future__ import annotations
 import sys
 
 import typing as T
-from regex import P
 from tabulate import tabulate_formats
 
 import torch

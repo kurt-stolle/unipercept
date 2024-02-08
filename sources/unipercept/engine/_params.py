@@ -267,7 +267,7 @@ class EngineParams:
             raise ValueError(f"Invalid save interval unit: {unit}")
 
     save_total_limit: T.Optional[int] = D.field(
-        default=4,
+        default=1,
         metadata={
             "help": (
                 "If a value is passed, will limit the total amount of checkpoints. Deletes the older checkpoints in"

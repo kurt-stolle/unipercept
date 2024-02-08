@@ -9,7 +9,6 @@ import importlib
 import typing as T
 
 
-
 def lazy_module_factory(
     name: str, modules: T.Iterable[str], /, extras: T.Optional[T.Iterable[str]] = None
 ):

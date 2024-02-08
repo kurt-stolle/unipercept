@@ -3,18 +3,17 @@ Commands that describe datasets.
 """
 
 from __future__ import annotations
-import sys
 
+import argparse
+import dataclasses as D
+import sys
 import typing as T
+
 from tabulate import tabulate_formats
 
-import torch
-from tqdm import tqdm
-import argparse
 from unipercept import file_io, render
 from unipercept.cli._command import command, logger
 from unipercept.data.sets import PerceptionDataset
-import dataclasses as D
 
 __all__ = []
 
@@ -243,8 +242,9 @@ def _main_info(args):
     """
     Show information about a dataset, also known as 'metadata'.
     """
-    from unipercept import get_info
     from tabulate import tabulate
+
+    from unipercept import get_info
 
     info = get_info(args.dataset)
     rows = []

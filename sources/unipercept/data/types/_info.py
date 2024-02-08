@@ -6,7 +6,6 @@ import typing as T
 from pathlib import Path
 from typing import Any, TypeAlias
 
-
 from unipercept.utils.frozendict import frozendict
 
 __all__ = [

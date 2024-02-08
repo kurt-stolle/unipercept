@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 import warnings
+from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 
 import torch
 

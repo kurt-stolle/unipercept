@@ -7,7 +7,6 @@ from __future__ import annotations
 import functools
 import typing as T
 
-
 if T.TYPE_CHECKING:
     import unipercept as up
 

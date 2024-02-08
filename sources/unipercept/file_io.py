@@ -15,6 +15,7 @@ from iopath.common.file_io import (
     PathManager,
     PathManagerFactory,
 )
+
 from unipercept.utils.iopath_handlers import EnvironPathHandler, WandBArtifactHandler
 from unipercept.utils.iopath_path import IoPath
 from unipercept.utils.typings import Pathable
@@ -77,14 +78,14 @@ for h in (
         "UNICORE_DATASETS",
         "DETECTRON2_DATASETS",
         "D2_DATASETS",
-        default="./datasets",
+        default="~/datasets",
     ),
     EnvironPathHandler(
         "//cache/",
         "UP_CACHE",
         "UNIPERCEPT_CACHE",
         "UNICORE_CACHE",
-        default="~/.torch/unicore/cache",
+        default="~/.cache/unipercept",
     ),
     EnvironPathHandler(
         "//output/",
@@ -101,7 +102,7 @@ for h in (
         "UP_SCRATCH",
         "UNIPERCEPT_SCRATCH",
         "UNICORE_SCRATCH",
-        default="./scratch",
+        default=None,
     ),
 ):
     _manager.register_handler(h, allow_override=False)

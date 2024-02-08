@@ -20,7 +20,6 @@ from os import PathLike
 from pathlib import Path
 from typing import IO, NamedTuple, Optional
 
-
 __all__ = ["what", "Format", "size", "Size"]
 
 

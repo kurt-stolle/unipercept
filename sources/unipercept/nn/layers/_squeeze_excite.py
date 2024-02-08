@@ -4,7 +4,6 @@ Implements a Squeeze-and-Excitation layer.
 
 from __future__ import annotations
 
-
 import torch.nn as nn
 from typing_extensions import override
 

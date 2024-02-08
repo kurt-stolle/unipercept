@@ -5,10 +5,10 @@ import argparse
 import os
 import sys
 import typing as T
-from tabulate import tabulate
 
 import torch
 from omegaconf import DictConfig
+from tabulate import tabulate
 
 import unipercept as up
 from unipercept.cli._command import command
@@ -133,7 +133,7 @@ def _main(args):
                 weights=args.weights,
             )
     except KeyboardInterrupt:
-        output_path = up.file_io.Path("//output").resolve()
+        output_path = up.file_io.Path("//output/").resolve()
         config_path = engine.config_path.resolve()
         if config_path.is_relative_to(output_path):
             config_path = config_path.relative_to(output_path).as_posix()

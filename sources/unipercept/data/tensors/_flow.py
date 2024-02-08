@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from torchvision.tv_tensors import Mask
 
 from .registry import pixel_maps

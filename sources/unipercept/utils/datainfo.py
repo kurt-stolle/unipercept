@@ -22,7 +22,6 @@ class infoproperty(property):
     """
 
 
-
 @final
 class infomethod(Generic[_T, _R]):
     """

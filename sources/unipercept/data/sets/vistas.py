@@ -10,16 +10,15 @@ from datetime import datetime
 from typing_extensions import override
 
 from unipercept import file_io
-
+from unipercept.data.pseudolabeler import PseudoGenerator
+from unipercept.data.sets._base import PerceptionDataset, SClass, SType, create_metadata
+from unipercept.data.sets.cityscapes import CAMERA
 from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,
     Manifest,
     ManifestSequence,
 )
-from unipercept.data.sets._base import PerceptionDataset, SClass, SType, create_metadata
-from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.data.sets.cityscapes import CAMERA
 
 CLASSES_AS_CITYSCAPES = [
     SClass(

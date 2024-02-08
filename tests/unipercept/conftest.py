@@ -1,22 +1,18 @@
 from __future__ import annotations
+
+import re
+import typing as T
 from dis import disco
 from email.mime import image
 from pathlib import Path
-import re
-
-import typing as T
 
 import pytest
-from tensordict import TensorDict
 import torch
 import typing_extensions as TX
+from tensordict import TensorDict
 
 import unipercept as up
-
-import pytest
-import torch
 from unipercept.data.sets import Metadata
-
 
 #################################
 # Directories with testing data #

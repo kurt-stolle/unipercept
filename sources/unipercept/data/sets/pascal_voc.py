@@ -19,6 +19,7 @@ from unipercept.render import colormap
 
 _logger = get_logger(__name__)
 
+from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.sets._base import (
     RGB,
     PerceptionDataset,
@@ -26,7 +27,6 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
-from unipercept.data.pseudolabeler import PseudoGenerator
 
 if T.TYPE_CHECKING:
     import unipercept as up

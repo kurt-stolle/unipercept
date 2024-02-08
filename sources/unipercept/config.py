@@ -303,7 +303,7 @@ def _filepath_to_name(path: str) -> str | None:
     Convert a file path to a module name.
     """
 
-    configs_root = file_io.Path("//configs")
+    configs_root = file_io.Path("//configs/")
     if file_io.Path(path).is_relative_to(configs_root):
         # If the file is under "//configs", then we can use the relative path to generate a name
         name = file_io.Path(path).relative_to(configs_root).as_posix()

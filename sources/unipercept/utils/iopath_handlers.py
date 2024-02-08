@@ -243,8 +243,9 @@ class EnvironPathHandler(PathHandler):
         The prefix to use for this path handler.
     env : str
         The name of the environment variable to use.
-    default : str, optional
+    default : str | None, optional
         The default value to use if the environment variable is not defined, by default None.
+        If None is passed, then a temporary directory is created.
 
     Raises
     ------
@@ -261,6 +262,7 @@ class EnvironPathHandler(PathHandler):
     """
 
     def __init__(self, prefix: str, *env: str, default: str | None = None):
+        self._tmp = None
         for env_key in env:
             value = os.getenv(env_key)
             if value is None or len(value) == 0 or value[0] == "-":
@@ -269,8 +271,8 @@ class EnvironPathHandler(PathHandler):
                 break
         else:
             if default is None:
-                msg = f"environment variable {env[0]!r} not defined!"
-                raise ValueError(msg)
+                self._tmp = tempfile.TemporaryDirectory()
+                value = self._tmp.name
             else:
                 value = default
 
@@ -314,3 +316,8 @@ class EnvironPathHandler(PathHandler):
         # name = path[len(self.PREFIX) :]
         # return _g_manager.open(self.LOCAL + name, mode, **kwargs)
         return open(self._get_local_path(path), mode, **kwargs)
+
+    def __del__(self):
+        if self._tmp is not None:
+            print(f"Removing temporary directory {self.PREFIX!r} at {self.LOCAL!r}")
+            self._tmp.cleanup()

@@ -2,13 +2,15 @@
 Implements a PIL image loader dataset.
 """
 
-import torch
-import torch.utils.data
+from __future__ import annotations
 
-from PIL import Image as PILImage
 import os
 import typing as T
 from pathlib import Path
+
+import torch
+import torch.utils.data
+from PIL import Image as PILImage
 
 _SupportsPILImageOpen: T.TypeAlias = str | Path | bytes
 

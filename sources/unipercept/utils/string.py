@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import re
 
-
 __all__ = ["convert_word_separator", "to_snake_case", "to_kebab_case"]
 
 GROUP_BY_WORD = re.compile(r"(?<=[a-z\d])(?=[A-Z])|[^a-zA-Z\d\-/]")

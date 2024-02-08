@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typing as T
 from enum import StrEnum, auto
+
 import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
@@ -80,8 +81,9 @@ class DepthMap(Mask):
         dtype: torch.dtype = DEFAULT_DEPTH_DTYPE,
         **meta_kwds: T.Any,
     ) -> T.Self:
-        from unipercept import file_io
         import numpy as np
+
+        from unipercept import file_io
 
         path = file_io.get_local_path(str(path))
         # Switch by depth format

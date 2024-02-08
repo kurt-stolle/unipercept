@@ -16,7 +16,6 @@ import shutil
 import time
 import typing as T
 from uuid import uuid4
-from tabulate import tabulate
 
 import torch
 import torch._dynamo
@@ -28,6 +27,7 @@ import torch.utils.data
 import wandb
 from omegaconf import OmegaConf
 from PIL import Image as pil_image
+from tabulate import tabulate
 from tensordict import TensorDict, TensorDictBase
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
@@ -1091,13 +1091,6 @@ class Engine:
 
         _logger.debug("Setting up experiment trackers")
 
-        # Session name is organised in /group_part1/group_part2/.../timestampsession_name
-        session_name_parts = self.config_name.split("/")
-        if len(session_name_parts) > 1:  # NOTE: first part is some timestamp/uniqueid
-            session_group = session_name_parts[0]
-        else:
-            session_group = "ungrouped"
-
         # Determine the job type from the status
         if self.status & EngineStatus.IS_TRAINING_RUN:
             job_type = "train"
@@ -1119,9 +1112,9 @@ class Engine:
         specific_kwargs["wandb"] = {
             "name": wandb_integration.sanitize(self.config_name.replace("/", " ")),
             "job_type": job_type,
-            "group": session_group,
+            "group": f"stage_{self._state.stage}",
             "notes": self._params.notes,
-            "tags": [f"stage_{self._state.stage}"] + list(self._params.tags),
+            "tags": list(self._params.tags),
             "id": uuid4().hex,
             "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
         }
@@ -1268,7 +1261,7 @@ class Engine:
 
         if path is None:
             path_models = os.path.join(self.xlr.project_dir, "models")
-            path = os.path.join(path_models, "step_" + str(self._state.step))
+            path = os.path.join(path_models, f"{self._state.stage}_step_{self._state.step}")
         else:
             path_models = None
 

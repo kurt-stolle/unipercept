@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import typing as T
 
-
 _T = T.TypeVar("_T")
 
 __all__ = ["pixel_maps"]

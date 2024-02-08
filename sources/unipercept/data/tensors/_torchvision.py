@@ -5,17 +5,15 @@ Wrap and register torchvision's tensor types.
 
 from __future__ import annotations
 
-
-import torch
-from unipercept.utils.typings import Pathable
-from torchvision.tv_tensors import (
-    BoundingBoxes,
-    BoundingBoxFormat,
-    Image as ImageBase,
-    Mask,
-)
 import typing as T
+
 import PIL.Image as pil_image
+import torch
+from torchvision.tv_tensors import BoundingBoxes, BoundingBoxFormat
+from torchvision.tv_tensors import Image as ImageBase
+from torchvision.tv_tensors import Mask
+
+from unipercept.utils.typings import Pathable
 
 from .registry import pixel_maps
 
@@ -31,6 +29,7 @@ class Image(ImageBase):
     def read(cls, path: Pathable) -> T.Self:
         """Reads an image from the given path."""
         from torchvision.transforms.v2.functional import to_dtype, to_image
+
         from unipercept.file_io import get_local_path
 
         path = get_local_path(str(path))

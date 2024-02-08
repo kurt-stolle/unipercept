@@ -5,7 +5,6 @@ from copy import copy, deepcopy
 from types import MethodType
 from typing import Callable, Concatenate, Generic, ParamSpec, TypeVar, overload
 
-
 try:
     from typing import Self  # type: ignore
 except ImportError:

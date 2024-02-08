@@ -245,7 +245,7 @@ class WandBCallback(CallbackDispatcher):
                 log_freq=self.watch_steps
                 if self.watch_steps is not None
                 else params.logging_steps,
-                log_graph=True,
+                log_graph=False,
             )
 
     def _log_model(self, model_path: str):

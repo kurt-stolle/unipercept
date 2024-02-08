@@ -7,11 +7,11 @@ import enum
 import typing as T
 
 from bullet import Bullet
+from omegaconf import DictConfig
 from typing_extensions import override
 
 import unipercept as up
 from unipercept import file_io
-from omegaconf import DictConfig
 
 __all__ = ["add_config_args", "ConfigFileContentType"]
 

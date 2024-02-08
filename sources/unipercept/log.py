@@ -19,7 +19,6 @@ from tabulate import tabulate
 from termcolor import colored
 from typing_extensions import override
 
-
 __all__ = []
 
 # Logging levels are defined by integer values, this mapping makes it easier to use strings, e.g. in a CLI setting.

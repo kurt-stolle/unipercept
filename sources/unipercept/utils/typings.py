@@ -8,7 +8,6 @@ import datetime
 import os
 import pathlib
 
-
 __all__ = ["Pathable", "Buffer"]
 
 Buffer = bytes | bytearray | memoryview

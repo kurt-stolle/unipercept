@@ -16,8 +16,6 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pipes import UniCoreFileLister
-from unipercept.utils.formatter import formatter
-
 from unipercept.data.sets._base import (
     RGB,
     PerceptionDataset,
@@ -25,6 +23,7 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
+from unipercept.utils.formatter import formatter
 
 if T.TYPE_CHECKING:
     import unipercept as up

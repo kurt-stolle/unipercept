@@ -9,7 +9,6 @@ import types
 import typing as T
 
 
-
 def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:
     """
     Return the name of the module that called the current function from the perspective

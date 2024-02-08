@@ -6,7 +6,6 @@ Now uses the `torchvision.ops.DeformConv2d` module to do the heavy lifting.
 
 from __future__ import annotations
 
-
 import torch
 import torch.nn as nn
 from torchvision.ops import DeformConv2d

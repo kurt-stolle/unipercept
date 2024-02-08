@@ -6,7 +6,6 @@ import inspect
 import typing as T
 from typing import Callable, Concatenate, Generic, ParamSpec, TypeAlias
 
-
 import unipercept
 import unipercept.log
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from typing_extensions import override
 
 __all__ = ["formatter"]

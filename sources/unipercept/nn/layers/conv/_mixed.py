@@ -7,7 +7,6 @@ Paper: https://arxiv.org/abs/1907.09595
 
 from __future__ import annotations
 
-
 import torch
 from torch import nn as nn
 from typing_extensions import override

@@ -28,7 +28,6 @@ from unipercept import (
 from unipercept._api_config import *
 from unipercept._api_data import *
 
-
 __all__ = [
     "config",
     "data",

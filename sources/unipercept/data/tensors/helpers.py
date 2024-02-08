@@ -17,8 +17,8 @@ from typing import (
 )
 
 import torch
-from unipercept.file_io import get_local_path
 
+from unipercept.file_io import get_local_path
 from unipercept.utils.typings import Pathable
 
 __all__ = ["multi_read", "NoEntriesAction", "get_kwd", "read_pixels"]

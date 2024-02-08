@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Sequence, TypedDict, TypeGuard, TypeVar, is_typeddict
 
-
 DictType = TypeVar("DictType", bound=TypedDict)
 
 

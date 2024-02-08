@@ -5,7 +5,6 @@ import enum as E
 import functools
 import typing as T
 
-
 __all__ = [
     "assert_status",
     "modify_status",

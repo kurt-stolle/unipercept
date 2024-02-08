@@ -65,6 +65,10 @@ DEFAULT_PREFETCH_FACTOR = get_env(
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class DataLoaderConfig:
+    """
+    Configuration parameters passed to the PyTorch dataoader
+    """
+
     drop_last: bool = False
     pin_memory: bool = True
     num_workers: int = DEFAULT_NUM_WORKERS

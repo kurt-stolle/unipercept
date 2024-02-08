@@ -3,10 +3,13 @@ Defines generic dataset classses.
 """
 
 from __future__ import annotations
-import typing as T
+
 import re
+import typing as T
+
 import typing_extensions as TX
-from . import PerceptionDataset, Metadata
+
+from . import Metadata, PerceptionDataset
 
 if T.TYPE_CHECKING:
     from ..tensors import DepthFormat, LabelsFormat

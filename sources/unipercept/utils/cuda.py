@@ -5,8 +5,6 @@ Implements utility functions that assert whether the current system supports cer
 
 from __future__ import annotations
 
-
-
 __all__ = []
 
 

@@ -4,7 +4,6 @@ import functools
 import types
 from typing import Final, Generic, TypeVar, cast
 
-
 from unipercept.utils.missing import MissingValue
 
 _MARKER: Final = "__" + "_".join(n for n in __name__.split(".") if n) + "__"

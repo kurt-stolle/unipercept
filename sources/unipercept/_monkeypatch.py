@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import typing as T
 
-
-
 __all__ = []
 __dir__ = []
 

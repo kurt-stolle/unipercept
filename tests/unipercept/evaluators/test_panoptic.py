@@ -11,8 +11,9 @@ from tensordict import TensorDict
 from unipercept.evaluators import PRED_PANOPTIC, TRUE_PANOPTIC, PanopticEvaluator
 
 
-def test_panoptic_evaluator(true_panoptic: torch.Tensor, 
-                            pred_panoptic: torch.Tensor, true_info):
+def test_panoptic_evaluator(
+    true_panoptic: torch.Tensor, pred_panoptic: torch.Tensor, true_info
+):
     """
     Test the panoptic evaluator.
     """

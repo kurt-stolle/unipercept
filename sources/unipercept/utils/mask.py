@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 import torch
 
 __all__ = ["masks_to_centers", "masks_to_boxes"]

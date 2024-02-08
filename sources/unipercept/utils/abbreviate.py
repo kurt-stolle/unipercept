@@ -4,7 +4,6 @@ import re
 from typing import Any
 
 
-
 def full_name(mod: Any) -> str:
     """
     Returns the name of the class or instance.

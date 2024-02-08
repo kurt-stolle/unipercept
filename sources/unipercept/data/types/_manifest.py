@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import typing as T
 
-
 if T.TYPE_CHECKING:
     from ..tensors import DepthFormat, LabelsFormat
 else:

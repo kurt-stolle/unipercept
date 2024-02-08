@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 import torch
 
 __all__ = ["build_pinhole_intrinsics", "build_pinhole_extrinsics"]

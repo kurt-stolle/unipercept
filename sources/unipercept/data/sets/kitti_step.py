@@ -20,6 +20,7 @@ import typing_extensions as TX
 from tqdm import tqdm
 
 from unipercept import file_io
+from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.sets._base import (
     RGB,
     PerceptionDataset,
@@ -27,7 +28,6 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
-from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,

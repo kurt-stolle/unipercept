@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-
-
 from unipercept.cli._command import command
 
 __all__ = []

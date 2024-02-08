@@ -177,7 +177,7 @@ class PanopticMap(_Mask):
         labels.remove_instances_(info.background_ids)
 
         return labels
-    
+
     def save(self, path: Pathable, format: LabelsFormat | str | None = None) -> None:
         """
         Save the panoptic map to a file.
@@ -212,7 +212,7 @@ class PanopticMap(_Mask):
                 img = torch.where(self == ignore_label * divisor, 0, img)
                 img = torch.where(self < divisor, img * divisor, img - 1)
 
-                write_png(path, img) 
+                write_png(path, img)
             case LabelsFormat.CITYSCAPES_VPS:
                 divisor = self.DIVISOR
                 ignore_label = self.IGNORE
@@ -225,7 +225,7 @@ class PanopticMap(_Mask):
                 img[:, :, 0] = self.get_semantic_map()
                 img[:, :, 1] = self.get_instance_map() // BYTE_OFFSET
                 img[:, :, 2] = self.get_instance_map() % BYTE_OFFSET
-                
+
             case LabelsFormat.VISTAS:
                 divisor = self.DIVISOR
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
@@ -242,7 +242,6 @@ class PanopticMap(_Mask):
                 img = torch.where(self == ignore_label * divisor, 0, img)
             case _:
                 raise NotImplementedError(f"{format=}")
-
 
     @classmethod
     def default(cls, shape: torch.Size, device: torch.device | str = "cpu") -> T.Self:

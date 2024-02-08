@@ -9,8 +9,8 @@ import typing as T
 from datetime import datetime
 
 from unipercept import file_io
-from unipercept.data.sets._base import PerceptionDataset, create_metadata
 from unipercept.data.pseudolabeler import PseudoGenerator
+from unipercept.data.sets._base import PerceptionDataset, create_metadata
 
 if T.TYPE_CHECKING:
     import unipercept as up

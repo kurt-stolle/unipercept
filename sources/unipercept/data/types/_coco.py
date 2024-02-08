@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Mapping, NotRequired, Sequence, TypedDict
 
-
 __all__ = ["COCOAnnotation", "COCOCategory", "COCOImage", "COCOManifest"]
 
 

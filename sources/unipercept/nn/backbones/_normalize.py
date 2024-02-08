@@ -4,7 +4,6 @@ Implements a module that normalizes input captures.
 
 from __future__ import annotations
 
-
 import torch
 import torch.nn as nn
 from typing_extensions import override

@@ -4,15 +4,7 @@ from __future__ import annotations
 
 import typing
 from enum import StrEnum
-from typing import (
-    Any,
-    Iterable,
-    NoReturn,
-    TypeAlias,
-    TypedDict,
-    TypeGuard,
-    TypeVar,
-)
+from typing import Any, Iterable, NoReturn, TypeAlias, TypedDict, TypeGuard, TypeVar
 
 from typing_extensions import override
 

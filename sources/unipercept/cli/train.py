@@ -117,11 +117,10 @@ def _main(args):
     )
 
     # Setup dataloaders
-    model_factory = up.model.ModelFactory(lazy_config.MODEL)
-
+    model_factory = up.model.ModelFactory(lazy_config.MODEL, weights=args.weights)
     try:
         if args.evaluation:
-            results = engine.run_evaluation(model_factory, weights=args.weights)
+            results = engine.run_evaluation(model_factory)
             _logger.info(
                 "Evaluation results: \n%s", up.log.create_table(results, format="long")
             )
@@ -130,7 +129,6 @@ def _main(args):
                 model_factory,
                 trial=None,
                 stage=args.stage if args.stage >= 0 else None,
-                weights=args.weights,
             )
     except KeyboardInterrupt:
         output_path = up.file_io.Path("//output/").resolve()

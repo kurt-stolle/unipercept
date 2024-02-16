@@ -29,7 +29,7 @@ def scheduler():
 
 @pytest.fixture()
 def optimizer():
-    up.engine.OptimizerFactory("sgd", lr=0.1),
+    return up.engine.OptimizerFactory("sgd", lr=0.1)
 
 
 def test_engine(model_factory, train_config, loader_factory):
@@ -53,3 +53,7 @@ def test_cleanup_generated_items(tmp_path):
     assert tmp_path / "otherkey-200" in remaining_files
     assert tmp_path / "item-600" in remaining_files
     assert tmp_path / "last-800" in remaining_files
+
+
+def test_multi_stage_training():
+    pass  # TODO implement test

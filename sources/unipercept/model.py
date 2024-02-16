@@ -5,20 +5,21 @@ Defines the interface for a perception model.
 from __future__ import annotations
 
 import abc
-import os
+import copy
 import typing as T
 from dataclasses import field
 
 import torch
 import torch.nn as nn
 import typing_extensions as TX
+from tabulate import tabulate
 from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
 from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
 
-from unipercept import file_io
 from unipercept.data.tensors import DepthMap, Image, OpticalFlow, PanopticMap
 from unipercept.log import get_logger
 from unipercept.utils.tensorclass import Tensorclass
+from unipercept.utils.typings import Pathable
 
 _logger = get_logger(__name__)
 
@@ -319,25 +320,47 @@ class ModelFactory:
     def __init__(
         self,
         model_config,
-        checkpoint_path: file_io.Path | os.PathLike | str | None = None,
+        weights: Pathable | None = None,
     ):
         self.model_config = model_config
-        self.checkpoint_path = checkpoint_path
+        self.weights = weights or None
 
-    def __call__(self, *args, **kwargs) -> ModelBase:
+    def __call__(
+        self,
+        *,
+        weights: Pathable | None = None,
+        overrides: T.Sequence[str] | T.Mapping[str, T.Any] | None = None,
+    ) -> ModelBase:
         """
         TODO interface not clearly defined yet
         """
         from unipercept import load_checkpoint
-        from unipercept.config import instantiate
+        from unipercept.config import apply_overrides, instantiate
+
+        model_config = copy.deepcopy(self.model_config)
+
+        if overrides is not None:
+            if isinstance(overrides, T.Mapping):
+                overrides_list = [f"{k}={v}" for k, v in overrides.items()]
+            else:
+                overrides_list = list(overrides)
+            _logger.info(
+                "Instantiating model with configuration overrides: %s",
+                ", ".join(overrides_list),
+            )
+            model_config = apply_overrides(model_config, overrides_list)
+        else:
+            _logger.info("Instantiating model without configuration overrides")
 
         model = T.cast(ModelBase, instantiate(self.model_config))
 
-        if self.checkpoint_path is not None:
-            _logger.info("Loading model weights from %s", self.checkpoint_path)
-            load_checkpoint(self.checkpoint_path, model)
+        if weights is None:
+            weights = self.weights
+        if weights is not None:
+            _logger.info("Loading model weights: %s", weights)
+            load_checkpoint(weights, model)
         else:
-            _logger.info("No model weights checkpoint path provided, skipping recovery")
+            _logger.info("Using model without initial weights (random initialization)")
 
         return model
 

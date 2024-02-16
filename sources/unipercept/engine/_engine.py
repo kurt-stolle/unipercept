@@ -15,6 +15,7 @@ import re
 import shutil
 import time
 import typing as T
+from datetime import datetime
 from uuid import uuid4
 
 import torch
@@ -36,15 +37,17 @@ from typing_extensions import override
 import unipercept.integrations.slurm_integration
 from unipercept import file_io
 from unipercept.engine._params import EngineParams, EngineStage
-from unipercept.engine._trial import Trial
-from unipercept.engine._types import DataLoaderFactory, ModelFactory
+from unipercept.engine._trial import Trial, TrialWithParameters
+from unipercept.engine._types import DataLoaderFactory
 from unipercept.engine.accelerate import Accelerator, find_executable_batch_size
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
-from unipercept.engine.writer import PersistentTensordictWriter
+from unipercept.engine.writer import MemmapTensordictWriter, PersistentTensordictWriter
 from unipercept.log import get_logger
+from unipercept.model import ModelBase
 from unipercept.state import (
+    barrier,
     check_main_process,
     gather,
     get_process_count,
@@ -62,6 +65,7 @@ torch._dynamo.config.suppress_errors = True
 
 if T.TYPE_CHECKING:
     from unipercept.evaluators import Evaluator
+    from unipercept.model import ModelFactory
 
 MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
 
@@ -101,7 +105,16 @@ class Engine:
     The engine implements processes for training, evaluation, and inference.
     """
 
-    __slots__ = ("_xlr", "_root", "dry_run", "session_id", "__dict__")
+    __slots__ = (
+        "_xlr",
+        "_root",
+        "_state",
+        "_mem_tracker",
+        "_params",
+        "dry_run",
+        "session_id",
+        "__dict__",
+    )
 
     def __init__(
         self,
@@ -114,6 +127,8 @@ class Engine:
         log_events: bool = False,
         dry_run: bool = False,
     ):
+        self._default_setup()
+
         self.session_id = _generate_session_id()
         self.dry_run = dry_run
 
@@ -124,6 +139,7 @@ class Engine:
         self._mem_tracker.start("init")  # must set up as early as possible
 
         self._params: T.Final[EngineParams] = params
+        self._seed()
         self._state = State()
         self._xlr = None
         self._root = None
@@ -136,20 +152,33 @@ class Engine:
             else {}
         )
 
-        self._default_setup()
-        self._seed()
-
         self._signal = Signal()
         self._delegate = Delegate(callbacks, verbose=log_events)
 
         self._flops = 0
-        self._globalstep_last_logged = -1
+        self._step_last_logged = -1
+        self._step_last_saved = -1
+        self._step_last_evaluated = -1
         self._recover_path = None  # See: `recover` method
 
         self._edge(Event.ON_CREATE)
         self._mem_tracker.stop_and_update_metrics("init")
 
     status = StatusDescriptor(EngineStatus, default=EngineStatus(0))
+
+    @property
+    def _evaluated_in_last_step(self) -> bool:
+        return (self._state.step == self._step_last_evaluated) and (
+            self._state.step > 0
+        )
+
+    @property
+    def _saved_in_last_step(self) -> bool:
+        return (self._state.step == self._step_last_saved) and (self._state.step > 0)
+
+    @property
+    def _logged_in_last_step(self) -> bool:
+        return (self._state.step == self._step_last_logged) and (self._state.step > 0)
 
     ##############
     # Public API #
@@ -251,6 +280,19 @@ class Engine:
         """
         return file_io.Path(self.xlr.project_dir)
 
+    @property
+    def states_dir(self) -> file_io.Path:
+        """
+        Every stage has a unique checkpoints directory - this is because checkpoints between stages are often incompatible
+        """
+        assert self._state.stage >= 0, f"{self._state.stage=}"
+        return self.outputs_dir / "states" / f"stage_{self._state.stage}"
+
+    @property
+    def models_dir(self) -> file_io.Path:
+        assert self._state.stage >= 0, f"{self._state.stage=}"
+        return self.outputs_dir / "models" / f"stage_{self._state.stage}"
+
     def recover(
         self,
         model: nn.Module | None = None,
@@ -261,12 +303,12 @@ class Engine:
         evaluation mode.
         """
 
-        if checkpoint is not None:
-            self._recover_path = str(checkpoint)
-
         if model is not None:
             self.xlr.prepare_model(model, evaluation_mode=True)
-        self._load_state(self._recover_path)  # type: ignore
+
+        if checkpoint is not None:
+            self._recover_path = str(checkpoint)
+            self._load_state(self._recover_path)  # type: ignore
 
         _logger.info("Recovered engine state at step %d", self._state.step)
 
@@ -275,7 +317,7 @@ class Engine:
     @status(EngineStatus.IS_TRAINING_RUN)
     def run_training(
         self,
-        model_factory: ModelFactory[Trial, nn.Module],
+        model_factory: ModelFactory,
         *,
         trial: Trial | None = None,
         stage: int | EngineStage | None = None,
@@ -329,6 +371,13 @@ class Engine:
                 f"Expected stage to be of type EngineStage, got {type(stage)}"
             )
 
+        trial = TrialWithParameters(
+            name="stage_" + str(stage_num),
+            config=stage.model_config,
+            weights=weights,
+            parent=trial,
+        )
+
         @find_executable_batch_size(starting_batch_size=stage.batch_size)
         def train(batch_size: int) -> nn.Module:
             """
@@ -350,14 +399,20 @@ class Engine:
             loader, steps_per_epoch, updates_per_epoch = self.build_training_dataloader(
                 stage.dataloader, batch_size, gradient_accumulation
             )
-            model = model_factory(trial)
+            model = model_factory(overrides=trial.config, weights=trial.weights)
             scheduled_epochs = stage.get_epochs(steps_per_epoch)
+            assert (
+                scheduled_epochs > 0
+            ), "Expected scheduled epochs to be greater than 0"
             optimizer = stage.optimizer(model)
             scheduler, train_epochs = stage.scheduler(
                 optimizer, scheduled_epochs, updates_per_epoch
             )
+            assert train_epochs > 0, "Expected train epochs to be greater than 0"
 
-            _logger.info(f"Training for {train_epochs} total epochs.")
+            _logger.info(
+                f"Training for {train_epochs} epochs in {train_epochs*steps_per_epoch} steps"
+            )
 
             # Reset the state
             self._state.reset()
@@ -372,13 +427,8 @@ class Engine:
             self._state.train_steps = stage.get_steps(steps_per_epoch)
             self._state.gradient_accumulation = gradient_accumulation
             self._state.best_metric = None
-
-            if trial is not None:
-                self._state.trial_name = trial.name
-                self._state.trial_params = trial.params
-            else:
-                self._state.trial_name = "training"
-                self._state.trial_params = {}
+            self._state.trial_name = trial.name
+            self._state.trial_params = trial.config
 
             return self.run_training_loop(
                 loader,
@@ -386,7 +436,6 @@ class Engine:
                 optimizer,
                 scheduler,
                 trial=trial,
-                weights=weights,
             )
 
         result = train()
@@ -394,7 +443,9 @@ class Engine:
         if len(self._stages) > stage_num + 1:
             _logger.info("Training completed. Moving to next stage.")
             self._state.stage += 1
-            return self.run_training(model_factory, trial=trial, weights=weights)
+            return self.run_training(
+                model_factory, trial=trial, weights=self._save_weights(None, result)
+            )  # weights swapped to 'none'
         else:
             _logger.info("Training completed. No more stages to run.")
             return result
@@ -403,11 +454,10 @@ class Engine:
     @torch.no_grad()
     def run_evaluation(
         self,
-        model_factory: ModelFactory[Trial, nn.Module],
+        model_factory: ModelFactory | ModelBase,
         trial: Trial | None = None,
         *,
         prefix: str = "evaluation",
-        weights: str | None = None,
     ) -> dict[str, float]:
         if self.dry_run:
             _logger.info("Dry run: skipping evaluation")
@@ -430,13 +480,21 @@ class Engine:
             # Memory metrics - must set up as early as possible
             self._mem_tracker.start("eval")
 
-            model = model_factory(trial)
+            if isinstance(model_factory, ModelBase):
+                model = model_factory
+            else:
+                if trial is not None:
+                    model = model_factory(
+                        overrides=trial.config, weights=trial.weights
+                    )
+                else:
+                    model = model_factory()
 
             loader_factory = self._dataloaders[loader_key]
             loader = loader_factory(1)
 
             metrics, samples_processed = self.run_inference_loop(
-                model, loader, prefix=prefix_suite, handlers=handlers, weights=weights
+                model, loader, prefix=prefix_suite, handlers=handlers
             )
 
             self._train_log(metrics)
@@ -569,8 +627,6 @@ class Engine:
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: TimmScheduler,
-        *,
-        weights: str | None = None,
         **kwargs,
     ) -> nn.Module:
         """
@@ -585,13 +641,14 @@ class Engine:
         # Sync backnorm
         if self._params.convert_sync_batchnorm:
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        if weights is not None:
-            model = self._load_weights(weights, model)
         model = self.xlr.prepare_model(model)
         loader, scheduler, optimizer = self.xlr.prepare(loader, scheduler, optimizer)
 
         # First load the initial weights, then the state
-        self._load_state(None)  # type: ignore
+        try:
+            self._load_state(None)  # type: ignore
+        except FileNotFoundError:
+            _logger.info("Could not load state from checkpoint")
 
         # Debugging
         # debug_overflow = DebugUnderflowOverflow(model)  # noqa
@@ -636,8 +693,6 @@ class Engine:
         if hasattr(loader.sampler, "epoch"):
             setattr(loader.sampler, "epoch", start_epoch)
 
-        # -- Epoch outer loop ------------------------------------------------------------------------------------------
-
         if self.xlr.is_main_process:
             _logger.info(f"Starting at epoch {start_epoch} at step {self.xlr.step}")
 
@@ -662,11 +717,6 @@ class Engine:
 
             steps_in_epoch = len(epoch_iterator)
 
-            # -- Epoch inner loop --------------------------------------------------------------------------------------
-
-            step = (
-                -1
-            )  # If the value of the iterator is still -1 after the loop, something went wrong
             for step, inputs in enumerate(epoch_iterator):
                 # assert isinstance(inputs, InputType), f"Expected InputType, got {type(inputs)}"
 
@@ -711,7 +761,7 @@ class Engine:
                         torch.isnan(tr_loss_step_value)
                         or torch.isinf(tr_loss_step_value)
                     ):
-                        tr_loss_value += tr_loss_value / (1 + self._state.step - self._globalstep_last_logged)  # type: ignore
+                        tr_loss_value += tr_loss_value / (1 + self._state.step - self._step_last_logged)  # type: ignore
                     else:
                         tr_loss_value += tr_loss_step_value
 
@@ -777,9 +827,7 @@ class Engine:
                     )
                     break
 
-            # -- End of epoch ------------------------------------------------------------------------------------------
-            if step < 0:
-                assert tr_loss is None
+            if tr_loss is None:
                 _logger.warning("Epoch was ended without running any steps.")
                 self._signal.should_training_stop = True
                 tr_loss = TensorDict.from_dict({})
@@ -796,9 +844,11 @@ class Engine:
             if self._signal.should_training_stop:
                 break
 
-        # -- End of training -------------------------------------------------------------------------------------------
+        _logger.info("Training completed (stage %d).", self._state.stage)
 
-        _logger.info("\n\nTraining completed.\n\n")
+        self._signal.should_save = True
+        self._signal.should_evaluate = True
+        self._train_handle_signals(None, model, optimizer, **kwargs)
 
         # Compute flops
         self._state.total_flops += self._flops
@@ -859,7 +909,7 @@ class Engine:
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
         prefix: str,
-        handlers: T.Sequence[Evaluator] | None = None,
+        handlers: T.Sequence[Evaluator],
         results_path: T.Optional[file_io.PathLike] = None,
         *,
         weights: T.Optional[file_io.PathLike] = None,
@@ -917,38 +967,30 @@ class Engine:
         if results_path is None:
             results_remove_on_exit = True
             results_path = file_io.Path(
-                f"//scratch/{self._params.project_name}/{str(self.session_id)}/{prefix}-results.h5"
+                f"//scratch/{self._params.project_name}/{str(self.session_id)}/{prefix}-results" #.h5"
             )
+            results_path.mkdir(parents=True, exist_ok=True)
         else:
             results_remove_on_exit = False
-        results_mem = PersistentTensordictWriter(str(results_path), samples_total)
+        results_mem = MemmapTensordictWriter(
+            str(results_path), samples_total
+        )
 
+        self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
         try:
             # Prediction
             _logger.info(f"Running inference loop on {get_process_count()} processes.")
-
             samples_processed = 0
             # write_index = batch_offsets[get_process_index()] * batch_size
-
-            self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
             timings = ProfileAccumulator()
-
             for inputs in dataloader:
-                samples_in_batch = inputs.batch_size[0]
-                assert (
-                    samples_in_batch <= batch_size
-                ), f"Expected batch size {batch_size}, got {samples_in_batch}"
-
-                # Prediction step - i.e. run the model in inference mode
                 with profile(timings, "model"):
                     outputs = self.run_inference_step(model, inputs)
-
-                # Prepare for evaluation
                 with profile(timings, "update"):
-                    KEY_VALID = "valid"
+                    samples_in_batch = inputs.batch_size[0]
                     results_merged = TensorDict(
                         {
-                            KEY_VALID: torch.ones(
+                            "valid": torch.ones(
                                 samples_in_batch,
                                 dtype=torch.bool,
                                 device=self.xlr.device,
@@ -956,25 +998,19 @@ class Engine:
                         },
                         [samples_in_batch],
                         self.xlr.device,
-                        names=["B"],
                     )
                     for evaluator in handlers:
                         evaluator.update(results_merged, inputs=inputs, outputs=outputs)
-
-                # Gather results
                 with profile(timings, "write"):
                     results_mem.add(results_merged)
-
-                    # write_index += samples_in_batch
                     samples_processed += samples_in_batch
-                self._edge(
-                    Event.ON_INFERENCE_STEP,
-                    loader=dataloader,
-                    inputs=inputs,
-                    outputs=outputs,
-                )
-
-            results_mem.write()
+                with profile(timings, "event"):
+                    self._edge(
+                        Event.ON_INFERENCE_STEP,
+                        loader=dataloader,
+                        inputs=inputs,
+                        outputs=outputs,
+                    )
 
             _logger.info(
                 "Finished inference, profiling report on process %d/%d:\n%s",
@@ -982,7 +1018,8 @@ class Engine:
                 get_process_count(),
                 timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
             )
-
+            results_mem.write()
+            self.xlr.wait_for_everyone()
             self._edge(
                 Event.ON_INFERENCE_END,
                 timings=timings,
@@ -990,12 +1027,8 @@ class Engine:
                 results_path=results_path,
             )
 
-            # Wait for everyone to finish writing
-            self.xlr.wait_for_everyone()
-
-            # Run metric computations
+            # Compute metrics
             metrics: dict[str, T.Any] = {}
-            visuals: dict[str, pil_image.Image] = {}
             if self.xlr.is_main_process:
                 metrics.update(
                     _build_speed_metrics(
@@ -1005,41 +1038,26 @@ class Engine:
                         step_amount=math.ceil(samples_processed * get_process_count()),
                     )
                 )
-                assert (
-                    results_mem is not None
-                ), "Expected results memory to be initialized"
+                visuals: dict[str, pil_image.Image] = {}
                 for evaluator in handlers or []:
-                    _logger.debug(f"Running evaluation handler: {evaluator}")
+                    _logger.debug(f"Running evaluation and visualization: {evaluator}")
                     metrics.update(
                         evaluator.compute(
                             results_mem.tensordict, device=self.xlr.device
                         )
                     )
                     visuals.update(evaluator.plot(results_mem.tensordict))
-
-                # Store visualizations
                 self._store_visualizations(visuals, prefix=prefix)
-        except Exception as e:
-            _logger.error(f"Exception occurred during inference: {e}")
-            print(e)
-            metrics = {}
-            samples_processed = 0
         finally:
-            # Remove the memmap file
             results_mem.close()
-            self.xlr.wait_for_everyone()
             if self.xlr.is_main_process and results_remove_on_exit:
-                assert results_path is not None
-                _logger.debug(f"Cleaning up results file: {results_path}")
+                _logger.info(f"Cleaning stored evaluation results at {results_path!r}")
                 shutil.rmtree(results_path, ignore_errors=True)
-
-        # Store metrics
+            else:
+                _logger.info("Evaluation results are stored at %s", results_path)
         if hasattr(self, "jit_compilation_time"):
             metrics[f"{prefix}/jit_compilation_time"] = self.jit_compilation_time  # type: ignore
-
-        # Prefix all keys
         _enforce_prefix(metrics, prefix)
-
         return metrics, samples_processed
 
     ############
@@ -1094,10 +1112,6 @@ class Engine:
         # Determine the job type from the status
         if self.status & EngineStatus.IS_TRAINING_RUN:
             job_type = "train"
-            if self._state.stage >= 0:
-                job_type += f"-{self._state.stage}"
-            else:
-                job_type += "-X"
         elif self.status & EngineStatus.IS_EVALUATION_RUN:
             job_type = "eval"
         elif self.status & EngineStatus.IS_PREDICTION_RUN:
@@ -1105,36 +1119,39 @@ class Engine:
         else:
             job_type = "misc"
 
-        session_id = f"{self.config_name}-{job_type}".replace("/", "-")
+        group_name = f"stage_{self._state.stage}" if self._state.stage >= 0 else "other"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        experiment_name = f"[{timestamp}] {self.config_name} ({job_type} {group_name})"
 
         # Set up tracker-specific parameters
         specific_kwargs = {}
         specific_kwargs["wandb"] = {
-            "name": wandb_integration.sanitize(self.config_name.replace("/", " ")),
+            "name": experiment_name,
             "job_type": job_type,
-            "group": f"stage_{self._state.stage}",
-            "notes": self._params.notes,
+            "reinit": restart,
+            "group": group_name,
+            "notes": f"{self._params.notes}\n\nCreated by session: {self.session_id}",
             "tags": list(self._params.tags),
-            "id": uuid4().hex,
+            "id": f"{self.session_id}-{job_type}-{group_name}",
             "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
         }
 
         # Accelerate handles the experiment trackers for us
         self.xlr.init_trackers(
-            self._params.project_name,
+            f"{self._params.project_name}",
             config=self.config,
             init_kwargs=specific_kwargs,
         )
         self._edge(
             Event.ON_TRACKERS_SETUP,
             config_path=str(self.config_path),
-            session_id=session_id,
+            session_id=self.session_id,
         )
         self.xlr.wait_for_everyone()
 
     def _train_handle_signals(
         self,
-        tr_loss: TensorDict,
+        tr_loss: TensorDict | None,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
         *,
@@ -1146,64 +1163,51 @@ class Engine:
         """
 
         # SIGNAL: logging
-        if self._signal.should_log:
-            assert (
-                self._state.step != self._globalstep_last_logged
-            ), "No new logs should be created when nothing changed"
-
+        if self._signal.should_log and not self._logged_in_last_step:
+            assert tr_loss is not None
             logs: dict[str, float] = {}
             logs["optimizer/lr"] = _get_learning_rate(optimizer)
 
             # all_gather + mean() to get average loss over all processes
-            tr_loss_scalar = {k: gather(l).mean().item() for k, l in tr_loss.items()}
+            tr_loss_scalar = {
+                loss_key: gather(loss_item).mean().item()
+                for loss_key, loss_item in tr_loss.items()
+            }
 
             # reset tr_loss to zero
-            # tr_loss -= tr_loss
             tr_loss.apply_(lambda _l: _l - _l)
 
             for k, v in tr_loss_scalar.items():
                 logs["losses/" + k] = round(
-                    v / (self._state.step - self._globalstep_last_logged), 4
+                    v / (self._state.step - self._step_last_logged), 4
                 )
 
-            self._globalstep_last_logged = self._state.step
+            self._step_last_logged = self._state.step
             # self.store_flops()
             self._train_log(logs)
 
         # SIGNAL: save model
-        if self._signal.should_save:
+        if self._signal.should_save and not self._saved_in_last_step:
             _logger.info(
                 "Saving state and model at step %d (epoch %d)",
                 self._state.step,
                 self._state.epoch,
             )
-
-            # Save the training state (for recovery on in this environment)
-            try:
-                state_path = self._save_state(None)
-            except Exception as e:
-                state_path = None
-                _logger.error("Failed to save accelerator state: %s", e, stacklevel=2)
-
-            # Save the (unwrapped) model
-            try:
-                model_path = self._save_weights(None, model)
-            except Exception as e:
-                model_path = None
-                _logger.error("Failed to save model: %s", e, stacklevel=2)
-
-            # Report event
+            state_path = self._save_state(None)
+            model_path = self._save_weights(None, model)
             self._edge(Event.ON_SAVE, model_path=model_path, state_path=state_path)
+            self._step_last_saved = self._state.step
 
         # SIGNAL: evaluate model
-        if self._signal.should_evaluate:
+        if self._signal.should_evaluate and not self._evaluated_in_last_step:
             _logger.info(
                 "Starting evaluation cycle @ step %d / epoch %d",
                 self._state.step,
                 self._state.epoch,
             )
 
-            self.run_evaluation(lambda _: model, trial=trial)
+            self.run_evaluation(model, trial=trial)
+            self._step_last_evaluated = self._state.step
 
     def _train_log(self, logs: dict[str, T.Any]) -> None:
         """
@@ -1228,15 +1232,15 @@ class Engine:
             self._state.log_history.pop(0)
         self.xlr.log(logs, step=self._state.step)
 
-    def _load_weights(self, path: str, model: nn.Module) -> nn.Module:
+    def _load_weights(self, path: Pathable, model: nn.Module) -> nn.Module:
         """
         Load the model checkpoint at the given path.
 
         Parameters
         ----------
-        path : str
-            The path to the model checkpoint. Skipped when `None`.
-        model : nn.Module
+        path
+            The path to the model checkpoint.
+        model
             The model to load the checkpoint into.
 
         Returns
@@ -1249,7 +1253,7 @@ class Engine:
         _logger.debug("Loading weights from %s", path)
         return load_checkpoint_and_dispatch(model, file_io.get_local_path(path))
 
-    def _save_weights(self, path: T.Optional[str], model: nn.Module) -> str:
+    def _save_weights(self, path: T.Optional[Pathable], model: nn.Module) -> str:
         """
         Save a model, unwrapping it from the accelerator
 
@@ -1259,58 +1263,69 @@ class Engine:
             The directory to save the model checkpoints to.
         """
 
-        if path is None:
-            path_models = os.path.join(self.xlr.project_dir, "models")
-            path = os.path.join(path_models, f"{self._state.stage}_step_{self._state.step}")
-        else:
-            path_models = None
+        path = file_io.Path(path or (self.models_dir / f"step_{self._state.step}"))
+
+        barrier()
 
         if check_main_process():
-            os.makedirs(path, exist_ok=True)
+            path.mkdir(exist_ok=True, parents=True)
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+            self.xlr.save_model(
+                self.xlr.unwrap_model(model),
+                save_directory=str(path),
+                safe_serialization=True,
+            )
+            _cleanup_generated_items(
+                self.models_dir, self._params.save_total_limit or 1
+            )
 
-            model = self.xlr.unwrap_model(model)
+        barrier()
 
-            self.xlr.save_model(model, save_directory=path, safe_serialization=True)
+        return str(path)
 
-            if path_models is not None:
-                # Cleanup old checkpoints only when using automatic naming
-                _cleanup_generated_items(
-                    path_models, self._params.save_total_limit or 1
-                )
-
-        return path
-
-    def _load_state(self, path: T.Optional[str]) -> None:
+    def _load_state(self, path: T.Optional[Pathable]) -> None:
         """
         Load the engine state from the given path, if no path is given, the last checkpoint is used.
         """
         if path is not None:
-            _logger.debug("Loading engine state at %s", path)
             path = file_io.get_local_path(path)
         elif self._recover_path is not None:
-            _logger.debug("Loading engine state from recovery path: %s", path)
             path = file_io.get_local_path(self._recover_path)
         else:
-            auto_dir = os.path.join(self.xlr.project_dir, "checkpoints")
-            if not file_io.isdir(auto_dir) or len(file_io.ls(auto_dir)) == 0:
-                _logger.debug(
+            if (
+                not file_io.isdir(self.states_dir)
+                or len(file_io.ls(self.states_dir)) == 0
+            ):
+                raise FileNotFoundError(
                     "No engine state path given and no automatic checkpoints found."
                 )
-                return
-            else:
-                _logger.debug(
-                    "No engine state path given. Defaulting to last automatic checkpoint in %s",
-                    auto_dir,
-                )
-        self.xlr.load_state(path)  # type: ignore
+            path = _find_latest_checkpoint(self.states_dir)
 
-    def _save_state(self, path: T.Optional[str]) -> str:
+        _logger.info("Loading state from %s", path)
+
+        self.xlr.load_state(file_io.get_local_path(path))  # type: ignore
+
+    def _save_state(self, path: T.Optional[Pathable]) -> str:
         """
         Save the engine state for recovery/resume. Sometimes called a 'checkpoint'.
         """
-        if path is not None:
-            path = file_io.get_local_path(path)
-        return self.xlr.save_state(path)  # type: ignore
+
+        path = file_io.Path(path or (self.states_dir / f"step_{self._state.step}"))
+
+        barrier()
+
+        self.xlr.save_state(path)  # type: ignore
+        if check_main_process():
+            _cleanup_generated_items(
+                self.states_dir, self._params.save_total_limit or 1
+            )
+
+        barrier()
+
+        return str(path)
 
     def _store_visualizations(
         self, visuals: dict[str, pil_image.Image], prefix: str
@@ -1344,17 +1359,17 @@ class Engine:
         """
         Sets default configuration values in third-party libraries.
         """
-
-        # See: https://pytorch.org/docs/stable/notes/multiprocessing.html
-        slurm = unipercept.integrations.slurm_integration.SLURMEnvironment()
-
-        if slurm.is_slurm_job:
-            N_M = slurm.cpus_per_gpu
-        else:
-            N = multiprocessing.cpu_count()
-            M = get_process_count()
-            N_M = math.floor(N / M)
-        torch.set_num_threads(N_M)
+        # NOTE: This should no longer be nessecary since PyTorch 1.8.0
+        # slurm = unipercept.integrations.slurm_integration.SLURMEnvironment()
+        #
+        # if slurm.is_slurm_job:
+        #    N_M = slurm.cpus_per_gpu
+        # else:
+        #    N = multiprocessing.cpu_count()
+        #    M = get_process_count()
+        #    N_M = math.floor(N / M)
+        # torch.set_num_threads(N_M)
+        pass
 
 
 def _flops(model: nn.Module, inputs: InputType) -> int:
@@ -1443,7 +1458,7 @@ def _build_speed_metrics(
 _RE_NUMERIC_SUFFIX = re.compile(r"(\d+)$")
 
 
-def _sort_children_by_suffix(path: file_io.Path | str) -> T.Iterable[str]:
+def _sort_children_by_suffix(path: Pathable) -> T.Iterable[str]:
     """
     Sort the children of a path by the numeric suffix.
 
@@ -1469,7 +1484,27 @@ def _sort_children_by_suffix(path: file_io.Path | str) -> T.Iterable[str]:
         yield item_full
 
 
-def _cleanup_generated_items(path: file_io.Path | str, max_items: int) -> None:
+def _find_recent_generated_item(path: Pathable) -> T.Optional[str]:
+    """
+    Find the most recent item in a directory with a numeric suffix.
+
+    Parameters
+    ----------
+    path
+        A path to some directory, containing children with numeric suffixes, i.e. item-1, item2, it3, etc.
+
+    Returns
+    -------
+    str | None
+        The path to the most recent child, or None if no children were found.
+    """
+    items = list(_sort_children_by_suffix(path))
+    if not items:
+        return None
+    return items[-1]
+
+
+def _cleanup_generated_items(path: Pathable, max_items: int) -> None:
     """
     Given some path, list all child items and sort by the suffix number, then remove all items except the last.
 
@@ -1507,7 +1542,7 @@ def _cleanup_generated_items(path: file_io.Path | str, max_items: int) -> None:
 
 def _enforce_prefix(metrics: dict[str, T.Any], prefix: str, sep: str = "/") -> None:
     """
-    Enforce a prefix on all keys in `metrics`.
+    Enforce a prefix on all keys in `metrics`. This is ran in-place.
     """
     if not prefix.endswith(sep):
         prefix = prefix + sep

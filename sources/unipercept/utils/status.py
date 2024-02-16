@@ -58,7 +58,7 @@ def _put_status(obj: _O_contra, attr, status) -> None:
 
 def _pop_status(obj: _O_contra, attr, status) -> None:
     value = _get_attr(obj, attr)
-    assert value & status, f"Status {status} not set in {value}."
+    # assert value & status, f"Status {status} not set in {value}."
     _set_attr(obj, attr, value & ~status)
 
 

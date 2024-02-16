@@ -39,7 +39,7 @@ class SchedulerFactory:
             raise TypeError(f"Invalid scheduler type: {type(scd)}")
 
     def __call__(
-        self, optimizer: Optimizer, epochs: int, updates_per_epoch: int
+        self, optimizer: Optimizer, epochs: float, updates_per_epoch: int
     ) -> SchedulerAndNum:
         return self._partial(optimizer, epochs, updates_per_epoch)
 
@@ -74,6 +74,10 @@ def create_scheduler(
     assert isinstance(
         optimizer, Optimizer
     ), f"Invalid optimizer type: {type(optimizer)}"
+    assert (
+        updates_per_epoch is not None and updates_per_epoch > 0
+    ), f"{updates_per_epoch=}"
+    assert epochs is not None and epochs > 0, f"{epochs=}"
 
     t_initial = epochs
     warmup_t = warmup_epochs
@@ -211,6 +215,6 @@ def create_scheduler(
         if step_on_epochs:
             epochs = t_with_cycles_and_cooldown
         else:
-            epochs = t_with_cycles_and_cooldown // updates_per_epoch
+            epochs = t_with_cycles_and_cooldown / updates_per_epoch
 
     return lr_scheduler, epochs

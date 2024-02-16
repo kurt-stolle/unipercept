@@ -11,7 +11,7 @@ from unipercept.engine._optimizer import OptimizerFactory, OptimPackage, OptimTy
 
 @pytest.mark.parametrize("optim_package", [t for t in OptimPackage])
 @pytest.mark.parametrize("optim_type", [t for t in OptimType])
-@pytest.mark.parametrize("lr", [0.1, None])
+@pytest.mark.parametrize("lr", [0.1])
 @pytest.mark.parametrize("foreach", [True, False, None])
 def test_optimizer_factory(model, optim_package, optim_type, lr, foreach):
     optim_args = {

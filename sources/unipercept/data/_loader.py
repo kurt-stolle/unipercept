@@ -9,11 +9,13 @@ import enum
 import functools
 import math
 import multiprocessing as M
+import os
 import typing as T
 import warnings
 
 import torch
 import torch.distributed as dist
+from tabulate import tabulate
 from torch.utils.data import (
     DataLoader,
     Dataset,
@@ -44,15 +46,22 @@ __all__ = [
 
 _logger = get_logger(__name__)
 
+
+def _suggest_workers():
+    """
+    Suggests the number of workers for the dataloader based on the number of available CPUs
+    """
+    try:
+        return len(os.sched_getaffinity(0))
+    except Exception:
+        return M.cpu_count() // get_process_count()
+
+
 DEFAULT_NUM_WORKERS = get_env(
     int,
     "UP_DATALOADER_WORKERS",
     "UNIPERCEPT_DATALOADER_WORKERS",
-    default=get_env(
-        int,
-        "SLURM_CPUS_PER_GPU",
-        default=M.cpu_count() // get_process_count(),
-    ),
+    default=_suggest_workers(),
 )
 
 DEFAULT_PREFETCH_FACTOR = get_env(
@@ -170,16 +179,18 @@ class DataLoaderFactory:
             loader_kwargs["sampler"] = sampler
 
         # Loader
-        _logger.debug(
-            "Creating dataloader from %d queued items in %d batches of %d",
-            queue_size,
-            len(interface),
-            batch_size,
-        )
-
         loader_kwargs["batch_size"] = batch_size
         loader_kwargs.setdefault("collate_fn", InputData.collate)
         loader_kwargs.setdefault("worker_init_fn", _worker_init_fn)
+
+        _logger.debug(
+            "Creating dataloader (%d queued; %d × %d items):\n%s",
+            queue_size,
+            len(interface),
+            batch_size,
+            tabulate(loader_kwargs.items(), tablefmt="simple"),
+        )
+
         return DataLoader(interface, **loader_kwargs)
 
 
@@ -642,3 +653,7 @@ class SamplerFactory:
 
     def __call__(self, size: int) -> Sampler:
         return self._fn(size)
+
+
+if __name__ == "__main__":
+    print("Default configuration for dataloader workers: ", DEFAULT_NUM_WORKERS)

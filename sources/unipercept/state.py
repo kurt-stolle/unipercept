@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses as D
 import typing as T
+import os
 
 import accelerate.utils
 import torch
@@ -167,3 +168,6 @@ def gather_tensordict(td: TensorDictBase) -> TensorDict:
     td.batch_size = td.batch_size[:batch_dims]
 
     return td
+
+def cpus_available():
+    return len(os.sched_getaffinity(0))

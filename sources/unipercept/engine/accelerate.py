@@ -46,7 +46,6 @@ class Accelerator(accelerate.Accelerator):
 
         project_dir = root / "outputs"
         logging_dir = root / "logs"
-
         project_dir.mkdir(parents=True, exist_ok=True)
         logging_dir.mkdir(parents=True, exist_ok=True)
 
@@ -55,8 +54,8 @@ class Accelerator(accelerate.Accelerator):
             project_config=ProjectConfiguration(
                 project_dir=str(project_dir),
                 logging_dir=str(logging_dir),
-                automatic_checkpoint_naming=True,
-                total_limit=4,
+                automatic_checkpoint_naming=False,
+                total_limit=params.save_total_limit or 1,
             ),
             kwargs_handlers=[
                 DistributedDataParallelKwargs(

@@ -173,7 +173,7 @@ def create_optimizer(
     opt = OptimType(opt) if isinstance(opt, str) else opt
     pkg = OptimPackage(pkg) if isinstance(pkg, str) else pkg
 
-    lr *= get_process_count()
+    lr *= get_process_count() or 1
 
     # Extract parameters from model
     parameters = get_optimizer_params(
@@ -383,9 +383,7 @@ def _create_apex_optimizer(
     try:
         import apex.optimizers  # pyright: ignore[reportMissingImports]
     except ImportError:
-        raise RuntimeError(
-            "apex optimizers require the 'apex' package to be installed."
-        )
+        raise ImportError("apex optimizers require the 'apex' package to be installed.")
 
     if not torch.cuda.is_available():
         raise RuntimeError("apex optimizers require CUDA to be available.")
@@ -466,7 +464,7 @@ def _create_bnb_optimizer(
     try:
         import bitsandbytes as bnb  # pyright: ignore[reportMissingImports]
     except ImportError:
-        raise RuntimeError(
+        raise ImportError(
             "bitsandbytes optimizers require the 'bitsandbytes' package to be installed."
         )
 

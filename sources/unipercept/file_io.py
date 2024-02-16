@@ -120,6 +120,26 @@ _PathStrCallable: T.TypeAlias = T.Callable[T.Concatenate[str, _Params], _Return]
 _PathAnyCallable: T.TypeAlias = T.Callable[T.Concatenate[Pathable, _Params], _Return]
 
 
+@T.overload
+def with_local_path(
+    fn: None = None,
+    *,
+    manager: PathManager = _manager,
+    **get_local_path_kwargs: T.Any,
+) -> T.Callable[[_PathStrCallable], _PathAnyCallable]:
+    ...
+
+
+@T.overload
+def with_local_path(
+    fn: _PathStrCallable,
+    *,
+    manager: PathManager = _manager,
+    **get_local_path_kwargs: T.Any,
+) -> _PathAnyCallable:
+    ...
+
+
 def with_local_path(
     fn: _PathStrCallable | None = None,
     *,

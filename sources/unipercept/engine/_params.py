@@ -79,26 +79,31 @@ class EngineStage:
     scheduler: SchedulerFactory
     iterations: Interval = D.field(default=Interval(1, "epochs"), metadata={})
     gradient_accumulation: int = 1
+    model_config: T.Dict[str, T.Any] = D.field(
+        default_factory=dict,
+        metadata={"help": "Model configuration overrides, dict of keys and values."},
+    )
 
     def get_steps(self, steps_per_epoch: int) -> int:
         amount, unit = self.iterations
 
         if unit == "steps":
-            return amount
+            return int(amount)
         elif unit == "epochs":
-            return amount * steps_per_epoch
+            return int(amount * steps_per_epoch)
         else:
             raise ValueError(f"Unknown unit {unit}")
 
-    def get_epochs(self, steps_per_epoch: int) -> int:
+    def get_epochs(self, steps_per_epoch: int) -> float:
         amount, unit = self.iterations
 
         if unit == "steps":
-            return amount // steps_per_epoch
+            value = float(amount / steps_per_epoch)
         elif unit == "epochs":
-            return amount
+            value = float(amount)
         else:
             raise ValueError(f"Unknown unit {unit}")
+        return value
 
 
 @D.dataclass(match_args=False, kw_only=True)

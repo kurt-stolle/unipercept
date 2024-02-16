@@ -25,6 +25,7 @@ from typing_extensions import override
 
 import unipercept.file_io as file_io
 from unipercept.utils.inspect import generate_path, locate_object
+from unipercept.utils.typings import Pathable
 
 __all__ = [
     "apply_overrides",
@@ -298,20 +299,22 @@ def _patch_import():
     builtins.__import__ = import_default
 
 
-def _filepath_to_name(path: str) -> str | None:
+def _filepath_to_name(path: Pathable) -> str | None:
     """
     Convert a file path to a module name.
     """
 
-    configs_root = file_io.Path("//configs/")
-    if file_io.Path(path).is_relative_to(configs_root):
+    configs_root = file_io.Path("//configs/").resolve()
+    path = file_io.Path(path).resolve()
+    try:
         # If the file is under "//configs", then we can use the relative path to generate a name
-        name = file_io.Path(path).relative_to(configs_root).as_posix()
-        name = name.replace("./", "")
-        name = name.replace("//", "/")
-    else:
+        name = path.relative_to(configs_root).parent.as_posix() + "/" + path.stem
+    except Exception:
         # Otherwise, we use the absolute path and find the name using the filename without suffix
-        name = os.path.splitext(os.path.basename(path))[0]
+        name = "/".join([path.parent.stem, path.stem])
+
+    name = name.replace("./", "")
+    name = name.replace("//", "/")
 
     if name in {"__init__", "defaults", "unknown", "config", "configs"}:
         return None

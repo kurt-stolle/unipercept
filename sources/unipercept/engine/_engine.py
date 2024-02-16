@@ -454,7 +454,7 @@ class Engine:
     @torch.no_grad()
     def run_evaluation(
         self,
-        model_factory: ModelFactory | ModelBase,
+        model_factory: ModelFactory,
         trial: Trial | None = None,
         *,
         prefix: str = "evaluation",
@@ -480,15 +480,12 @@ class Engine:
             # Memory metrics - must set up as early as possible
             self._mem_tracker.start("eval")
 
-            if isinstance(model_factory, ModelBase):
-                model = model_factory
+            if trial is not None:
+                model = model_factory(
+                    overrides=trial.config, weights=trial.weights
+                )
             else:
-                if trial is not None:
-                    model = model_factory(
-                        overrides=trial.config, weights=trial.weights
-                    )
-                else:
-                    model = model_factory()
+                model = model_factory()
 
             loader_factory = self._dataloaders[loader_key]
             loader = loader_factory(1)
@@ -1206,7 +1203,7 @@ class Engine:
                 self._state.epoch,
             )
 
-            self.run_evaluation(model, trial=trial)
+            self.run_evaluation(lambda *args, **kwargs: model, trial=trial)
             self._step_last_evaluated = self._state.step
 
     def _train_log(self, logs: dict[str, T.Any]) -> None:

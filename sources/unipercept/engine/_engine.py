@@ -1542,7 +1542,7 @@ def _cleanup_generated_items(path: Pathable, max_items: int) -> None:
     if len(items) <= max_items:
         return
 
-    for child, _ in items[:-max_items]:
+    for child in items[:-max_items]:
         if file_io.isdir(child):
             local_path = file_io.get_local_path(child)
             shutil.rmtree(local_path, ignore_errors=False)

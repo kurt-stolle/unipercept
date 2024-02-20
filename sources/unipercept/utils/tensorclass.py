@@ -106,7 +106,7 @@ class Tensorclass(metaclass=_TensorclassMeta):
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
 
-        pytree._register_pytree_node(cls, cls._flatten, cls._unflatten)
+        pytree.register_pytree_node(cls, cls._flatten, cls._unflatten)
 
     # Type hints for methods and properties added by the @tensorclass decorator
     if T.TYPE_CHECKING:

@@ -213,6 +213,8 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
         _logger.info("Loading checkpoint from path %s", state)
         # State was passed as a file path
         state_path = file_io.Path(state)
+        if state_path.is_dir():
+            state_path = state_path / "model.safetensors"
         if not state_path.is_file():
             raise FileNotFoundError(f"Could not find checkpoint file at {state_path}")
 

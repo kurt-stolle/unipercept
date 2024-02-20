@@ -34,7 +34,6 @@ from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
 
-import unipercept.integrations.slurm_integration
 from unipercept import file_io
 from unipercept.engine._params import EngineParams, EngineStage
 from unipercept.engine._trial import Trial, TrialWithParameters
@@ -45,7 +44,6 @@ from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import MemmapTensordictWriter, PersistentTensordictWriter
 from unipercept.log import get_logger
-from unipercept.model import ModelBase
 from unipercept.state import (
     barrier,
     check_main_process,
@@ -450,12 +448,14 @@ class Engine:
         self.status |= EngineStatus.FINDING_BATCH_SIZE
         result = train()
 
+        # Save final model weights
+        last_weights = self._save_weights(None, result)
+
         if len(self._stages) > stage_num + 1:
             _logger.info("Training completed. Moving to next stage.")
+
             self._state.stage += 1
-            return self.run_training(
-                model_factory, trial=trial, weights=self._save_weights(None, result)
-            )  # weights swapped to 'none'
+            return self.run_training(model_factory, trial=trial, weights=last_weights)
         else:
             _logger.info("Training completed. No more stages to run.")
             return result
@@ -1032,6 +1032,7 @@ class Engine:
 
             # Compute metrics
             metrics: dict[str, T.Any] = {}
+
             if self.xlr.is_main_process:
                 metrics.update(
                     _build_speed_metrics(
@@ -1051,6 +1052,8 @@ class Engine:
                     )
                     visuals.update(evaluator.plot(results_mem.tensordict))
                 self._store_visualizations(visuals, prefix=prefix)
+
+            self.xlr.wait_for_everyone()
         finally:
             results_mem.close()
             if self.xlr.is_main_process and results_remove_on_exit:

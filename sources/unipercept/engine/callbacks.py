@@ -686,6 +686,9 @@ class EarlyStoppingCallback(CallbackDispatcher):
     def on_evaluate(
         self, params: EngineParams, state: State, control: Signal, metrics, **kwargs
     ):
+        if not unipercept.state.check_main_process():
+            return
+
         metric_to_check = params.metric
         if not metric_to_check.startswith("eval_"):
             metric_to_check = f"eval_{metric_to_check}"

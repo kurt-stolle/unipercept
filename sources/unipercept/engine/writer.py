@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import abc
 import collections
+import concurrent.futures
 import functools
 import gc
 import itertools as I
@@ -13,31 +14,30 @@ import sys
 import typing as T
 
 import torch
-import torch.types
 import torch.multiprocessing as M
+import torch.types
 import typing_extensions as TX
-import concurrent.futures
 from tensordict import (
     LazyStackedTensorDict,
-    PersistentTensorDict,
-    TensorDictBase,
-    TensorDict,
     MemoryMappedTensor,
+    PersistentTensorDict,
+    TensorDict,
+    TensorDictBase,
 )
 from tensordict.utils import TensorDictFuture
 
 from unipercept import file_io
 from unipercept.log import get_logger
-from unipercept.utils.typings import Pathable
 from unipercept.state import (
     barrier,
     check_main_process,
-    gather_tensordict,
-    on_main_process,
-    main_process_first,
     cpus_available,
+    gather_tensordict,
+    main_process_first,
+    on_main_process,
 )
 from unipercept.utils.tensorclass import Tensorclass
+from unipercept.utils.typings import Pathable
 
 __all__ = ["ResultsWriter", "PersistentTensordictWriter", "MemmapTensordictWriter"]
 
@@ -221,7 +221,7 @@ class PersistentTensordictWriter(ResultsWriter):
         path: Pathable,
         size: int,
         buffer_size: int = -1,
-        compression: T.Literal["lzf", "gzip"] | None ="lzf",
+        compression: T.Literal["lzf", "gzip"] | None = "lzf",
         compression_opts: T.Any = None,
     ):
         """
@@ -243,7 +243,9 @@ class PersistentTensordictWriter(ResultsWriter):
             self._path = self._path.with_suffix(".h5")
 
         if check_main_process():
-            self._queue = M.Queue(buffer_size if buffer_size > 0 else cpus_available() * 2)
+            self._queue = M.Queue(
+                buffer_size if buffer_size > 0 else cpus_available() * 2
+            )
             self._writer = PersistentTensordictWriterProcess(
                 path, size, compression, compression_opts, queue=self._queue
             )
@@ -260,6 +262,7 @@ class PersistentTensordictWriter(ResultsWriter):
             compression=compression,
             compression_opts=compression_opts,
         )
+
     def __del__(self):
         if not self._is_closed:
             _logger.warning("ResultsWriter was not closed, closing now", stacklevel=2)
@@ -281,7 +284,7 @@ class PersistentTensordictWriter(ResultsWriter):
         """
         if self._is_closed:
             raise RuntimeError(f"{self.__class__.__name__} is closed")
-        
+
         if check_main_process():
             assert self._queue is not None and self._writer is not None
             _logger.debug("Sending close signal to H5 writer")
@@ -317,7 +320,7 @@ class PersistentTensordictWriter(ResultsWriter):
     @TX.override
     def close(self):
         self._is_closed = True
-        
+
         if check_main_process():
             if self._queue is not None:
                 self._queue.close()

@@ -2,32 +2,37 @@ from __future__ import annotations
 
 import shutil
 import typing as T
+from pathlib import Path
 
 import pytest
 import torch
 import typing_extensions as TX
 from tensordict import TensorDict
-from pathlib import Path
 
-from unipercept.engine.writer import PersistentTensordictWriter, MemmapTensordictWriter
-
+from unipercept.engine.writer import MemmapTensordictWriter, PersistentTensordictWriter
 
 NUM_SAMPLES = 32
 
 
-def _run_write_read_benchmark(writer: T.Union[MemmapTensordictWriter, PersistentTensordictWriter]):
+def _run_write_read_benchmark(
+    writer: T.Union[MemmapTensordictWriter, PersistentTensordictWriter]
+):
     for _ in range(NUM_SAMPLES):
-        writer.add(TensorDict({"a": torch.randn(1, 64, 120), "z": torch.ones(1,1)}, batch_size=[1]))
+        writer.add(
+            TensorDict(
+                {"a": torch.randn(1, 64, 120), "z": torch.ones(1, 1)}, batch_size=[1]
+            )
+        )
     writer.flush()
 
     td = writer.tensordict
 
     for i in range(NUM_SAMPLES):
         item = td.get_at("a", i)
-        assert item.shape == ( 64, 120)
+        assert item.shape == (64, 120)
 
     writer.close()
-    
+
 
 def test_memmap_writer(benchmark, tmp_path: Path):
     @benchmark
@@ -37,7 +42,8 @@ def test_memmap_writer(benchmark, tmp_path: Path):
         _run_write_read_benchmark(writer)
         shutil.rmtree(path)
 
-@pytest.mark.parametrize("buffer_size", [-1, NUM_SAMPLES //4])
+
+@pytest.mark.parametrize("buffer_size", [-1, NUM_SAMPLES // 4])
 def test_persistent_writer(benchmark, buffer_size, tmp_path: Path):
     @benchmark
     def write_then_read():

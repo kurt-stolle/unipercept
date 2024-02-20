@@ -88,6 +88,7 @@ class EngineStatus(E.IntFlag):
     IS_PREDICTION_RUN = E.auto()
     HP_TUNING_MODE = E.auto()
     EXPERIMENT_TRACKERS_STARTED = E.auto()
+    FINDING_BATCH_SIZE = E.auto()
 
 
 class FloatingPointPrecision(E.StrEnum):
@@ -389,6 +390,13 @@ class Engine:
             emulate training at original batch size. Note that this does not guarantee
             perfect reproducibility.
             """
+
+            # Crash when FINDING_BATCH_SIZE status is missing. This status is removed
+            # after the first logging step.
+            if EngineStatus.FINDING_BATCH_SIZE not in self.status:
+                msg = "Aborting training (OOM)"
+                raise RuntimeError(msg)
+
             gradient_accumulation = stage.gradient_accumulation * (
                 stage.batch_size // batch_size
             )
@@ -438,6 +446,8 @@ class Engine:
                 trial=trial,
             )
 
+        # Add FINDING_BATCH_SIZE flag to status
+        self.status |= EngineStatus.FINDING_BATCH_SIZE
         result = train()
 
         if len(self._stages) > stage_num + 1:
@@ -481,9 +491,7 @@ class Engine:
             self._mem_tracker.start("eval")
 
             if trial is not None:
-                model = model_factory(
-                    overrides=trial.config, weights=trial.weights
-                )
+                model = model_factory(overrides=trial.config, weights=trial.weights)
             else:
                 model = model_factory()
 
@@ -964,14 +972,12 @@ class Engine:
         if results_path is None:
             results_remove_on_exit = True
             results_path = file_io.Path(
-                f"//scratch/{self._params.project_name}/{str(self.session_id)}/{prefix}-results" #.h5"
+                f"//scratch/{self._params.project_name}/{str(self.session_id)}/{prefix}-results"  # .h5"
             )
             results_path.mkdir(parents=True, exist_ok=True)
         else:
             results_remove_on_exit = False
-        results_mem = MemmapTensordictWriter(
-            str(results_path), samples_total
-        )
+        results_mem = MemmapTensordictWriter(str(results_path), samples_total)
 
         self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
         try:
@@ -1095,16 +1101,19 @@ class Engine:
         from unipercept.integrations import wandb_integration
 
         if self.dry_run:
-            _logger.info("Dry run: skipping experiment trackers")
+            _logger.info("Skipping experiment trackers (dry run)")
             return
 
-        if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status and not restart:
-            _logger.debug("Trackers already started, skipping setup")
-            return
+        if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status:
+            if not restart:
+                _logger.debug("Trackers already started, skipping setup")
+                return
+            else:
+                _logger.info("Restarting experiment trackers")
+                self.xlr.trackers.clear()
         else:
+            _logger.info("Setting up experiment trackers")
             self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED
-
-        _logger.debug("Setting up experiment trackers")
 
         # Determine the job type from the status
         if self.status & EngineStatus.IS_TRAINING_RUN:
@@ -1116,26 +1125,27 @@ class Engine:
         else:
             job_type = "misc"
 
-        group_name = f"stage_{self._state.stage}" if self._state.stage >= 0 else "other"
+        group_name = f"stage-{self._state.stage}" if self._state.stage >= 0 else "other"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         experiment_name = f"[{timestamp}] {self.config_name} ({job_type} {group_name})"
+        experiment_id = f"{self.session_id}-{job_type}-{group_name}"
 
         # Set up tracker-specific parameters
         specific_kwargs = {}
         specific_kwargs["wandb"] = {
             "name": experiment_name,
             "job_type": job_type,
-            "reinit": restart,
+            "reinit": False,
             "group": group_name,
             "notes": f"{self._params.notes}\n\nCreated by session: {self.session_id}",
             "tags": list(self._params.tags),
-            "id": f"{self.session_id}-{job_type}-{group_name}",
+            "id": experiment_id,
             "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
         }
 
         # Accelerate handles the experiment trackers for us
         self.xlr.init_trackers(
-            f"{self._params.project_name}",
+            self._params.project_name,
             config=self.config,
             init_kwargs=specific_kwargs,
         )
@@ -1161,6 +1171,10 @@ class Engine:
 
         # SIGNAL: logging
         if self._signal.should_log and not self._logged_in_last_step:
+            # Remove the FINDING_BATCH_SIZE flag from the status
+            self.status &= ~EngineStatus.FINDING_BATCH_SIZE
+
+            # Accumulate loss tracker
             assert tr_loss is not None
             logs: dict[str, float] = {}
             logs["optimizer/lr"] = _get_learning_rate(optimizer)

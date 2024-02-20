@@ -14,6 +14,7 @@ import typing as T
 
 import torch
 import torch.types
+import torch.multiprocessing as M
 import typing_extensions as TX
 import concurrent.futures
 from tensordict import (
@@ -27,12 +28,14 @@ from tensordict.utils import TensorDictFuture
 
 from unipercept import file_io
 from unipercept.log import get_logger
+from unipercept.utils.typings import Pathable
 from unipercept.state import (
+    barrier,
     check_main_process,
     gather_tensordict,
     on_main_process,
     main_process_first,
-    cpus_available
+    cpus_available,
 )
 from unipercept.utils.tensorclass import Tensorclass
 
@@ -50,7 +53,7 @@ class ResultsWriter(metaclass=abc.ABCMeta):
         raise NotImplementedError("Abstract method `add` not implemented.")
 
     @abc.abstractmethod
-    def write(self) -> None:
+    def flush(self) -> None:
         raise NotImplementedError("Abstract method `write` not implemented.")
 
     @abc.abstractmethod
@@ -84,22 +87,11 @@ class MemmapTensordictWriter(ResultsWriter):
         self._size: T.Final = size
         self._is_closed = False
         self._path = path
-        self._pool = concurrent.futures.ProcessPoolExecutor(max_workers=cpus_available())
+        self._pool = concurrent.futures.ThreadPoolExecutor()
+        self._futures = []
 
         self._td: TensorDict | None = None
         self._td_cursor = 0
-
-    @staticmethod
-    def error_when_closed(
-        fn: T.Callable[T.Concatenate[MemmapTensordictWriter, _P], _R]
-    ) -> T.Callable[T.Concatenate[MemmapTensordictWriter, _P], _R]:
-        @functools.wraps(fn)
-        def wrapper(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
-            if self._is_closed:
-                raise RuntimeError(f"{self.__class__.__name__} is closed")
-            return fn(self, *args, **kwargs)
-
-        return wrapper
 
     @functools.cached_property
     def path(self) -> file_io.Path:
@@ -112,12 +104,12 @@ class MemmapTensordictWriter(ResultsWriter):
 
     @on_main_process()
     def _append(self, data: TensorDictBase) -> None:
-        for batched_item in data:
-            batched_item.cpu()._memmap_(
+        for batched_item in data.cpu():
+            batched_item._memmap_(
                 prefix=self.path / str(self._td_cursor),
-                inplace=False,
+                inplace=True,
                 like=False,
-                futures=[],
+                futures=self._futures,
                 executor=self._pool,
                 copy_existing=False,
             )
@@ -126,20 +118,23 @@ class MemmapTensordictWriter(ResultsWriter):
 
     @on_main_process()
     def _write(self):
-        _logger.debug("Waiting for buffer to finish writing (if necessary)")
-        self._pool.shutdown(wait=True)
+        _logger.debug("Waiting for all tasks to finish writing")
+        concurrent.futures.wait(self._futures)
 
     @TX.override
-    @error_when_closed
-    def write(self):
+    def flush(self):
         """
         Write the results to disk.
         """
+        if self._is_closed:
+            raise RuntimeError(f"{self.__class__.__name__} is closed")
+
         with main_process_first():
             self._write()
+        self.close()
+        barrier()
 
     @TX.override
-    @error_when_closed
     def add(self, data: TensorDictBase):
         """
         Add an item to the results list, and write to disk if the buffer is full.
@@ -149,6 +144,8 @@ class MemmapTensordictWriter(ResultsWriter):
         data : TensorDictBase
             The data to add.
         """
+        if self._is_closed:
+            raise RuntimeError(f"{self.__class__.__name__} is closed")
 
         assert (
             data.batch_dims == 1
@@ -158,19 +155,60 @@ class MemmapTensordictWriter(ResultsWriter):
         self._append(data)
 
     @TX.override
-    @error_when_closed
     def close(self):
         self._is_closed = True
-        if self._td is not None:
-            self._td = None
+        self._pool.shutdown(wait=True)
 
     @property
     @TX.override
-    @error_when_closed
     def tensordict(self) -> TensorDictBase:
+        if not self._is_closed:
+            raise RuntimeError("ResultsWriter is not closed")
         if self._td is None:
             self._td = LazyStackedTensorDict._load_memmap(self.path, {"stack_dim": 0})
         return self._td
+
+
+class PersistentTensordictWriterProcess(M.Process):
+    def __init__(
+        self,
+        path: Pathable,
+        size: int,
+        compression: T.Literal["lzf", "gzip"] | None,
+        compression_opts: T.Any,
+        queue: M.Queue,
+    ):
+        super().__init__()
+        self.path = file_io.Path(path)
+        self.size = size
+        self.compression = compression
+        self.compression_opts = compression_opts
+        self.queue = queue
+        self.cursor = 0
+
+    @TX.override
+    def run(self):
+        _logger.debug("Starting H5 results writer process!")
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        writer = PersistentTensorDict(
+            filename=self.path,
+            batch_size=[self.size],
+            mode="w",
+            compression=self.compression,
+            compression_opts=self.compression_opts,
+        )
+
+        try:
+            while True:
+                data = self.queue.get()
+                if data is None:
+                    _logger.debug("Received None, closing writer")
+                    break
+                writer[self.cursor : self.cursor + len(data)] = data
+                self.cursor += len(data)
+        finally:
+            writer.close()
 
 
 class PersistentTensordictWriter(ResultsWriter):
@@ -178,7 +216,14 @@ class PersistentTensordictWriter(ResultsWriter):
     Writes results to a H5 file using PersistentTensorDict from multiple processes, uses a buffer to reduce the number of writes.
     """
 
-    def __init__(self, path: str, size: int, buffer_size: int = -1):
+    def __init__(
+        self,
+        path: Pathable,
+        size: int,
+        buffer_size: int = -1,
+        compression: T.Literal["lzf", "gzip"] | None ="lzf",
+        compression_opts: T.Any = None,
+    ):
         """
         Parameters
         ----------
@@ -191,87 +236,65 @@ class PersistentTensordictWriter(ResultsWriter):
         """
         self._size: T.Final = size
         self._is_closed = False
-        self._path = path
+        self._path = file_io.Path(path)
+        if self._path.is_dir():
+            self._path = self._path / "results.h5"
+        elif self._path.suffix not in (".h5", ".hdf5"):
+            self._path = self._path.with_suffix(".h5")
 
-        self._buffer_list: list[TensorDictBase] = []
-        self._buffer_size = buffer_size
+        if check_main_process():
+            self._queue = M.Queue(buffer_size if buffer_size > 0 else cpus_available() * 2)
+            self._writer = PersistentTensordictWriterProcess(
+                path, size, compression, compression_opts, queue=self._queue
+            )
+            self._writer.start()
+        else:
+            self._queue = None
+            self._writer = None
 
         self._td: PersistentTensorDict | None = None
-        self._td_cursor = 0
         self._td_factory = functools.partial(
             PersistentTensorDict,
             batch_size=[len(self)],
-            mode="w" if check_main_process() else "r",
-            compression=None,
-            compression_opts=None,
-        )  # See kwargs: https://docs.h5py.org/en/stable/high/group.html#h5py.Group.create_dataset
-
+            mode="r",
+            compression=compression,
+            compression_opts=compression_opts,
+        )
     def __del__(self):
         if not self._is_closed:
             _logger.warning("ResultsWriter was not closed, closing now", stacklevel=2)
         self.close()
-
-    @staticmethod
-    def error_when_closed(
-        fn: T.Callable[T.Concatenate[PersistentTensordictWriter, _P], _R]
-    ) -> T.Callable[T.Concatenate[PersistentTensordictWriter, _P], _R]:
-        @functools.wraps(fn)
-        def wrapper(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
-            if self._is_closed:
-                raise RuntimeError(f"{self.__class__.__name__} is closed")
-            return fn(self, *args, **kwargs)
-
-        return wrapper
-
-    @functools.cached_property
-    def path(self) -> file_io.Path:
-        p = file_io.Path(self._path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
 
     def __len__(self) -> int:
         return self._size
 
     @on_main_process()
     def _append(self, data: TensorDictBase) -> None:
-        self._buffer_list.append(data.cpu())
-        if len(self._buffer_list) >= self._buffer_size:
-            self._write()
-
-    @on_main_process()
-    def _write(self):
-        num_items = len(self._buffer_list)
-        if num_items == 0:
-            _logger.debug("Writable results buffer empty, skipping")
-            return
-
-        data = torch.cat(self._buffer_list, dim=0)
-        if data.batch_dims != 1:
-            msg = f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
-            raise ValueError(msg)
-        self._buffer_list.clear()
-        gc.collect()
-
-        # Determine offsets in target storage
-        off_l = self._td_cursor
-        off_h = off_l + data.batch_size[0]
-        if off_l == off_h:
-            _logger.debug("Writable results shard has no data, skipping")
-            return
-
-        self.tensordict[off_l:off_h] = data
-        self._td_cursor = off_h
+        if self._queue is None:
+            raise RuntimeError("ResultsWriter queue is None")
+        self._queue.put(data.cpu())
 
     @TX.override
-    @error_when_closed
-    def write(self):
+    def flush(self):
         """
         Write the results to disk.
         """
-        self._write()
+        if self._is_closed:
+            raise RuntimeError(f"{self.__class__.__name__} is closed")
+        
+        if check_main_process():
+            assert self._queue is not None and self._writer is not None
+            _logger.debug("Sending close signal to H5 writer")
+            self._queue.put(None)
+            _logger.debug("Waiting for H5 writer to finish")
+            self._writer.join()
+            self._writer.close()
+            self._writer = None
+        barrier()
+
+        self.close()
 
     @TX.override
-    @error_when_closed
     def add(self, data: TensorDictBase):
         """
         Add an item to the results list, and write to disk if the buffer is full.
@@ -281,6 +304,8 @@ class PersistentTensordictWriter(ResultsWriter):
         data : TensorDictBase
             The data to add.
         """
+        if self._is_closed:
+            raise RuntimeError(f"{self.__class__.__name__} is closed")
 
         assert (
             data.batch_dims == 1
@@ -290,10 +315,17 @@ class PersistentTensordictWriter(ResultsWriter):
         self._append(data)
 
     @TX.override
-    @error_when_closed
     def close(self):
         self._is_closed = True
-        self._buffer_list.clear()
+        
+        if check_main_process():
+            if self._queue is not None:
+                self._queue.close()
+                self._queue = None
+            if self._writer is not None:
+                self._writer.terminate()
+                self._writer.close()
+                self._writer = None
 
         if self._td is not None:
             self._td.close()
@@ -301,10 +333,11 @@ class PersistentTensordictWriter(ResultsWriter):
 
     @property
     @TX.override
-    @error_when_closed
     def tensordict(self) -> TensorDictBase:
+        if not self._is_closed:
+            raise RuntimeError("ResultsWriter is not closed")
         if self._td is None:
-            self._td = self._td_factory(filename=self.path)
+            self._td = self._td_factory(filename=self._path)
         return self._td
 
 

@@ -27,7 +27,7 @@ dependencies = [
     "einops >= 0.7.0",
     "timm >= 0.6.14",
     "bullet >= 2.2.0",
-    "accelerate",
+    "accelerate >= 0.27.0",
     "statistics",
     "h5py",
     "opencv-python",

@@ -14,6 +14,7 @@ import typing as T
 import torch.nn as nn
 import typing_extensions as TX
 import wandb
+import wandb.errors
 
 from unipercept import file_io
 from unipercept.config import get_env
@@ -48,6 +49,21 @@ class WandBWatchMode(E.StrEnum):
     GRADIENTS = E.auto()
     PARAMETERS = E.auto()
     ALL = E.auto()
+
+
+def delete_run(*, id: str) -> None:
+    """
+    Delete a run (if it exists)
+    """
+
+    try:
+        run = wandb.Api().run(id)
+    except wandb.errors.CommError as e:
+        _logger.debug("Skipping delete: %s", e)
+        return
+
+    _logger.debug("Deleting run: %s", run.id)
+    run.delete(delete_artifacts=True)
 
 
 def read_run(path: str) -> WandBRun:

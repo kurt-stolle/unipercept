@@ -1021,7 +1021,7 @@ class Engine:
                 get_process_count(),
                 timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
             )
-            results_mem.write()
+            results_mem.flush()
             self.xlr.wait_for_everyone()
             self._edge(
                 Event.ON_INFERENCE_END,

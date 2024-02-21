@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import importlib
-import inspect
 import os
-import pydoc
 import sys
 import types
 import typing as T
@@ -27,6 +24,8 @@ def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:
     The name of the module that called the current function.
 
     """
+    import inspect
+
     frm = inspect.stack()[2 + frames]
     mod = inspect.getmodule(frm[0])
     if mod is None:
@@ -114,6 +113,9 @@ def locate_object(path: str) -> T.Any:
     ImportError
         If the object cannot be located.
     """
+    import importlib
+    import pydoc
+
     obj = pydoc.locate(path)
 
     # Some cases (e.g. torch.optim.sgd.SGD) not handled correctly

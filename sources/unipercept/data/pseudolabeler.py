@@ -114,7 +114,6 @@ class PseudoGenerator:
         instance_path: Pathable,
         panoptic_path: Pathable,
     ) -> None:
-        assert str(panoptic_path).endswith(".safetensors")
         self._panoptic_merge_queue.append((semantic_path, instance_path, panoptic_path))
 
     def run_panoptic_merge_task(
@@ -141,9 +140,7 @@ class PseudoGenerator:
         if panoptic_path is not None:
             panoptic_path = file_io.Path(panoptic_path)
             panoptic_path.parent.mkdir(parents=True, exist_ok=True)
-            safetensors.save_file(
-                {"data": pan.as_subclass(torch.Tensor)}, panoptic_path
-            )
+            pan.save(panoptic_path)
 
         return pan
 

@@ -15,6 +15,7 @@ from unipercept.data.tensors import PanopticMap
 from unipercept.utils.camera import build_calibration_matrix
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
+from unipercept.utils.dataset import _Dataqueue
 from unipercept.utils.frozendict import frozendict
 from unipercept.utils.tensorclass import Tensorclass
 
@@ -27,6 +28,7 @@ from unipercept.data.types import COCOCategory, Manifest, QueueItem
 
 __all__ = [
     "PerceptionDataset",
+    "PerceptionDataqueue",
     "Metadata",
     "SClass",
     "SType",
@@ -34,6 +36,8 @@ __all__ = [
     "create_metadata",
     "catalog",
 ]
+
+PerceptionDataqueue: T.TypeAlias = _Dataqueue[QueueItem]
 
 # ---------------- #
 # HELPER FUNCTIONS #

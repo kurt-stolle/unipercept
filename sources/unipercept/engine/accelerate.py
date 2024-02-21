@@ -11,6 +11,7 @@ import accelerate.utils
 import torch
 import torch.nn
 import torch.types
+import torch.utils.data
 import typing_extensions as TX
 
 from unipercept import file_io

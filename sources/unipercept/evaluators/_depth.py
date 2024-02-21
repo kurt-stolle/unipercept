@@ -3,14 +3,20 @@ Implements an evaluator for depth estimation tasks.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses as D
+import functools
+import multiprocessing as M
 import typing as T
 
 import torch
 import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
+from tqdm import tqdm
 from typing_extensions import override
+
+from unipercept.state import check_main_process, cpus_available
 
 from ._base import Evaluator, PlotMode
 
@@ -116,7 +122,10 @@ class DepthWriter(Evaluator):
 _KEY_VALID_PX = "valid"
 
 
+@D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
+    show_progress: bool = True
+
     @classmethod
     @override
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
@@ -127,26 +136,27 @@ class DepthEvaluator(DepthWriter):
         self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
     ) -> dict[str, int | float | str | bool]:
         # TODO
+        device = torch.device("cpu")
         num_samples = storage.batch_size[0]
+        worker_amt = max(cpus_available() - (cpus_available() // 4), 1)
         assert num_samples > 0
 
+        progress_bar = tqdm(
+            total=num_samples,
+            desc="Computing depth metrics",
+            disable=not check_main_process(local=True) or not self.show_progress,
+        )
+
+        compute_at = functools.partial(_compute_at, storage=storage)
         metrics_list: list[DepthMetrics] = []
-        for n in range(num_samples):
-            valid = storage.get_at(VALID_DEPTH, n).item()
-            if not valid:
-                continue
-
-            pred = storage.get_at(PRED_DEPTH, n, None).clone().to(device=device)
-            true = storage.get_at(TRUE_DEPTH, n, None).clone().to(device=device)
-
-            if pred is None or true is None:
-                continue
-
-            metrics_sample = _depth_metrics_single(pred=pred, true=true)
-            if metrics_sample is None:
-                continue
-            else:
-                metrics_list.append(metrics_sample)
+        mp_context = M.get_context("spawn")
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=worker_amt, mp_context=mp_context
+        ) as pool:
+            for metrics_sample in pool.map(compute_at, range(num_samples)):
+                if metrics_sample is not None:
+                    metrics_list.append(metrics_sample)
+                progress_bar.update(1)
 
         # Compute the final metrics as the average of the samples weighted by the amount of valid pixels at each entry
         metrics = {}
@@ -181,6 +191,20 @@ class DepthEvaluator(DepthWriter):
         metrics.update(super().compute(storage, device=device))
 
         return metrics
+
+
+def _compute_at(n, *, storage):
+    valid = storage.get_at(VALID_DEPTH, n).item()
+    if not valid:
+        return None
+
+    pred = storage.get_at(PRED_DEPTH, n, None).to(device=device)
+    true = storage.get_at(TRUE_DEPTH, n, None).to(device=device)
+
+    if pred is None or true is None:
+        return None
+
+    return _depth_metrics_single(pred=pred, true=true)
 
 
 DepthMetrics = T.TypedDict(

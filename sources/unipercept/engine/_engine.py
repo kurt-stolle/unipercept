@@ -35,9 +35,9 @@ from torch.utils.data import Dataset
 from typing_extensions import override
 
 from unipercept import file_io
+from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EngineStage
 from unipercept.engine._trial import Trial, TrialWithParameters
-from unipercept.engine._types import DataLoaderFactory
 from unipercept.engine.accelerate import Accelerator, find_executable_batch_size
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
@@ -51,6 +51,7 @@ from unipercept.state import (
     get_process_count,
     get_process_index,
     get_total_batchsize,
+    on_main_process,
 )
 from unipercept.utils.seed import set_seed
 from unipercept.utils.status import StatusDescriptor
@@ -395,9 +396,10 @@ class Engine:
                 msg = "Aborting training (OOM)"
                 raise RuntimeError(msg)
 
-            gradient_accumulation = stage.gradient_accumulation * (
-                stage.batch_size // batch_size
-            )
+            # gradient_accumulation = stage.gradient_accumulation * (
+            #    stage.batch_size // batch_size
+            # )
+            gradient_accumulation = 1  # PyTorch 2.2: broken
             assert (
                 gradient_accumulation > 0
             ), "Expected gradient accumulation to be greater than 0"
@@ -496,7 +498,7 @@ class Engine:
                 model = model_factory()
 
             loader_factory = self._dataloaders[loader_key]
-            loader = loader_factory(1)
+            loader = loader_factory(1, use_distributed=True)
 
             metrics, samples_processed = self.run_inference_loop(
                 model, loader, prefix=prefix_suite, handlers=handlers
@@ -573,9 +575,9 @@ class Engine:
 
         if isinstance(dataloader, str):
             dl_factory = self._dataloaders[dataloader]
-            dl = dl_factory(batch_size // get_process_count())
+            dl = dl_factory(batch_size // get_process_count(), use_distributed=False)
         elif callable(dataloader):
-            dl = dataloader(batch_size // get_process_count())
+            dl = dataloader(batch_size // get_process_count(), use_distributed=False)
         else:
             raise TypeError(
                 f"Expected dataloader to be a string or a callable, got {type(dataloader)}"
@@ -938,16 +940,12 @@ class Engine:
         torch.cuda.empty_cache()
         gc.collect()
 
-        # Find the size of the dataset *before* preparation to correctly map each output
-        batch_total = get_total_batchsize(dataloader, self.xlr.device)
+        # Find the size of the dataset
+        batch_total, batch_offsets = get_total_batchsize(dataloader, self.xlr.device)
         samples_total = batch_total * batch_size
-
         _logger.debug(
-            f"Expecting {samples_total} samples in total across {batch_total} batches"
+            f"Expecting {samples_total} samples ({batch_total} batches, offsets {batch_offsets})"
         )
-
-        # Prepare data loader
-        dataloader = self.xlr.prepare_data_loader(dataloader)
 
         # Prepare model
         if weights is not None:
@@ -977,16 +975,24 @@ class Engine:
             results_path.mkdir(parents=True, exist_ok=True)
         else:
             results_remove_on_exit = False
-        results_mem = MemmapTensordictWriter(str(results_path), samples_total)
+
+        results_mem = MemmapTensordictWriter(
+            str(results_path),
+            samples_total,
+            write_offset=batch_offsets[get_process_index()] * batch_size,
+        )
+
+        print(f"writing results to {results_mem}")
 
         self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
         try:
             # Prediction
             _logger.info(f"Running inference loop on {get_process_count()} processes.")
             samples_processed = 0
-            # write_index = batch_offsets[get_process_index()] * batch_size
             timings = ProfileAccumulator()
             for inputs in dataloader:
+                with profile(timings, "copy"):
+                    inputs = inputs.to(self.xlr.device, non_blocking=True)
                 with profile(timings, "model"):
                     outputs = self.run_inference_step(model, inputs)
                 with profile(timings, "update"):
@@ -1015,14 +1021,23 @@ class Engine:
                         outputs=outputs,
                     )
 
-            _logger.info(
-                "Finished inference, profiling report on process %d/%d:\n%s",
-                get_process_index() + 1,
-                get_process_count(),
-                timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
+            barrier("wait for inference loop")
+
+            print(
+                "Profiling report on process {}/{}:\n{}".format(
+                    get_process_index() + 1,
+                    get_process_count(),
+                    timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
+                )
             )
+
+            # Flush results memory
             results_mem.flush()
-            self.xlr.wait_for_everyone()
+            barrier("wait for results memory flush")  # Wait for all writes to finish
+
+            print(f"results_mem: {results_mem}")
+            print("\n\n")
+
             self._edge(
                 Event.ON_INFERENCE_END,
                 timings=timings,

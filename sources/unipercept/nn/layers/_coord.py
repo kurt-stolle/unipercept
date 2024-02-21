@@ -5,6 +5,7 @@ from __future__ import annotations
 import typing as T
 
 import torch
+import torch.fx
 import torch.nn as nn
 from torch import Tensor
 from typing_extensions import override
@@ -30,17 +31,19 @@ class CoordCat2d(nn.Module):
     @override
     def forward(self, t: Tensor) -> Tensor:
         # Split the tensor into groups
-        split_size: int = int(t.size(1)) // self.groups
+        split_size: int = _get_split_size(t, self.groups)
         t_split = t.split(split_size, dim=1)
 
         # Add the grid to each group
         grid_x, grid_y = _make_grid(self.gamma, t.shape, t.device)
+
         t_split = [torch.cat([t_n, grid_x, grid_y], dim=1) for t_n in t_split]
 
         # Concatenate the groups back together
         return torch.cat(t_split, dim=1)
 
 
+@torch.fx.wrap
 @torch.no_grad()
 def _make_grid(
     gamma: float, shape: torch.Size, device: torch.device
@@ -53,3 +56,8 @@ def _make_grid(
     grid_y = grid_y.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
 
     return grid_x, grid_y
+
+
+@torch.fx.wrap
+def _get_split_size(t: Tensor, groups: int) -> int:
+    return int(t.size(1)) // groups

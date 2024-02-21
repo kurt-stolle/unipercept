@@ -11,6 +11,8 @@ import typing as T
 
 import accelerate.utils
 import torch
+import torch.types
+import torch.utils.data
 from tensordict import TensorDict, TensorDictBase
 
 __all__ = []
@@ -39,31 +41,11 @@ def get_interactive():
 ##################################
 
 
-@T.overload
 def get_total_batchsize(
     dataloader: torch.utils.data.DataLoader,
     device: torch.types.Device,
-    return_offsets: T.Literal[False] = False,
-) -> int:
-    ...
-
-
-@T.overload
-def get_total_batchsize(
-    dataloader: torch.utils.data.DataLoader,
-    device: torch.types.Device,
-    return_offsets: T.Literal[True],
 ) -> tuple[int, list[int]]:
-    ...
-
-
-def get_total_batchsize(
-    dataloader: torch.utils.data.DataLoader,
-    device: torch.types.Device,
-    return_offsets: bool = False,
-) -> int | tuple[int, list[int]]:
     a = len(dataloader)
-
     # Gather the size of dataloaders across all processes
     a_dist = torch.tensor([a], dtype=torch.int64, device=device)
     a_dist = gather(a_dist)
@@ -71,12 +53,9 @@ def get_total_batchsize(
     # Compute total amount of samples
     a_total = int(a_dist.sum().item())
 
-    if return_offsets:
-        a_off: list[int] = a_dist.cumsum(0).tolist()
-        a_off = [0] + a_off[:-1]
-        return a_total, a_off
-    else:
-        return a_total
+    a_off: list[int] = a_dist.cumsum(0).tolist()
+    a_off = [0] + a_off[:-1]
+    return a_total, a_off
 
 
 ##############################
@@ -104,7 +83,9 @@ def check_debug_enabled():
     return _state_backend.debug
 
 
-def barrier():
+def barrier(msg: str | None = None):
+    if msg is not None:
+        print(f"\nBarrier: {msg} (process {get_process_index()})\n")
     return _state_backend.wait_for_everyone()
 
 

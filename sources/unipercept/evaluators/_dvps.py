@@ -30,6 +30,7 @@ from unipercept.evaluators._panoptic import (
     _preprocess_mask,
 )
 from unipercept.log import get_logger
+from unipercept.state import check_main_process
 
 FRAME_ID = "frame_id"
 SEQUENCE_ID = "sequence_id"
@@ -218,7 +219,11 @@ class DVPSEvaluator(DVPSWriter):
         n_iter = range(sample_amt)
         if self.show_progress:
             n_iter = tqdm(
-                n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt
+                n_iter,
+                desc="accumulating pqs",
+                dynamic_ncols=True,
+                total=sample_amt,
+                disable=not check_main_process(local=True),
             )
 
         for i in range(len(indices)):

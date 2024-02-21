@@ -7,8 +7,10 @@ import dataclasses
 import dataclasses as D
 import enum
 import functools
+import itertools
 import math
 import multiprocessing as M
+import operator
 import os
 import typing as T
 import warnings
@@ -29,11 +31,10 @@ from typing_extensions import override
 from unipercept.config import get_env
 from unipercept.data.ops import Op, apply_dataset
 from unipercept.log import get_logger
-from unipercept.state import get_process_count, get_process_index
+from unipercept.state import cpus_available, get_process_count, get_process_index
 
 if T.TYPE_CHECKING:
-    from unipercept.data.sets import PerceptionDataset
-
+    from unipercept.data.sets import PerceptionDataqueue, PerceptionDataset
 
 __all__ = [
     "DataLoaderConfig",
@@ -52,7 +53,7 @@ def _suggest_workers():
     Suggests the number of workers for the dataloader based on the number of available CPUs
     """
     try:
-        return len(os.sched_getaffinity(0))
+        return max(cpus_available() - (cpus_available() // 4), 1)
     except Exception:
         return M.cpu_count() // get_process_count()
 
@@ -126,7 +127,9 @@ class DataLoaderFactory:
         },
     )
 
-    def __call__(self, batch_size: int | None = None, /) -> DataLoader:
+    def __call__(
+        self, batch_size: int | None = None, /, use_distributed: bool = True
+    ) -> DataLoader:
         from unipercept.data import SamplerFactory
         from unipercept.data.sets import PerceptionDataset
         from unipercept.model import InputData
@@ -144,9 +147,13 @@ class DataLoaderFactory:
         }
 
         # Instantiate sampler
-        queue_size = len(self.dataset.queue)
-        sampler = self.sampler(queue_size)
 
+        sampler_kwargs = {}
+        if not use_distributed:
+            sampler_kwargs["process_count"] = 1
+            sampler_kwargs["process_index"] = 0
+
+        sampler = self.sampler(self.dataset.queue)
         # Transform items in pipe
         datapipe = self.dataset.datapipe
         datapipe = apply_dataset(datapipe, self.actions)
@@ -185,7 +192,7 @@ class DataLoaderFactory:
 
         _logger.debug(
             "Creating dataloader (%d queued; %d × %d items):\n%s",
-            queue_size,
+            len(self.dataset.queue),
             len(interface),
             batch_size,
             tabulate(loader_kwargs.items(), tablefmt="simple"),
@@ -354,8 +361,10 @@ class ProcessInfo:
 # Sampler Types #
 #################
 
+_I = T.TypeVar("_I", covariant=True)
 
-class BaseSampler(Sampler, metaclass=abc.ABCMeta):
+
+class BaseSampler(Sampler[_I], T.Generic[_I], metaclass=abc.ABCMeta):
     @staticmethod
     def get_dist_info(dist_num: int | None, dist_idx: int | None) -> ProcessInfo:
         """
@@ -406,19 +415,18 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
 
     def __init__(
         self,
-        queue_size: int,
+        queue: PerceptionDataqueue,
         *,
         process_index: int | None = None,
         process_count: int | None = None,
         epoch=0,
     ):
-        assert queue_size > 0, f"Queue size must be positive, but got {queue_size=}."
         assert epoch >= 0, f"Epoch must be non-negative, but got {epoch=}."
 
         info = self.get_dist_info(process_index, process_count)
 
         self._process_count, self._process_index = info.count, info.index
-        self._queue_size = queue_size
+        self._queue_size = len(queue)
         self._epoch = epoch
 
         _logger.debug(
@@ -448,7 +456,7 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def indices(self) -> T.Iterator[int]:
+    def indices(self) -> T.Iterator[_I]:
         ...
 
     @property
@@ -473,7 +481,7 @@ class BaseSampler(Sampler, metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
-class TrainingSampler(BaseSampler):
+class TrainingSampler(BaseSampler[int]):
     def __init__(
         self,
         *args,
@@ -553,7 +561,7 @@ class TrainingSampler(BaseSampler):
         return min(self.sample_count, self._selected_count)
 
 
-class InferenceSampler(BaseSampler):
+class InferenceSampler(BaseSampler[str]):
     """
     Produce indices for inference across all workers.
     Inference needs to run on the __exact__ set of samples,
@@ -572,19 +580,43 @@ class InferenceSampler(BaseSampler):
 
         return list(range(i_start, i_end))
 
-    def __init__(self, *args, **kwargs):
-        """
-        Args:
-            size (int): the total number of data of the underlying dataset to sample from
-        """
+    def __init__(self, queue: PerceptionDataqueue, *args, **kwargs):
         if "epoch" in kwargs:
             warnings.warn("Epoch argument is ignored in InferenceSampler.", UserWarning)
             del kwargs["epoch"]
-        super().__init__(*args, **kwargs)
+        super().__init__(queue, *args, **kwargs)
 
-        self._indices = self.create_indices(
-            self.queue_size, self.process_count, self.process_index
+        # We need to make sure that all samples that belong to the same sequence
+        # are proceesed  by the same distributed process. Therefore, we need to first
+        # first create groups of samples.
+
+        # Group by sequence
+        sequence_keys = {}
+        for key, item in iter(queue):
+            assert isinstance(key, str), f"Expected key to be a string, but got {key=}."
+            sequence_keys.setdefault(item["sequence"], []).append(
+                (key, float(item["frame"]))
+            )
+
+        # Sort by frame
+        for k in sequence_keys:
+            sequence_keys[k] = sorted(sequence_keys[k], key=lambda x: x[1])
+
+        # Create indices for each process, where each index points to a sequence id
+        key_indices = self.create_indices(
+            len(sequence_keys), self.process_count, self.process_index
         )
+
+        # Map each tuple (key, frame_num) to (key), then store the flattened list of keys
+        self._indices = list(
+            itertools.chain(
+                *[map(operator.itemgetter(0), sequence_keys[k]) for k in key_indices]
+            )
+        )
+        print(f"Indices (keys) for process {self.process_index}: {list(self._indices)}")
+        if not all(isinstance(i, str) for i in self._indices):
+            msg = f"Expected all indices to be strings! Got: {self._indices}"
+            raise RuntimeError(msg)
 
     @property
     @override
@@ -593,7 +625,7 @@ class InferenceSampler(BaseSampler):
 
     @property
     @override
-    def indices(self):
+    def indices(self) -> T.Iterable[str]:
         yield from iter(self._indices)
 
     @property
@@ -651,8 +683,8 @@ class SamplerFactory:
 
         self._fn = functools.partial(init_fn, **kwargs)
 
-    def __call__(self, size: int) -> Sampler:
-        return self._fn(size)
+    def __call__(self, queue: PerceptionDataqueue) -> Sampler:
+        return self._fn(queue)
 
 
 if __name__ == "__main__":

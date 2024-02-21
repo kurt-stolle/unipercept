@@ -88,6 +88,12 @@ def get_info() -> up.data.sets.Metadata:
 # -------------------- #
 # Dataset and variants #
 # -------------------- #
+
+
+DEPTH_FORMAT = "tiff"
+PANOPTIC_FORMAT = "safetensors"
+
+
 class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
     """
     Pascal VOC w/ panoptic segmentation.
@@ -114,33 +120,32 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
         src_seg: list[str] = dataset.targets
         src_pan = [
             t.replace("SegmentationClass", "SegmentationPanoptic").replace(
-                dataset._TARGET_FILE_EXT, ".pth"
+                dataset._TARGET_FILE_EXT, f".{PANOPTIC_FORMAT}"
             )
             for t in src_seg
         ]
         src_dep: list[str] = [
             t.replace("SegmentationClass", "Depth").replace(
-                dataset._TARGET_FILE_EXT, ".pth"
+                dataset._TARGET_FILE_EXT, f".{DEPTH_FORMAT}"
             )
             for t in src_seg
         ]
         del dataset
 
-        pseudo_gen = PseudoGenerator()
+        with PseudoGenerator() as pseudo_gen:
+            for i in tqdm(range(len(src_img)), desc="Building (pseudo) labels"):
+                pan_path = file_io.Path(src_pan[i])
+                if not pan_path.is_file():
+                    seg_path = Path(src_seg[i])
+                    ins_path = Path(
+                        src_seg[i].replace("SegmentationClass", "SegmentationObject")
+                    )
+                    pseudo_gen.add_panoptic_merge_task(seg_path, ins_path, pan_path)
 
-        for i in tqdm(range(len(src_img)), desc="Building (pseudo) labels"):
-            pan_path = file_io.Path(src_pan[i])
-            if not pan_path.is_file():
-                seg_path = Path(src_seg[i])
-                ins_path = Path(
-                    src_seg[i].replace("SegmentationClass", "SegmentationObject")
-                )
-                pseudo_gen.add_panoptic_merge((seg_path, ins_path), pan_path)
-
-            img_path = file_io.Path(src_img[i])
-            dep_path = file_io.Path(src_dep[i])
-            if not dep_path.is_file():
-                pseudo_gen.add_depth_generator_task(img_path, dep_path)
+                img_path = file_io.Path(src_img[i])
+                dep_path = file_io.Path(src_dep[i])
+                if not dep_path.is_file():
+                    pseudo_gen.add_depth_generator_task(img_path, dep_path)
 
         return list(zip(src_img, src_pan, src_dep))
 
@@ -161,13 +166,13 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
                         "panoptic": {
                             "path": str(pan_path),
                             "meta": {
-                                "format": "torch",
+                                "format": PANOPTIC_FORMAT,
                             },
                         },
                         "depth": {
                             "path": str(dep_path),
                             "meta": {
-                                "format": "torch",
+                                "format": DEPTH_FORMAT,
                             },
                         },
                     },

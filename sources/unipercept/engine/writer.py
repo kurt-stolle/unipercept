@@ -75,7 +75,7 @@ class MemmapTensordictWriter(ResultsWriter):
     - TensorDict documentation: https://pytorch.org/tensordict/saving.html
     """
 
-    def __init__(self, path: str, size: int):
+    def __init__(self, path: str, size: int, write_offset: int):
         """
         Parameters
         ----------
@@ -91,7 +91,11 @@ class MemmapTensordictWriter(ResultsWriter):
         self._futures = []
 
         self._td: TensorDict | None = None
-        self._td_cursor = 0
+        self._td_cursor = write_offset
+
+    @TX.override
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(path={self._path!r}, size={len(self)}, cursor={self._td_cursor})"
 
     @functools.cached_property
     def path(self) -> file_io.Path:
@@ -102,25 +106,6 @@ class MemmapTensordictWriter(ResultsWriter):
     def __len__(self) -> int:
         return self._size
 
-    @on_main_process()
-    def _append(self, data: TensorDictBase) -> None:
-        for batched_item in data.cpu():
-            batched_item._memmap_(
-                prefix=self.path / str(self._td_cursor),
-                inplace=True,
-                like=False,
-                futures=self._futures,
-                executor=self._pool,
-                copy_existing=False,
-            )
-
-            self._td_cursor += 1
-
-    @on_main_process()
-    def _write(self):
-        _logger.debug("Waiting for all tasks to finish writing")
-        concurrent.futures.wait(self._futures)
-
     @TX.override
     def flush(self):
         """
@@ -128,11 +113,8 @@ class MemmapTensordictWriter(ResultsWriter):
         """
         if self._is_closed:
             raise RuntimeError(f"{self.__class__.__name__} is closed")
-
-        with main_process_first():
-            self._write()
+        concurrent.futures.wait(self._futures)
         self.close()
-        barrier()
 
     @TX.override
     def add(self, data: TensorDictBase):
@@ -151,11 +133,22 @@ class MemmapTensordictWriter(ResultsWriter):
             data.batch_dims == 1
         ), f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
 
-        data = gather_tensordict(data)
-        self._append(data)
+        for batched_item in data.cpu():
+            batched_item._memmap_(
+                prefix=self.path / str(self._td_cursor),
+                inplace=True,
+                like=False,
+                futures=self._futures,
+                executor=self._pool,
+                copy_existing=False,
+            )
+
+            self._td_cursor += 1
 
     @TX.override
     def close(self):
+        if self._is_closed:
+            return
         self._is_closed = True
         self._pool.shutdown(wait=True)
 
@@ -166,6 +159,9 @@ class MemmapTensordictWriter(ResultsWriter):
             raise RuntimeError("ResultsWriter is not closed")
         if self._td is None:
             self._td = LazyStackedTensorDict._load_memmap(self.path, {"stack_dim": 0})
+            assert self._td.batch_size[0] == len(
+                self
+            ), f"Expected batch size {len(self)}, got {self._td.batch_size[0]}"
         return self._td
 
 

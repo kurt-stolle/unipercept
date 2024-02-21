@@ -5,8 +5,11 @@ Based on the Torchmetrics implementation of the Panoptic Quality metric.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses as D
 import enum as E
+import functools
+import multiprocessing as M
 import typing as T
 
 import pandas as pd
@@ -21,6 +24,7 @@ from unipercept.data.tensors import PanopticMap
 from unipercept.evaluators import helpers as H
 from unipercept.evaluators._base import Evaluator, PlotMode
 from unipercept.log import get_logger
+from unipercept.state import check_main_process, cpus_available
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
@@ -182,7 +186,7 @@ class PanopticEvaluator(PanopticWriter):
         Calculate stat scores required to compute the metric for a full batch.
         """
         void_color = _get_void_color(self.object_ids, self.background_ids)
-        # device = torch.device("cpu")  # using multiprocessing
+        device = torch.device("cpu")  # using multiprocessing
 
         num_categories = len(self.object_ids) + len(self.background_ids)
         iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
@@ -192,52 +196,47 @@ class PanopticEvaluator(PanopticWriter):
 
         # Loop over each sample independently: segments must not be matched across frames.
         sample_amt = storage.batch_size[0]
-        # worker_amt = min(multiprocessing.cpu_count(), 16)
+        worker_amt = max(cpus_available() - (cpus_available() // 4), 1)
         assert (
             sample_amt > 0
         ), f"Batch size must be greater than zero, got {sample_amt=}"
 
-        n_iter = range(sample_amt)
-        if self.show_progress:
-            n_iter = tqdm(
-                n_iter, desc="accumulating pqs", dynamic_ncols=True, total=sample_amt
-            )
+        _logger.debug("Computing per-sample PQ metrics")
 
-        for n in n_iter:
-            valid = storage.get_at(VALID_PANOPTIC, n).item()
-            if not valid:
-                continue
-            pred = storage.get_at(PRED_PANOPTIC, n).clone().to(device=device)
-            true = storage.get_at(TRUE_PANOPTIC, n).clone().to(device=device)
+        progress_bar = tqdm(
+            desc="PQ",
+            dynamic_ncols=True,
+            total=sample_amt,
+            disable=not check_main_process(local=True) or not self.show_progress,
+        )
 
-            pred = _preprocess_mask(
-                self.object_ids,
-                self.background_ids,
-                pred,
-                void_color=void_color,
-                allow_unknown_category=allow_unknown_category,
-            )
-            true = _preprocess_mask(
-                self.object_ids,
-                self.background_ids,
-                true,
-                void_color=void_color,
-                allow_unknown_category=True,
-            )
-            result = _panoptic_quality_update_sample(
-                pred,
-                true,
-                void_color=void_color,
-                background_ids=self.background_ids
-                if not allow_stuff_instances
-                else None,
-                num_categories=num_categories,
-            )
+        compute_at = functools.partial(
+            _compute_at,
+            storage=storage,
+            object_ids=self.object_ids,
+            background_ids=self.background_ids,
+            device=device,
+            allow_unknown_category=allow_unknown_category,
+            void_color=void_color,
+            allow_stuff_instances=allow_stuff_instances,
+            num_categories=num_categories,
+        )
 
-            iou += result[0]
-            tp += result[1]
-            fp += result[2]
-            fn += result[3]
+        mp_context = M.get_context("spawn")
+        with concurrent.futures.ProcessPoolExecutor(
+            worker_amt, mp_context=mp_context
+        ) as pool:
+            for result in pool.map(compute_at, range(sample_amt)):
+                if progress_bar is not None:
+                    progress_bar.update(1)
+                if result is None:
+                    continue
+                iou += result[0]
+                tp += result[1]
+                fp += result[2]
+                fn += result[3]
+
+        progress_bar.close()
 
         _logger.debug("Accumulating PQ-related metrics")
 
@@ -272,15 +271,26 @@ class PanopticEvaluator(PanopticWriter):
             ("stuff", tn_mask & st_mask),
         ]:
             n_masked = n_valid[mask].sum().item()
-            summary[name] = {
-                "PQ": pq[mask].mean().item(),
-                "SQ": rq[mask].mean().item(),
-                "RQ": fp[mask].mean().item(),
-                "IoU": iou[mask].mean().item(),
-                "TP": tp[mask].sum().item() / n_masked,
-                "FP": fp[mask].sum().item() / n_masked,
-                "FN": fn[mask].sum().item() / n_masked,
-            }
+            if n_masked == 0:
+                summary[name] = {
+                    "PQ": 1.0,
+                    "SQ": 1.0,
+                    "RQ": 1.0,
+                    "IoU": 0.0,
+                    "TP": 0.0,
+                    "FP": 0.0,
+                    "FN": 0.0,
+                }
+            else:
+                summary[name] = {
+                    "PQ": pq[mask].mean().item(),
+                    "SQ": rq[mask].mean().item(),
+                    "RQ": fp[mask].mean().item(),
+                    "IoU": iou[mask].mean().item(),
+                    "TP": tp[mask].sum().item() / n_masked,
+                    "FP": fp[mask].sum().item() / n_masked,
+                    "FN": fn[mask].sum().item() / n_masked,
+                }
         summary_df = self._tabulate(summary)
         if self.show_summary:
             self._show_table(
@@ -300,15 +310,26 @@ class PanopticEvaluator(PanopticWriter):
                 name = f"unknown({i})"
 
             n_masked = n_valid[i].sum().item()
-            details[name] = {
-                "PQ": pq[i].mean().item(),
-                "SQ": rq[i].mean().item(),
-                "RQ": fp[i].mean().item(),
-                "IoU": iou[i].mean().item(),
-                "TP": tp[i].sum().item() / n_masked,
-                "FP": fp[i].sum().item() / n_masked,
-                "FN": fn[i].sum().item() / n_masked,
-            }
+            if n_masked == 0:
+                details[name] = {
+                    "PQ": 1.0,
+                    "SQ": 1.0,
+                    "RQ": 1.0,
+                    "IoU": 0.0,
+                    "TP": 0.0,
+                    "FP": 0.0,
+                    "FN": 0.0,
+                }
+            else:
+                details[name] = {
+                    "PQ": pq[i].mean().item(),
+                    "SQ": rq[i].mean().item(),
+                    "RQ": fp[i].mean().item(),
+                    "IoU": iou[i].mean().item(),
+                    "TP": tp[i].sum().item() / n_masked,
+                    "FP": fp[i].sum().item() / n_masked,
+                    "FN": fn[i].sum().item() / n_masked,
+                }
         details_df = self._tabulate(details)
         if self.show_details:
             self._show_table(
@@ -342,6 +363,60 @@ class PanopticEvaluator(PanopticWriter):
         )
 
         return df
+
+
+def _get_on_device(storage, key, n, device):
+    return storage.get_at(key, n).to(device=device, non_blocking=True)
+
+
+def _compute_at(
+    n,
+    *,
+    storage,
+    object_ids,
+    background_ids,
+    device,
+    allow_unknown_category,
+    void_color,
+    allow_stuff_instances,
+    num_categories,
+):
+    valid = storage.get_at(VALID_PANOPTIC, n).item()
+    if not valid:
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(2) as pool:
+        pred_future = pool.submit(_get_on_device, storage, PRED_PANOPTIC, n, device)
+        true_future = pool.submit(_get_on_device, storage, TRUE_PANOPTIC, n, device)
+
+        pred = pred_future.result()
+        true = true_future.result()
+    # pred = storage.get_at(PRED_PANOPTIC, n).to(device=device, non_blocking=True)
+    # true = storage.get_at(TRUE_PANOPTIC, n).to(device=device, non_blocking=True)
+
+    pred = _preprocess_mask(
+        object_ids,
+        background_ids,
+        pred,
+        void_color=void_color,
+        allow_unknown_category=allow_unknown_category,
+    )
+    true = _preprocess_mask(
+        object_ids,
+        background_ids,
+        true,
+        void_color=void_color,
+        allow_unknown_category=True,
+    )
+    result = _panoptic_quality_update_sample(
+        pred,
+        true,
+        void_color=void_color,
+        background_ids=background_ids if not allow_stuff_instances else None,
+        num_categories=num_categories,
+    )
+
+    return result
 
 
 def _nested_tuple(nested_list: list) -> tuple:

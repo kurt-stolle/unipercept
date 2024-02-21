@@ -603,14 +603,15 @@ class InferenceSampler(BaseSampler[str]):
             sequence_keys[k] = sorted(sequence_keys[k], key=lambda x: x[1])
 
         # Create indices for each process, where each index points to a sequence id
-        key_indices = self.create_indices(
-            len(sequence_keys), self.process_count, self.process_index
-        )
+        keys_list = [list(map(operator.itemgetter(0), ks)) for ks in sequence_keys.values()]
+        key_indices = set(self.create_indices(
+            len(keys_list), self.process_count, self.process_index
+        ))
 
         # Map each tuple (key, frame_num) to (key), then store the flattened list of keys
         self._indices = list(
             itertools.chain(
-                *[map(operator.itemgetter(0), sequence_keys[k]) for k in key_indices]
+                *[keys_list[k] for k in key_indices]
             )
         )
         print(f"Indices (keys) for process {self.process_index}: {list(self._indices)}")

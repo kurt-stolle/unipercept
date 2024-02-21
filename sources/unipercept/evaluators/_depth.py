@@ -125,6 +125,7 @@ _KEY_VALID_PX = "valid"
 @D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
     show_progress: bool = True
+    parallel: bool = False
 
     @classmethod
     @override
@@ -138,7 +139,6 @@ class DepthEvaluator(DepthWriter):
         # TODO
         device = torch.device("cpu")
         num_samples = storage.batch_size[0]
-        worker_amt = max(cpus_available() - (cpus_available() // 4), 1)
         assert num_samples > 0
 
         progress_bar = tqdm(
@@ -147,13 +147,22 @@ class DepthEvaluator(DepthWriter):
             disable=not check_main_process(local=True) or not self.show_progress,
         )
 
-        compute_at = functools.partial(_compute_at, storage=storage)
+        compute_at = functools.partial(_compute_at, storage=storage, device=device)
         metrics_list: list[DepthMetrics] = []
-        mp_context = M.get_context("spawn")
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=worker_amt, mp_context=mp_context
-        ) as pool:
-            for metrics_sample in pool.map(compute_at, range(num_samples)):
+
+        if self.parallel:
+            worker_amt = 8 # cpus_available() // 2
+            mp_context = M.get_context("spawn") #  if device.type != "cpu" else None
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=worker_amt, mp_context=mp_context
+            ) as pool:
+                for metrics_sample in pool.map(compute_at, range(num_samples)):
+                    if metrics_sample is not None:
+                        metrics_list.append(metrics_sample)
+                    progress_bar.update(1)
+        else:
+            for n in range(num_samples):
+                metrics_sample = compute_at(n)
                 if metrics_sample is not None:
                     metrics_list.append(metrics_sample)
                 progress_bar.update(1)
@@ -193,7 +202,7 @@ class DepthEvaluator(DepthWriter):
         return metrics
 
 
-def _compute_at(n, *, storage):
+def _compute_at(n, *, storage, device):
     valid = storage.get_at(VALID_DEPTH, n).item()
     if not valid:
         return None

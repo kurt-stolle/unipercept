@@ -140,6 +140,7 @@ class PanopticEvaluator(PanopticWriter):
     show_summary: bool = True
     show_details: bool = False
     report_details: bool = False
+    parallel: bool = False
 
     pq_definition: PQDefinition = PQDefinition.ORIGINAL
 
@@ -196,7 +197,6 @@ class PanopticEvaluator(PanopticWriter):
 
         # Loop over each sample independently: segments must not be matched across frames.
         sample_amt = storage.batch_size[0]
-        worker_amt = max(cpus_available() - (cpus_available() // 4), 1)
         assert (
             sample_amt > 0
         ), f"Batch size must be greater than zero, got {sample_amt=}"
@@ -222,11 +222,24 @@ class PanopticEvaluator(PanopticWriter):
             num_categories=num_categories,
         )
 
-        mp_context = M.get_context("spawn")
-        with concurrent.futures.ProcessPoolExecutor(
-            worker_amt, mp_context=mp_context
-        ) as pool:
-            for result in pool.map(compute_at, range(sample_amt)):
+        if self.parallel:
+            worker_amt = 8 #cpus_available() // 2
+            mp_context = M.get_context("spawn") #if device.type != "cpu" else None
+            with concurrent.futures.ProcessPoolExecutor(
+                worker_amt, mp_context=mp_context
+            ) as pool:
+                for result in pool.map(compute_at, range(sample_amt)):
+                    if progress_bar is not None:
+                        progress_bar.update(1)
+                    if result is None:
+                        continue
+                    iou += result[0]
+                    tp += result[1]
+                    fp += result[2]
+                    fn += result[3]
+        else:
+            for n in range(sample_amt):
+                result = compute_at(n)
                 if progress_bar is not None:
                     progress_bar.update(1)
                 if result is None:
@@ -550,7 +563,7 @@ def _preprocess_mask(
     mask_things = H.isin(out[:, 0], list(things))
 
     if not allow_unknown_category and not torch.all(mask_things | mask_stuffs):
-        raise ValueError(f"Unknown categories found: {out[~(mask_things|mask_stuffs)]}")
+        raise ValueError(f"Unknown categories found: {out[~(mask_things|mask_stuffs)].unique().cpu().tolist()}")
 
     # Set unknown categories to void color
     out[~(mask_things | mask_stuffs)] = out.new(void_color)

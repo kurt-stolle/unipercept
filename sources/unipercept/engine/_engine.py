@@ -314,6 +314,24 @@ class Engine:
 
         return None
 
+    def run_training_procedure(
+        self, model_factory, start_stage: int, *, weights: str | None = None
+    ):
+        """
+        Run the training procedure for a specific stage. This method is called by the `train` method.
+        """
+
+        _logger.info(
+            "Starting training procedure:\n%s",
+            tabulate([("starting stage", start_stage), ("initial weights", weights)], tablefmt="simple"),
+        )
+
+        weights = weights
+        for n in range(start_stage, len(self._stages)):
+            weights = self.run_training(model_factory, stage=n, weights=weights)
+
+        _logger.info("Training completed for all stages: %s", tabulate([("final weights", weights)], tablefmt="simple"))
+
     @status(EngineStatus.IS_TRAINING_RUN)
     def run_training(
         self,
@@ -322,7 +340,7 @@ class Engine:
         trial: Trial | None = None,
         stage: int | EngineStage | None = None,
         weights: str | None = None,
-    ) -> nn.Module:
+    ) -> str:
         """
         Train a model.
 
@@ -341,6 +359,10 @@ class Engine:
         weights
             Path to a checkpoint to load **model** weights from.
         """
+
+        gc.collect()
+        torch.cuda.empty_cache()
+        time.sleep(1.0)
 
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("train")
@@ -453,14 +475,7 @@ class Engine:
         # Save final model weights
         last_weights = self._save_weights(None, result)
 
-        if len(self._stages) > stage_num + 1:
-            _logger.info("Training completed. Moving to next stage.")
-
-            self._state.stage += 1
-            return self.run_training(model_factory, trial=trial, weights=last_weights)
-        else:
-            _logger.info("Training completed. No more stages to run.")
-            return result
+        return last_weights
 
     @status(EngineStatus.IS_EVALUATION_RUN)
     @torch.no_grad()
@@ -1113,9 +1128,6 @@ class Engine:
         -----
         This should be called at the beginning of training  and inference.
         """
-
-        from unipercept.integrations import wandb_integration
-
         if self.dry_run:
             _logger.info("Skipping experiment trackers (dry run)")
             return
@@ -1171,6 +1183,22 @@ class Engine:
             session_id=self.session_id,
         )
         self.xlr.wait_for_everyone()
+
+    def _stop_experiment_trackers(self) -> None:
+        """
+        Stop the experiment trackers. Run has been finished and cannot be logged to
+        anymore.
+        """
+        if self.dry_run:
+            _logger.info("Skipping stopping experiment trackers (dry run)")
+            return
+
+        if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status:
+            _logger.info("Stopping experiment trackers")
+            for tracker in self.xlr.trackers:
+                tracker.finish()
+            self.xlr.trackers.clear()
+            self.status &= ~EngineStatus.EXPERIMENT_TRACKERS_STARTED
 
     def _train_handle_signals(
         self,

@@ -125,10 +125,8 @@ def _main(args):
                 "Evaluation results: \n%s", up.log.create_table(results, format="long")
             )
         else:
-            engine.run_training(
-                model_factory,
-                trial=None,
-                stage=args.stage if args.stage >= 0 else None,
+            results = engine.run_training_procedure(
+                model_factory, max(args.stage, 0), weights=args.weights or None
             )
     except KeyboardInterrupt:
         output_path = up.file_io.Path("//output/").resolve()

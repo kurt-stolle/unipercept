@@ -224,11 +224,11 @@ class PanopticEvaluator(PanopticWriter):
             total=sample_amt,
             disable=not check_main_process(local=True) or not self.show_progress,
         )
-        mp_context = M.get_context("spawn" if device.type != "cpu" else None)
-        with concurrent.futures.ProcessPoolExecutor(
-            min(cpus_available(), M.cpu_count() // 2, 32), mp_context=mp_context
-        ) as pool:
-            # with concurrent.futures.ThreadPoolExecutor() as pool:
+        #mp_context = M.get_context("spawn" if device.type != "cpu" else None)
+        #with concurrent.futures.ProcessPoolExecutor(
+        #    min(cpus_available(), M.cpu_count() // 2, 32), mp_context=mp_context
+        #) as pool:
+        with concurrent.futures.ThreadPoolExecutor() as pool:
             for result in pool.map(compute_at, range(sample_amt)):
                 progress_bar.update(1)
                 if result is None:

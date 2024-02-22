@@ -6,10 +6,10 @@ from __future__ import annotations
 import concurrent.futures
 import dataclasses as D
 import functools
-import multiprocessing as M
 import typing as T
 
 import torch
+import torch.multiprocessing as M
 import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
@@ -125,7 +125,6 @@ _KEY_VALID_PX = "valid"
 @D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
     show_progress: bool = True
-    parallel: bool = False
 
     @classmethod
     @override
@@ -133,43 +132,28 @@ class DepthEvaluator(DepthWriter):
         return super().from_metadata(name, **kwargs)
 
     @override
-    def compute(
-        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
-    ) -> dict[str, int | float | str | bool]:
+    def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs):
         # TODO
         device = torch.device("cpu")
         num_samples = storage.batch_size[0]
         assert num_samples > 0
-
+        compute_at = functools.partial(_compute_at, storage=storage, device=device)
+        metrics_list: list[DepthMetrics] = []
         progress_bar = tqdm(
             total=num_samples,
             desc="Computing depth metrics",
             disable=not check_main_process(local=True) or not self.show_progress,
         )
-
-        compute_at = functools.partial(_compute_at, storage=storage, device=device)
-        metrics_list: list[DepthMetrics] = []
-
-        if self.parallel:
-            worker_amt = 8 # cpus_available() // 2
-            mp_context = M.get_context("spawn") #  if device.type != "cpu" else None
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=worker_amt, mp_context=mp_context
-            ) as pool:
-                for metrics_sample in pool.map(compute_at, range(num_samples)):
-                    if metrics_sample is not None:
-                        metrics_list.append(metrics_sample)
-                    progress_bar.update(1)
-        else:
-            for n in range(num_samples):
-                metrics_sample = compute_at(n)
-                if metrics_sample is not None:
-                    metrics_list.append(metrics_sample)
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            for metrics_sample in pool.map(compute_at, range(num_samples)):
                 progress_bar.update(1)
+                if metrics_sample is None:
+                    continue
+                metrics_list.append(metrics_sample)
+        progress_bar.close()
 
         # Compute the final metrics as the average of the samples weighted by the amount of valid pixels at each entry
         metrics = {}
-
         for m in metrics_list:  # accumulate metrics
             valid_pixels = m[_KEY_VALID_PX]
             metrics[_KEY_VALID_PX] = metrics.get(_KEY_VALID_PX, 0) + valid_pixels

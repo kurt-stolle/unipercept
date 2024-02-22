@@ -15,6 +15,8 @@ import torch.types
 import torch.utils.data
 from tensordict import TensorDict, TensorDictBase
 
+from unipercept.log import get_logger
+
 __all__ = []
 
 
@@ -84,8 +86,6 @@ def check_debug_enabled():
 
 
 def barrier(msg: str | None = None):
-    if msg is not None:
-        print(f"\nBarrier: {msg} (process {get_process_index()})\n")
     return _state_backend.wait_for_everyone()
 
 

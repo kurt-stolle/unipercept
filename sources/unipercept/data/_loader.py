@@ -603,18 +603,16 @@ class InferenceSampler(BaseSampler[str]):
             sequence_keys[k] = sorted(sequence_keys[k], key=lambda x: x[1])
 
         # Create indices for each process, where each index points to a sequence id
-        keys_list = [list(map(operator.itemgetter(0), ks)) for ks in sequence_keys.values()]
-        key_indices = set(self.create_indices(
-            len(keys_list), self.process_count, self.process_index
-        ))
+        keys_list = [
+            list(map(operator.itemgetter(0), ks)) for ks in sequence_keys.values()
+        ]
+        key_indices = set(
+            self.create_indices(len(keys_list), self.process_count, self.process_index)
+        )
 
         # Map each tuple (key, frame_num) to (key), then store the flattened list of keys
-        self._indices = list(
-            itertools.chain(
-                *[keys_list[k] for k in key_indices]
-            )
-        )
-        print(f"Indices (keys) for process {self.process_index}: {list(self._indices)}")
+        self._indices = list(itertools.chain(*[keys_list[k] for k in key_indices]))
+        # print(f"Indices (keys) for process {self.process_index}: {list(self._indices)}")
         if not all(isinstance(i, str) for i in self._indices):
             msg = f"Expected all indices to be strings! Got: {self._indices}"
             raise RuntimeError(msg)

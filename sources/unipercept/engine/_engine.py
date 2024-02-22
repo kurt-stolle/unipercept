@@ -982,7 +982,7 @@ class Engine:
             write_offset=batch_offsets[get_process_index()] * batch_size,
         )
 
-        print(f"writing results to {results_mem}")
+        # print(f"writing results to {results_mem}")
 
         self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
         try:
@@ -1021,22 +1021,21 @@ class Engine:
                         outputs=outputs,
                     )
 
-            barrier("wait for inference loop")
-
-            print(
+            _logger.info(
                 "Profiling report on process {}/{}:\n{}".format(
                     get_process_index() + 1,
                     get_process_count(),
                     timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
                 )
             )
+            # Sleep for 1 second appears to help with memory consistency
+            time.sleep(1)
+            gc.collect()
+            torch.cuda.empty_cache()
 
             # Flush results memory
             results_mem.flush()
-            barrier("wait for results memory flush")  # Wait for all writes to finish
-
-            print(f"results_mem: {results_mem}")
-            print("\n\n")
+            barrier()
 
             self._edge(
                 Event.ON_INFERENCE_END,
@@ -1047,7 +1046,6 @@ class Engine:
 
             # Compute metrics
             metrics: dict[str, T.Any] = {}
-
             if self.xlr.is_main_process:
                 metrics.update(
                     _build_speed_metrics(
@@ -1068,7 +1066,7 @@ class Engine:
                     visuals.update(evaluator.plot(results_mem.tensordict))
                 self._store_visualizations(visuals, prefix=prefix)
 
-            self.xlr.wait_for_everyone()
+            barrier()
         finally:
             results_mem.close()
             if self.xlr.is_main_process and results_remove_on_exit:

@@ -9,11 +9,11 @@ import concurrent.futures
 import dataclasses as D
 import enum as E
 import functools
-import multiprocessing as M
 import typing as T
 
 import pandas as pd
 import torch
+import torch.multiprocessing as M
 import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
@@ -73,6 +73,7 @@ class PanopticWriter(Evaluator):
         super().update(storage, inputs, outputs)
 
         storage_keys = storage.keys(include_nested=True, leaves_only=True)
+        assert storage_keys is not None, "Storage keys are empty"
         if (
             TRUE_PANOPTIC in storage_keys
             and PRED_PANOPTIC in storage_keys
@@ -125,6 +126,16 @@ class PanopticWriter(Evaluator):
         return result
 
 
+class PQMetrics(T.NamedTuple):
+    pq: torch.Tensor
+    sq: torch.Tensor
+    rq: torch.Tensor
+    iou: torch.Tensor
+    tp: torch.Tensor
+    fp: torch.Tensor
+    fn: torch.Tensor
+
+
 class PQDefinition(E.IntEnum):
     ORIGINAL = E.auto()
     BALANCED = E.auto()
@@ -140,7 +151,6 @@ class PanopticEvaluator(PanopticWriter):
     show_summary: bool = True
     show_details: bool = False
     report_details: bool = False
-    parallel: bool = False
 
     pq_definition: PQDefinition = PQDefinition.ORIGINAL
 
@@ -188,28 +198,15 @@ class PanopticEvaluator(PanopticWriter):
         """
         void_color = _get_void_color(self.object_ids, self.background_ids)
         device = torch.device("cpu")  # using multiprocessing
-
         num_categories = len(self.object_ids) + len(self.background_ids)
         iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
         tp = torch.zeros(num_categories, dtype=torch.int, device=device)  # type: ignore
         fp = torch.zeros_like(iou)
         fn = torch.zeros_like(fp)
-
-        # Loop over each sample independently: segments must not be matched across frames.
         sample_amt = storage.batch_size[0]
         assert (
             sample_amt > 0
         ), f"Batch size must be greater than zero, got {sample_amt=}"
-
-        _logger.debug("Computing per-sample PQ metrics")
-
-        progress_bar = tqdm(
-            desc="PQ",
-            dynamic_ncols=True,
-            total=sample_amt,
-            disable=not check_main_process(local=True) or not self.show_progress,
-        )
-
         compute_at = functools.partial(
             _compute_at,
             storage=storage,
@@ -221,63 +218,75 @@ class PanopticEvaluator(PanopticWriter):
             allow_stuff_instances=allow_stuff_instances,
             num_categories=num_categories,
         )
-
-        if self.parallel:
-            worker_amt = 8 #cpus_available() // 2
-            mp_context = M.get_context("spawn") #if device.type != "cpu" else None
-            with concurrent.futures.ProcessPoolExecutor(
-                worker_amt, mp_context=mp_context
-            ) as pool:
-                for result in pool.map(compute_at, range(sample_amt)):
-                    if progress_bar is not None:
-                        progress_bar.update(1)
-                    if result is None:
-                        continue
-                    iou += result[0]
-                    tp += result[1]
-                    fp += result[2]
-                    fn += result[3]
-        else:
-            for n in range(sample_amt):
-                result = compute_at(n)
-                if progress_bar is not None:
-                    progress_bar.update(1)
+        progress_bar = tqdm(
+            desc="Computing panoptic metrics",
+            dynamic_ncols=True,
+            total=sample_amt,
+            disable=not check_main_process(local=True) or not self.show_progress,
+        )
+        mp_context = M.get_context("spawn" if device.type != "cpu" else None)
+        with concurrent.futures.ProcessPoolExecutor(
+            min(cpus_available(), M.cpu_count() // 2, 32), mp_context=mp_context
+        ) as pool:
+            # with concurrent.futures.ThreadPoolExecutor() as pool:
+            for result in pool.map(compute_at, range(sample_amt)):
+                progress_bar.update(1)
                 if result is None:
                     continue
                 iou += result[0]
                 tp += result[1]
                 fp += result[2]
                 fn += result[3]
-
         progress_bar.close()
-
-        _logger.debug("Accumulating PQ-related metrics")
-
         # Compute PQ = SQ * RQ
         sq = H.stable_divide(iou, tp)
         rq = H.stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
         pq = sq * rq
 
         # Convert to percentages
-        sq *= 100
-        rq *= 100
-        pq *= 100
-
-        # Total valid values
+        metrics = PQMetrics(pq * 100, sq * 100, rq * 100, iou, tp, fp, fn)
         n_valid = tp + fp + fn
 
-        # Summarizing values
-        summary = {}
+        summary = self._create_summary_report(
+            metrics,
+            n_valid=n_valid,
+            allow_unknown_category=allow_unknown_category,
+            allow_stuff_instances=allow_stuff_instances,
+            num_categories=num_categories,
+        )
+        details = self._create_detail_report(
+            metrics,
+            n_valid=n_valid,
+            allow_unknown_category=allow_unknown_category,
+            allow_stuff_instances=allow_stuff_instances,
+        )
 
-        # Mask out categories that have only true negatives
+        if self.report_details:
+            out = summary | details
+        else:
+            out = summary
+
+        return out
+
+    def _create_summary_report(
+        self,
+        metrics: PQMetrics,
+        *,
+        n_valid,
+        allow_unknown_category,
+        allow_stuff_instances,
+        num_categories,
+    ):
         tn_mask: torch.Tensor = n_valid > 0
         th_mask: torch.Tensor = H.isin(
-            torch.arange(num_categories, device=device), list(self.object_ids)
+            torch.arange(num_categories, device=metrics.pq.device),
+            list(self.object_ids),
         )
         st_mask: torch.Tensor = H.isin(
-            torch.arange(num_categories, device=device), list(self.background_ids)
+            torch.arange(num_categories, device=metrics.pq.device),
+            list(self.background_ids),
         )
-
+        summary = {}
         for name, mask in [
             ("all", tn_mask),
             ("thing", tn_mask & th_mask),
@@ -296,25 +305,30 @@ class PanopticEvaluator(PanopticWriter):
                 }
             else:
                 summary[name] = {
-                    "PQ": pq[mask].mean().item(),
-                    "SQ": rq[mask].mean().item(),
-                    "RQ": fp[mask].mean().item(),
-                    "IoU": iou[mask].mean().item(),
-                    "TP": tp[mask].sum().item() / n_masked,
-                    "FP": fp[mask].sum().item() / n_masked,
-                    "FN": fn[mask].sum().item() / n_masked,
+                    "PQ": metrics.pq[mask].mean().item(),
+                    "SQ": metrics.sq[mask].mean().item(),
+                    "RQ": metrics.rq[mask].mean().item(),
+                    "IoU": metrics.iou[mask].mean().item(),
+                    "TP": metrics.tp[mask].sum().item() / n_masked,
+                    "FP": metrics.fp[mask].sum().item() / n_masked,
+                    "FN": metrics.fn[mask].sum().item() / n_masked,
                 }
-        summary_df = self._tabulate(summary)
         if self.show_summary:
-            self._show_table(
-                f"Panoptic evaluation summary ({allow_stuff_instances=}, {allow_unknown_category=})",
-                summary_df,
-            )
+            df = _tabulate(summary)
+            msg = f"Panoptic summary ({allow_stuff_instances=}, {allow_unknown_category=})"
+            self._show_table(msg, df)
+        return summary
 
-        # Detailed -- per class
+    def _create_detail_report(
+        self,
+        metrics,
+        *,
+        n_valid,
+        allow_unknown_category,
+        allow_stuff_instances,
+    ):
         details = {}
-
-        for i in range(pq.shape[0]):
+        for i in range(metrics.pq.shape[0]):
             for semcls in self.info.semantic_classes.values():
                 if semcls.unified_id == i:
                     name = f"{semcls.name}".lower().replace(" ", "_")
@@ -335,51 +349,36 @@ class PanopticEvaluator(PanopticWriter):
                 }
             else:
                 details[name] = {
-                    "PQ": pq[i].mean().item(),
-                    "SQ": rq[i].mean().item(),
-                    "RQ": fp[i].mean().item(),
-                    "IoU": iou[i].mean().item(),
-                    "TP": tp[i].sum().item() / n_masked,
-                    "FP": fp[i].sum().item() / n_masked,
-                    "FN": fn[i].sum().item() / n_masked,
+                    "PQ": metrics.pq[i].mean().item(),
+                    "SQ": metrics.sq[i].mean().item(),
+                    "RQ": metrics.rq[i].mean().item(),
+                    "IoU": metrics.iou[i].mean().item(),
+                    "TP": metrics.tp[i].sum().item() / n_masked,
+                    "FP": metrics.fp[i].sum().item() / n_masked,
+                    "FN": metrics.fn[i].sum().item() / n_masked,
                 }
-        details_df = self._tabulate(details)
         if self.show_details:
-            self._show_table(
-                f"Panoptic evaluation details({allow_stuff_instances=}, {allow_unknown_category=})",
-                details_df,
-            )
-
-        if self.report_details:
-            out = summary | details
-        else:
-            out = summary
-
-        return out
-
-    def _tabulate(self, result: dict[str, dict[str, float]]) -> pd.DataFrame:
-        data: dict[str, list[float]] = {}
-        groups = []
-
-        for group_name, metrics in result.items():
-            groups.append(group_name.capitalize())
-            for metric_name, metric_value in metrics.items():
-                data[metric_name] = data.get(metric_name, []) + [metric_value]
-
-        data_list = []
-        for key, values in data.items():
-            data_list.append([key] + values)
-
-        df = pd.DataFrame(
-            data_list,
-            columns=["Metric"] + groups,
-        )
-
-        return df
+            df = _tabulate(details)
+            msg = f"Panoptic details ({allow_stuff_instances=}, {allow_unknown_category=})"
+            self._show_table(msg, df)
+        return details
 
 
-def _get_on_device(storage, key, n, device):
-    return storage.get_at(key, n).to(device=device, non_blocking=True)
+def _tabulate(result: dict[str, dict[str, float]]) -> pd.DataFrame:
+    data: dict[str, list[float]] = {}
+    groups = []
+    for group_name, metrics in result.items():
+        groups.append(group_name.capitalize())
+        for metric_name, metric_value in metrics.items():
+            data[metric_name] = data.get(metric_name, []) + [metric_value]
+    data_list = []
+    for key, values in data.items():
+        data_list.append([key] + values)
+    df = pd.DataFrame(
+        data_list,
+        columns=["Metric"] + groups,
+    )
+    return df
 
 
 def _compute_at(
@@ -397,16 +396,8 @@ def _compute_at(
     valid = storage.get_at(VALID_PANOPTIC, n).item()
     if not valid:
         return None
-
-    with concurrent.futures.ThreadPoolExecutor(2) as pool:
-        pred_future = pool.submit(_get_on_device, storage, PRED_PANOPTIC, n, device)
-        true_future = pool.submit(_get_on_device, storage, TRUE_PANOPTIC, n, device)
-
-        pred = pred_future.result()
-        true = true_future.result()
-    # pred = storage.get_at(PRED_PANOPTIC, n).to(device=device, non_blocking=True)
-    # true = storage.get_at(TRUE_PANOPTIC, n).to(device=device, non_blocking=True)
-
+    pred = storage.get_at(PRED_PANOPTIC, n).to(device=device, non_blocking=True)
+    true = storage.get_at(TRUE_PANOPTIC, n).to(device=device, non_blocking=True)
     pred = _preprocess_mask(
         object_ids,
         background_ids,
@@ -428,17 +419,20 @@ def _compute_at(
         background_ids=background_ids if not allow_stuff_instances else None,
         num_categories=num_categories,
     )
-
     return result
 
 
 def _nested_tuple(nested_list: list) -> tuple:
-    """Construct a nested tuple from a nested list.
+    r"""
+    Construct a nested tuple from a nested list.
 
-    Args:
-        nested_list: The nested list to convert to a nested tuple.
+    Parameters
+    ----------
+    nested_list:
+        The nested list to convert to a nested tuple.
 
-    Returns:
+    Returns
+    -------
         A nested tuple with the same content.
 
     """
@@ -450,26 +444,34 @@ def _nested_tuple(nested_list: list) -> tuple:
 
 
 def _to_tuple(t: torch.Tensor) -> tuple:
-    """Convert a tensor into a nested tuple.
+    r"""
+    Convert a tensor into a nested tuple.
 
-    Args:
-        t: The tensor to convert.
+    Parameters
+    ----------
+    t:
+        The tensor to convert.
 
-    Returns:
+    Returns
+    -------
         A nested tuple with the same content.
-
     """
     return _nested_tuple(t.tolist())
 
 
 def _get_color_areas(inputs: torch.Tensor) -> dict[tuple, torch.Tensor]:
-    """Measure the size of each instance.
+    r"""
+    Measure the size of each instance.
 
-    Args:
-        inputs: the input tensor containing the colored pixels.
+    Parameters
+    ----------
+    inputs:
+        The input tensor containing the colored pixels.
 
-    Returns:
-        A dictionary specifying the `(category_id, instance_id)` and the corresponding number of occurrences.
+    Returns
+    -------
+        A dictionary specifying the `(category_id, instance_id)` and the corresponding
+        number of occurrences.
 
     """
     unique_keys, unique_keys_area = torch.unique(inputs, dim=0, return_counts=True)
@@ -480,15 +482,19 @@ def _get_color_areas(inputs: torch.Tensor) -> dict[tuple, torch.Tensor]:
 def _get_void_color(
     things: T.FrozenSet[int], stuffs: T.FrozenSet[int]
 ) -> tuple[int, int]:
-    """Get an unused color ID.
+    r"""
+    Get an unused color ID.
 
-    Args:
-        things: The set of category IDs for things.
-        stuffs: The set of category IDs for stuffs.
+    Parameters
+    ----------
+    things:
+        The set of category IDs for things.
+    stuffs:
+        The set of category IDs for stuffs.
 
-    Returns:
+    Returns
+    -------
         A new color ID that does not belong to things nor stuffs.
-
     """
     unused_category_id = 1 + max([0, *list(things), *list(stuffs)])
     return unused_category_id, 0
@@ -497,13 +503,18 @@ def _get_void_color(
 def _get_category_id_to_continuous_id(
     things: T.FrozenSet[int], stuffs: T.FrozenSet[int]
 ) -> dict[int, int]:
-    """Convert original IDs to continuous IDs.
+    r"""
+    Convert original IDs to continuous IDs.
 
-    Args:
-        things: All unique IDs for things classes.
-        stuffs: All unique IDs for stuff classes.
+    Parameters
+    ----------
+    things:
+        All unique IDs for things classes.
+    stuffs:
+        All unique IDs for stuff classes.
 
-    Returns:
+    Returns
+    -------
         A mapping from the original category IDs to continuous IDs (i.e., 0, 1, 2, ...).
 
     """
@@ -563,7 +574,9 @@ def _preprocess_mask(
     mask_things = H.isin(out[:, 0], list(things))
 
     if not allow_unknown_category and not torch.all(mask_things | mask_stuffs):
-        raise ValueError(f"Unknown categories found: {out[~(mask_things|mask_stuffs)].unique().cpu().tolist()}")
+        raise ValueError(
+            f"Unknown categories found: {out[~(mask_things|mask_stuffs)].unique().cpu().tolist()}"
+        )
 
     # Set unknown categories to void color
     out[~(mask_things | mask_stuffs)] = out.new(void_color)

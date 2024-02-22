@@ -11,8 +11,8 @@ import torch.special
 
 __all__ = ["DTYPE_INT", "DTYPE_FLOAT", "EPS", "stable_divide", "isin"]
 
-DTYPE_INT: T.Final = torch.int64
-DTYPE_FLOAT: T.Final = torch.float64
+DTYPE_INT: T.Final = torch.int32
+DTYPE_FLOAT: T.Final = torch.float32
 EPS: T.Final[float] = torch.finfo(DTYPE_FLOAT).eps
 
 

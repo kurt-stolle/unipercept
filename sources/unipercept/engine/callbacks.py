@@ -530,6 +530,15 @@ class ProgressCallback(CallbackDispatcher):
             self.prediction_bar.update(1)
 
     @TX.override
+    def on_inference_end(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
+        if unipercept.state.check_main_process(True):
+            if self.prediction_bar is not None:
+                self.prediction_bar.close()
+            self.prediction_bar = None
+
+    @TX.override
     def on_evaluate(
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
@@ -558,7 +567,8 @@ class ProgressCallback(CallbackDispatcher):
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
         if unipercept.state.check_main_process(True):
-            self.training_bar.close()
+            if self.training_bar is not None:
+                self.training_bar.close()
             self.training_bar = None
 
 

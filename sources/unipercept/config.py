@@ -25,7 +25,9 @@ from typing_extensions import override
 
 import unipercept.file_io as file_io
 from unipercept.utils.inspect import generate_path, locate_object
-from unipercept.utils.typings import Pathable
+
+if T.TYPE_CHECKING:
+    from unipercept.utils.typings import Pathable
 
 __all__ = [
     "apply_overrides",
@@ -49,8 +51,23 @@ __all__ = [
     "make_set",
     "make_tuple",
     "save_config",
+    "KEY_VERSION",
+    "KEY_MODEL",
+    "KEY_DATASET",
+    "KEY_NAME",
+    "KEY_SESSION_ID",
 ]
 
+
+######################
+# Configuration keys #
+######################
+
+KEY_VERSION: T.Final = "VERSION"
+KEY_MODEL: T.Final = "MODEL"
+KEY_DATASET: T.Final = "DATASET"
+KEY_NAME: T.Final = "name"
+KEY_SESSION_ID: T.Final = "session_id"
 
 ####################
 # Environment vars #
@@ -322,6 +339,18 @@ def _filepath_to_name(path: Pathable) -> str | None:
         return name
 
 
+def load_config_remote(path: str):
+    from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
+    from unipercept.integrations.wandb_integration import read_run as wandb_read_run
+
+    if path.startswith(WANDB_RUN_PREFIX):
+        run = wandb_read_run(path)
+        config = DictConfig(run.config)
+        return config
+
+    raise FileNotFoundError(path)
+
+
 def load_config(path: str) -> DictConfig:
     """
     Load a config file.
@@ -339,7 +368,12 @@ def load_config(path: str) -> DictConfig:
         If the file does not exist.
 
     """
+    from unipercept import __version__ as up_version
+
     path = file_io.get_local_path(path)
+    if path is None or not file_io.isfile(path):
+        return load_config_remote(path)
+
     ext = os.path.splitext(path)[1]
     match ext.lower():
         case ".py":
@@ -375,11 +409,13 @@ def load_config(path: str) -> DictConfig:
             )
             obj: dict[str, T.Any] = {k: v for k, v in nsp.items() if k in export}
             obj.setdefault("name", _filepath_to_name(path))
+            obj.setdefault(KEY_VERSION, up_version)
 
         case ".yaml":
             with file_io.open(path) as f:
                 obj = yaml.unsafe_load(f)
             obj.setdefault("name", "unknown")
+            obj.setdefault(KEY_VERSION, "unknown")
         case _:
             msg = "Unsupported file extension %s!"
             raise ValueError(msg, ext)
@@ -572,6 +608,16 @@ _INST_SEQ_TYPEMAP: dict[type, type] = {
 }
 
 
+def migrate_target(v: T.Any) -> T.Any:
+    if isinstance(v, str):
+        match v:
+            case "unipercept.utils.catalog.DataManager.get_info_at":
+                return "unipercept.get_info_at"
+            case _:
+                pass
+    return v
+
+
 @T.overload
 def instantiate(cfg: T.Sequence[LazyObject[_L]], /) -> T.Sequence[_L]:
     ...
@@ -630,6 +676,7 @@ def instantiate(cfg: T.Any, /) -> T.Any:
         # but faster: https://github.com/facebookresearch/hydra/issues/1200
         cfg = {k: instantiate(v) for k, v in cfg.items()}
         cls = cfg.pop("_target_")
+        cls = migrate_target(cls)
         cls = instantiate(cls)
 
         if isinstance(cls, str):

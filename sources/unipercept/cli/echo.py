@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import sys
 from unipercept.cli._command import command
 
 __all__ = []
@@ -43,20 +43,26 @@ def main(args):
             )
             print(res)
 
+    elif fmt == "json":
+        import json 
+
+        res = json.dumps(out, indent=4, ensure_ascii=False)
+        print(res, file=sys.stdout, flush=True)
+
     elif fmt == "yaml":
         import yaml
 
         res = yaml.dump(out, allow_unicode=True, default_flow_style=False)
-        print(res)
+        print(res, file=sys.stdout, flush=True)
     else:
-        print(f"Unknown format: {fmt}")
+        print(f"Unknown format: {fmt}", file=sys.stderr)
 
 
 @command(help="output the configuration and arguments list to stdout")
 @command.with_config
 def echo(parser):
     parser.add_argument(
-        "--format", default="pprint", help="output format", choices=["yaml", "pprint"]
+        "--format", default="pprint", help="output format", choices=["yaml", "pprint", "json"]
     )
     parser.add_argument("--key", default="config", help="key to output")
 

@@ -9,7 +9,7 @@ import typing as T
 if T.TYPE_CHECKING:
     import unipercept.data.sets as unisets
 
-__all__ = ["get_dataset", "get_info", "list_datasets", "list_info"]
+__all__ = ["get_dataset", "get_info", "get_info_at", "list_datasets", "list_info"]
 
 
 @T.overload
@@ -75,13 +75,22 @@ def get_dataset(name: str) -> type[unisets.PerceptionDataset]:
     return catalog.get_dataset(name)
 
 
-def get_info(name: str) -> unisets.Metadata:
+def get_info(query: str) -> unisets.Metadata:
     """
     Read a dataset's info function from the catalog.
     """
     from unipercept.data.sets import catalog
 
-    return catalog.get_info(name)
+    return catalog.get_info(query)
+
+
+def get_info_at(query: str, key: str) -> unisets.Metadata:
+    """
+    Read a dataset's info function from the catalog.
+    """
+    from unipercept.data.sets import catalog
+
+    return catalog.get_info_at(query, key=key)
 
 
 def list_datasets() -> T.List[str]:

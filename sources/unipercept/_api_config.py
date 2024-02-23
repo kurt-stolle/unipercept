@@ -2,6 +2,7 @@
 This file defines some basic API methods for working with UniPercept models, data and other submodules.
 """
 from __future__ import annotations
+import contextlib
 
 import os
 import re
@@ -14,22 +15,23 @@ import torch.utils.data
 from omegaconf import DictConfig
 from PIL import Image as pil_image
 
-from unipercept import file_io
-from unipercept.config import load_config
 from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
-from unipercept.integrations.wandb_integration import read_run as _read_run_wandb
+from unipercept.integrations.wandb_integration import read_run as _wandb_read_run
 from unipercept.log import get_logger
-from unipercept.model import ModelFactory
+from unipercept.utils.typings import Pathable
 
 if T.TYPE_CHECKING:
     import torch.types
 
+    import unipercept
+
     from unipercept.data.ops import Op
     from unipercept.data.sets import Metadata
-    from unipercept.engine import Engine
     from unipercept.model import InputData, ModelBase
 
-    StateParam: T.TypeAlias = str | os.PathLike | dict[str, torch.Tensor] | Engine
+    StateParam: T.TypeAlias = (
+        str | os.PathLike | dict[str, torch.Tensor] | unipercept.engine.Engine
+    )
     StateDict: T.TypeAlias = dict[str, torch.Tensor]
     ConfigParam: T.TypeAlias = str | os.PathLike | DictConfig
     ImageParam: T.TypeAlias = (
@@ -42,6 +44,7 @@ __all__ = [
     "load_checkpoint",
     "create_engine",
     "create_model",
+    "create_model_factory",
     "create_dataset",
     "create_loaders",
     "create_inputs",
@@ -59,24 +62,13 @@ _KEY_CHECKPOINT = "_model_weights_"  # Key used to store the path used to initia
 ##########################
 
 
-def _read_config_wandb(path: str) -> DictConfig:
-    """
-    Read a configuration file from W&B. Prefix wandb-run://entity/project/name
-    """
-
-    run = _read_run_wandb(path)
-    config = DictConfig(run.config)
-    config[_KEY_CHECKPOINT] = path
-
-    return config
-
-
 def _read_model_wandb(path: str) -> str:
     """
     Read a model from W7B. Prefix wandb-run://entity/project/name
     """
+    from unipercept import file_io
 
-    run = _read_run_wandb(path)
+    run = _wandb_read_run(path)
     import wandb
     from wandb.sdk.wandb_run import Run
 
@@ -93,9 +85,7 @@ def _read_model_wandb(path: str) -> str:
     )
 
     _logger.info("Downloading model artifact %s", model_artifact_name)
-    local_path = file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
-
-    return local_path
+    return file_io.get_local_path(f"wandb-artifact://{model_artifact_name}")
 
 
 ##########################
@@ -103,7 +93,9 @@ def _read_model_wandb(path: str) -> str:
 ##########################
 
 
-def read_run(path: str) -> tuple[DictConfig, Engine, ModelFactory]:
+def read_run(
+    path: str,
+) -> tuple[DictConfig, unipercept.engine.Engine, unipercept.model.ModelFactory]:
     """
     Read the run from a configuration file, directory or remote.
 
@@ -121,6 +113,7 @@ def read_run(path: str) -> tuple[DictConfig, Engine, ModelFactory]:
     model_factory
         The model factory object.
     """
+    from unipercept import file_io
 
     if file_io.isdir(path):
         path = file_io.join(path, "config.yaml")
@@ -128,7 +121,7 @@ def read_run(path: str) -> tuple[DictConfig, Engine, ModelFactory]:
             raise FileNotFoundError(f"Could not find configuration file at {path}")
     config = read_config(path)
     engine = create_engine(config)
-    model = create_model_factory(config, state=config.get(_KEY_CHECKPOINT, None))
+    model = create_model_factory(config)
 
     return config, engine, model
 
@@ -148,26 +141,31 @@ def read_config(config: ConfigParam) -> DictConfig:
     config
         A DictConfig object.
     """
-    from .engine._engine import _sort_children_by_suffix
+    from unipercept.engine._engine import _sort_children_by_suffix
+    from unipercept import file_io
+    from unipercept.config import load_config, load_config_remote
 
-    if isinstance(config, str) and config.startswith(WANDB_RUN_PREFIX):
-        return _read_config_wandb(config)
-
-    if isinstance(config, str) or isinstance(config, os.PathLike):
+    if isinstance(config, str):
+        try:
+            cfg_obj = load_config_remote(config)
+            cfg_obj[_KEY_CHECKPOINT] = config
+            return cfg_obj
+        except FileNotFoundError:
+            pass
+    if isinstance(config, Pathable):
         _logger.info("Reading configuration from path %s", config)
 
         config_path = file_io.Path(config).resolve().expanduser()
         if not config_path.is_file():
-            raise FileNotFoundError(
-                f"Could not find configuration file at {config_path}"
-            )
+            msg = f"Could not find configuration file at {config_path}"
+            raise FileNotFoundError(msg)
         if config_path.suffix not in (".py", ".yaml"):
-            raise ValueError(
-                f"Configuration file must be a .py or .yaml file, got {config_path}"
-            )
+            msg = f"Configuration file must be a .py or .yaml file, got {config_path}"
+            raise ValueError(msg)
         obj = load_config(str(config_path))
         if not isinstance(obj, DictConfig):
-            raise TypeError(f"Expected a DictConfig, got {obj}")
+            msg = f"Expected a DictConfig, got {obj}"
+            raise TypeError(msg)
 
         # Check if the config has a latest checkpoint
         models_path = config_path.parent / "outputs" / "checkpoints"
@@ -182,9 +180,8 @@ def read_config(config: ConfigParam) -> DictConfig:
     elif isinstance(config, DictConfig):
         return config
     else:
-        raise TypeError(
-            f"Expected a configuration file path or a DictConfig, got {config}"
-        )
+        msg = f"Expected a configuration file path or a DictConfig, got {config}"
+        raise TypeError(msg)
 
 
 #######################
@@ -203,6 +200,8 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
     target
         The model to load the state into.
     """
+    from unipercept import file_io
+    from unipercept.engine import Engine
 
     # Check remote
     if isinstance(state, str) and state.startswith(WANDB_RUN_PREFIX):
@@ -257,7 +256,7 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
 ####################
 
 
-def create_engine(config: ConfigParam) -> Engine:
+def create_engine(config: ConfigParam) -> unipercept.engine.Engine:
     """
     Create a engine from a configuration file. The engine will be initialized with the default parameters, and
     the configuration file will be used to override them.
@@ -273,22 +272,26 @@ def create_engine(config: ConfigParam) -> Engine:
         A engine instance.
     """
     from .config import instantiate
+    from unipercept.engine import Engine
 
     config = read_config(config)
-    engine: Engine = instantiate(config.ENGINE)
-
+    engine = T.cast(Engine, instantiate(config.ENGINE))
+    with contextlib.suppress(FileExistsError):
+        engine.config = config
     return engine
 
 
-def create_model_factory(config: ConfigParam, *, state: str | None) -> ModelFactory:
+def create_model_factory(
+    config: ConfigParam, *, weights: str | None = None
+) -> unipercept.model.ModelFactory:
     """
     Create a factory for models from a configuration file. The factory will be initialized with the default parameters,
     and the configuration file will be used to override them.
     """
-    config = read_config(config)
-    model_factory = ModelFactory(config.MODEL, checkpoint_path=state)
+    from unipercept.model import ModelFactory
 
-    return model_factory
+    config = read_config(config)
+    return ModelFactory(config.MODEL, weights=weights or config.get(_KEY_CHECKPOINT))
 
 
 def create_model(
@@ -315,14 +318,14 @@ def create_model(
     model
         A model instance.
     """
-
-    from .config import instantiate
+    from unipercept import file_io
+    from unipercept.config import instantiate
 
     # Check remote
     if isinstance(config, str) and config.startswith(WANDB_RUN_PREFIX):
         if state is None:
             state = _read_model_wandb(config)
-        config = _read_config_wandb(config)
+        config = read_config(config)
 
     # Handle binary PyTorch model
     if (
@@ -494,7 +497,7 @@ def prepare_images(
     suffix: T.Collection[str] = (".jpg", ".png"),
     separator: str | None = os.sep,
     return_loader: bool = True,
-    ops: T.Sequence[Op] = [],
+    ops: T.Sequence[Op] | None = None,
 ):
     """
     Create an interator of a dataloader the mocks a dataset from a directory of images.
@@ -527,8 +530,11 @@ def prepare_images(
         The dataset metadata.
     """
     from torch.utils.data import DataLoader
+    from unipercept import file_io
+    from unipercept.model import InputData
 
-    from .model import InputData
+    if ops is None:
+        ops = []
 
     # List the images using a Glob pattern, such that we can determine whether we are dealing with a flat directory of
     # images or a directory of subdirectories of images.
@@ -636,8 +642,9 @@ def create_inputs(
     from torchvision.io import read_image
     from torchvision.transforms.v2.functional import pil_to_tensor
 
-    from .data.tensors import Image
-    from .model import CameraModel, CaptureData, InputData
+    from unipercept import file_io
+    from unipercept.data.tensors import Image
+    from unipercept.model import CameraModel, CaptureData, InputData
 
     batch: list[torch.Tensor] = []
 

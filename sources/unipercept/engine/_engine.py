@@ -17,6 +17,7 @@ import time
 import typing as T
 from datetime import datetime
 from uuid import uuid4
+import uuid
 
 import torch
 import torch._dynamo
@@ -26,7 +27,7 @@ import torch.optim
 import torch.types
 import torch.utils.data
 import wandb
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tabulate import tabulate
 from tensordict import TensorDict, TensorDictBase
@@ -35,6 +36,7 @@ from torch.utils.data import Dataset
 from typing_extensions import override
 
 from unipercept import file_io
+import unipercept
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EngineStage
 from unipercept.engine._trial import Trial, TrialWithParameters
@@ -113,6 +115,7 @@ class Engine:
         "_params",
         "dry_run",
         "session_id",
+        "_config",
         "__dict__",
     )
 
@@ -240,9 +243,12 @@ class Engine:
 
     @property
     def config_name(self) -> str:
-        return self.config.get("name", "unnamed")
+        try:
+            return self.config.get("name", "unnamed")
+        except FileNotFoundError:
+            return "unnamed"
 
-    @functools.cached_property
+    @property
     def config(self) -> dict[str, T.Any]:
         """
         Attempt to locate the configuration YAML file for the current project.
@@ -250,21 +256,40 @@ class Engine:
         """
         from unipercept.config import load_config
 
-        lazy_path = self.config_path
-        if not lazy_path.exists():
-            msg = f"Could not find configuration file at {lazy_path!r}"
+        if self._config is not None:
+            return self._config
+
+        path = self.config_path
+        if not path.exists():
+            msg = f"Could not find configuration file at {path!r}"
             raise FileNotFoundError(msg)
 
+        _logger.info("Loading configuration from %s", path)
+
         try:
-            lazy = load_config(str(lazy_path))
+            lazy = load_config(str(path))
         except Exception as e:  # noqa: PIE786
-            msg = f"Could not load configuration from {lazy_path!r} {e}"
+            msg = f"Could not load configuration from {path!r} {e}"
             _logger.warning(msg)
             return {}
 
         lazy_obj = OmegaConf.to_container(lazy, resolve=False)
         assert isinstance(lazy_obj, dict)
         return T.cast(dict[str, T.Any], lazy_obj)
+
+    @config.setter
+    def config(self, value: DictConfig) -> None:
+        from unipercept.config import save_config
+
+        path = self.config_path
+        if path.exists():
+            msg = f"Configuration file already exists at {path}"
+            raise FileExistsError(msg)
+
+        _logger.info("Saving configuration to %s", path)
+
+        save_config(value, str(path))
+        self._config = None  # NOTE: loaded ad-hoc
 
     @property
     def logging_dir(self) -> file_io.Path:
@@ -323,14 +348,20 @@ class Engine:
 
         _logger.info(
             "Starting training procedure:\n%s",
-            tabulate([("starting stage", start_stage), ("initial weights", weights)], tablefmt="simple"),
+            tabulate(
+                [("starting stage", start_stage), ("initial weights", weights)],
+                tablefmt="simple",
+            ),
         )
 
         weights = weights
         for n in range(start_stage, len(self._stages)):
             weights = self.run_training(model_factory, stage=n, weights=weights)
 
-        _logger.info("Training completed for all stages: %s", tabulate([("final weights", weights)], tablefmt="simple"))
+        _logger.info(
+            "Training completed for all stages: %s",
+            tabulate([("final weights", weights)], tablefmt="simple"),
+        )
 
     @status(EngineStatus.IS_TRAINING_RUN)
     def run_training(
@@ -484,6 +515,7 @@ class Engine:
         model_factory: ModelFactory,
         trial: Trial | None = None,
         *,
+        suites: T.Collection[str] | None = None,
         prefix: str = "evaluation",
     ) -> dict[str, float]:
         if self.dry_run:
@@ -494,6 +526,8 @@ class Engine:
         metrics_overall = {}
 
         for loader_key, handlers in self._evaluators.items():
+            if suites is not None and loader_key not in suites:
+                continue
             _logger.info(
                 "Running inference on loader '%s' for %d handlers",
                 loader_key,
@@ -531,6 +565,9 @@ class Engine:
                     metrics[prefix_suite] = metrics.pop(metric_key)
 
             metrics_overall.update(metrics)
+
+        if len(metrics_overall) == 0:
+            _logger.warning("No metrics were logged during evaluation")
 
         return metrics_overall
 
@@ -1154,21 +1191,27 @@ class Engine:
             job_type = "misc"
 
         group_name = f"stage-{self._state.stage}" if self._state.stage >= 0 else "other"
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        experiment_name = f"[{timestamp}] {self.config_name} ({job_type} {group_name})"
-        experiment_id = f"{self.session_id}-{job_type}-{group_name}"
+        experiment_id = _generate_experiment_id()
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
         # Set up tracker-specific parameters
-        specific_kwargs = {}
-        specific_kwargs["wandb"] = {
-            "name": experiment_name,
-            "job_type": job_type,
-            "reinit": False,
-            "group": group_name,
-            "notes": f"{self._params.notes}\n\nCreated by session: {self.session_id}",
-            "tags": list(self._params.tags),
-            "id": experiment_id,
-            "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
+        specific_kwargs = {
+            "wandb": {
+                "name": self.config_name,
+                "job_type": job_type,
+                "reinit": False,
+                "group": group_name,
+                "notes": "\n\n".join(
+                    (
+                        self._params.notes,
+                        f"Created by session: {self.session_id}",
+                        f"Timestamp: {timestamp}",
+                    )
+                ),
+                "tags": list(self._params.tags),
+                "id": experiment_id,
+                "save_code": False,  # NOTE: Code is saved in the WandBCallback manually instead (see `wandb_integration`)
+            }
         }
 
         # Accelerate handles the experiment trackers for us
@@ -1638,3 +1681,10 @@ def _generate_session_id() -> ULID:
         return name
     else:
         return _read_session_name()
+
+def _generate_experiment_id() -> str:
+    """
+    Generate a unique ID for the experiment.
+    """
+    import wandb.util
+    return str(wandb.util.generate_id(length=8))

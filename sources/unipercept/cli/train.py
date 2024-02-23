@@ -104,7 +104,7 @@ def _main(args):
     elif up.state.check_main_process():
         _logger.info("Storing serialized config to YAML file %s", engine.config_path)
         lazy_config[KEY_SESSION_ID] = engine.session_id
-        up.config.save_config(lazy_config, str(engine.config_path))
+        engine.config = lazy_config
 
     _logger.info(
         "Starting engine session:\n%s",

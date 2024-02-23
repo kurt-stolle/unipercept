@@ -63,7 +63,7 @@ version = { attr = "unipercept.__version__" }
 where = ["sources"]
 include = ["uni*"]
 exclude = ["tests"]
-namespaces = false
+namespaces = true
 
 [project.optional-dependencies]
 

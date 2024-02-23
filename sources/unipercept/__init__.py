@@ -8,7 +8,7 @@ UniPercept: A framework for computer vision research based on PyTorch.
 
 from __future__ import annotations
 
-__version__ = "5.1.1"
+__version__ = "5.1.4"
 
 from unipercept._monkeypatch import *  # isort: skip; noqa: F401, F403; black: skip
 

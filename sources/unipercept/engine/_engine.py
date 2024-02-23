@@ -146,6 +146,7 @@ class Engine:
         self._state = State()
         self._xlr = None
         self._root = None
+        self._config = None
 
         self._dataloaders: T.Final = loaders or {}
         self._stages = list(stages) if stages is not None else []

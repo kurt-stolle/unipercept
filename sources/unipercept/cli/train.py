@@ -1,4 +1,4 @@
-"""Training and evaluation entry point."""
+"""Training entry point."""
 from __future__ import annotations
 
 import argparse
@@ -53,7 +53,7 @@ def train(p: argparse.ArgumentParser):
         "--evaluation",
         "-E",
         action="store_true",
-        help="run in evaluation mode (no training, only evaluation)",
+        help="run in evaluation mode",
     )
 
     return _main
@@ -120,6 +120,7 @@ def _main(args):
     model_factory = up.model.ModelFactory(lazy_config.MODEL, weights=args.weights)
     try:
         if args.evaluation:
+            _logger.info("Running in EVALUATION ONLY MODE. Be aware that no weights are loaded if not provided explicitly!")
             results = engine.run_evaluation(model_factory)
             _logger.info(
                 "Evaluation results: \n%s", up.log.create_table(results, format="long")

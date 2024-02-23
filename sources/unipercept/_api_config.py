@@ -18,6 +18,7 @@ from PIL import Image as pil_image
 from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
 from unipercept.integrations.wandb_integration import read_run as _wandb_read_run
 from unipercept.log import get_logger
+from unipercept.state import check_main_process
 from unipercept.utils.typings import Pathable
 
 if T.TYPE_CHECKING:
@@ -54,7 +55,7 @@ __all__ = [
 _logger = get_logger(__name__)
 
 
-_KEY_CHECKPOINT = "_model_weights_"  # Key used to store the path used to initialize the config through the API
+KEY_WEIGHTS = "_WEIGHTS_"  # Key used to store the path used to initialize the config through the API
 
 
 ##########################
@@ -148,7 +149,7 @@ def read_config(config: ConfigParam) -> DictConfig:
     if isinstance(config, str):
         try:
             cfg_obj = load_config_remote(config)
-            cfg_obj[_KEY_CHECKPOINT] = config
+            cfg_obj[KEY_WEIGHTS] = config
             return cfg_obj
         except FileNotFoundError:
             pass
@@ -166,16 +167,17 @@ def read_config(config: ConfigParam) -> DictConfig:
         if not isinstance(obj, DictConfig):
             msg = f"Expected a DictConfig, got {obj}"
             raise TypeError(msg)
-
-        # Check if the config has a latest checkpoint
-        models_path = config_path.parent / "outputs" / "checkpoints"
-        if models_path.is_dir():
-            step_dirs = list(_sort_children_by_suffix(models_path))
-            if len(step_dirs) > 0:
-                latest_step = file_io.Path(step_dirs[-1])
-                latest_step = latest_step / "model.safetensors"
-                if latest_step.is_file():
-                    obj[_KEY_CHECKPOINT] = latest_step.as_posix()
+        
+        if config_path.suffix == ".yaml":
+            # Check if the config has a latest checkpoint
+            models_path = config_path.parent / "outputs" / "checkpoints"
+            if models_path.is_dir():
+                step_dirs = list(_sort_children_by_suffix(models_path))
+                if len(step_dirs) > 0:
+                    latest_step = file_io.Path(step_dirs[-1])
+                    latest_weights = latest_step / "model.safetensors"
+                    if latest_weights.is_file():
+                        obj[KEY_WEIGHTS] = latest_weights.as_posix()
         return obj
     elif isinstance(config, DictConfig):
         return config
@@ -273,11 +275,15 @@ def create_engine(config: ConfigParam) -> unipercept.engine.Engine:
     """
     from .config import instantiate
     from unipercept.engine import Engine
+    from unipercept.state import barrier
 
     config = read_config(config)
     engine = T.cast(Engine, instantiate(config.ENGINE))
+
     with contextlib.suppress(FileExistsError):
         engine.config = config
+    barrier()
+
     return engine
 
 
@@ -291,7 +297,7 @@ def create_model_factory(
     from unipercept.model import ModelFactory
 
     config = read_config(config)
-    return ModelFactory(config.MODEL, weights=weights or config.get(_KEY_CHECKPOINT))
+    return ModelFactory(config.MODEL, weights=weights or config.get(KEY_WEIGHTS))
 
 
 def create_model(
@@ -353,11 +359,11 @@ def create_model(
 
     if state is not None:
         load_checkpoint(state, model)
-    elif _KEY_CHECKPOINT in config:
+    elif KEY_WEIGHTS in config:
         _logger.info(
             "Loading remote checkpoint matching configuration read path",
         )
-        load_checkpoint(config[_KEY_CHECKPOINT], model)
+        load_checkpoint(config[KEY_WEIGHTS], model)
 
     return model.eval().to(device)
 

@@ -281,14 +281,13 @@ class Engine:
     def config(self, value: DictConfig) -> None:
         from unipercept.config import save_config
 
-        path = self.config_path
-        if path.exists():
-            msg = f"Configuration file already exists at {path}"
-            raise FileExistsError(msg)
-
-        _logger.info("Saving configuration to %s", path)
-
-        save_config(value, str(path))
+        if check_main_process():
+            path = self.config_path
+            if path.exists():
+                msg = f"Configuration file already exists at {path}"
+                raise FileExistsError(msg)
+            _logger.info("Saving configuration to %s", path)
+            save_config(value, str(path))
         self._config = None  # NOTE: loaded ad-hoc
 
     @property
@@ -1204,7 +1203,7 @@ class Engine:
                 "notes": "\n\n".join(
                     (
                         self._params.notes,
-                        f"Created by session: {self.session_id}",
+                        f"Created by session: {str(self.session_id)}",
                         f"Timestamp: {timestamp}",
                     )
                 ),
@@ -1223,7 +1222,7 @@ class Engine:
         self._edge(
             Event.ON_TRACKERS_SETUP,
             config_path=str(self.config_path),
-            session_id=self.session_id,
+            session_id=str(self.session_id),
         )
         self.xlr.wait_for_everyone()
 
@@ -1650,7 +1649,7 @@ def _enforce_prefix(metrics: dict[str, T.Any], prefix: str, sep: str = "/") -> N
         metrics[prefix + key] = metrics.pop(key)
 
 
-def _generate_session_id() -> ULID:
+def _generate_session_id() -> str:
     """
     Generates a session ID on the main process and synchronizes it with all other processes.
     Must be called after the process group has been initialized.
@@ -1661,7 +1660,7 @@ def _generate_session_id() -> ULID:
     from unipercept.state import check_distributed, check_main_process
 
     def _read_session_name():
-        return ULID.generate()
+        return str(ULID.generate())
 
     if check_distributed():
         if not is_available():

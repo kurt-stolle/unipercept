@@ -3,7 +3,7 @@ The `Engine` class is the main class to handle training and evaluation of any ki
 """
 
 from __future__ import annotations
-
+import sys
 import enum as E
 import functools
 import gc
@@ -353,12 +353,23 @@ class Engine:
             ),
         )
 
+        print("\n\n", file=sys.stderr, flush=True)
+        print("\n\n", file=sys.stderr, flush=True)
         weights = weights
-        for n in range(start_stage, len(self._stages)):
-            weights = self.run_training(model_factory, stage=n, weights=weights)
+        stage_num = start_stage
+        while True:
+            weights = self.run_training(model_factory, stage=stage_num, weights=weights)
+            print("\n\n", file=sys.stderr, flush=True)
+            print("\n\n", file=sys.stderr, flush=True)
+            stage_num += 1
+            if stage_num >= len(self._stages):
+                break
+            _logger.info(
+                "Training completed for stage %d. Moving to next...", stage_num - 1
+            )
 
         _logger.info(
-            "Training completed for all stages: %s",
+            "Training completed for all stages: \n%s",
             tabulate([("final weights", weights)], tablefmt="simple"),
         )
 
@@ -392,7 +403,10 @@ class Engine:
 
         gc.collect()
         torch.cuda.empty_cache()
+        self.xlr.free_memory()
         time.sleep(1.0)
+
+        self._signal = Signal()
 
         # Memory metrics - must set up as early as possible
         self._mem_tracker.start("train")
@@ -1681,9 +1695,11 @@ def _generate_session_id() -> str:
     else:
         return _read_session_name()
 
+
 def _generate_experiment_id() -> str:
     """
     Generate a unique ID for the experiment.
     """
     import wandb.util
+
     return str(wandb.util.generate_id(length=8))

@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import sys
+
 from unipercept.cli._command import command
 
 __all__ = []
@@ -44,7 +46,7 @@ def main(args):
             print(res)
 
     elif fmt == "json":
-        import json 
+        import json
 
         res = json.dumps(out, indent=4, ensure_ascii=False)
         print(res, file=sys.stdout, flush=True)
@@ -62,7 +64,10 @@ def main(args):
 @command.with_config
 def echo(parser):
     parser.add_argument(
-        "--format", default="pprint", help="output format", choices=["yaml", "pprint", "json"]
+        "--format",
+        default="pprint",
+        help="output format",
+        choices=["yaml", "pprint", "json"],
     )
     parser.add_argument("--key", default="config", help="key to output")
 

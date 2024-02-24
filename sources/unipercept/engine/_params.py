@@ -125,7 +125,7 @@ class EngineParams:
     full_determinism: bool = False
     seed: int = 42
     max_grad_norm: float = D.field(
-        default=15.0, metadata={"help": "Max gradient norm."}
+        default=5.0, metadata={"help": "Max gradient norm."}
     )
 
     # Memory tracker
@@ -144,7 +144,7 @@ class EngineParams:
 
     # Convert BatchNorm to SyncBatchNorm?
     convert_sync_batchnorm: bool = D.field(
-        default=False,
+        default=True,
         metadata={"help": "Whether to convert BatchNorm to SyncBatchNorm."},
     )
 

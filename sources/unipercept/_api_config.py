@@ -167,7 +167,7 @@ def read_config(config: ConfigParam) -> DictConfig:
         if not isinstance(obj, DictConfig):
             msg = f"Expected a DictConfig, got {obj}"
             raise TypeError(msg)
-        
+
         if config_path.suffix == ".yaml":
             # Check if the config has a latest checkpoint
             models_path = config_path.parent / "outputs" / "checkpoints"

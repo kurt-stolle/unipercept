@@ -2,8 +2,8 @@
 This file defines some basic API methods for working with UniPercept models, data and other submodules.
 """
 from __future__ import annotations
-import contextlib
 
+import contextlib
 import os
 import re
 import typing as T
@@ -25,7 +25,6 @@ if T.TYPE_CHECKING:
     import torch.types
 
     import unipercept
-
     from unipercept.data.ops import Op
     from unipercept.data.sets import Metadata
     from unipercept.model import InputData, ModelBase
@@ -142,9 +141,9 @@ def read_config(config: ConfigParam) -> DictConfig:
     config
         A DictConfig object.
     """
-    from unipercept.engine._engine import _sort_children_by_suffix
     from unipercept import file_io
     from unipercept.config import load_config, load_config_remote
+    from unipercept.engine._engine import _sort_children_by_suffix
 
     if isinstance(config, str):
         try:
@@ -273,9 +272,10 @@ def create_engine(config: ConfigParam) -> unipercept.engine.Engine:
     engine
         A engine instance.
     """
-    from .config import instantiate
     from unipercept.engine import Engine
     from unipercept.state import barrier
+
+    from .config import instantiate
 
     config = read_config(config)
     engine = T.cast(Engine, instantiate(config.ENGINE))
@@ -536,6 +536,7 @@ def prepare_images(
         The dataset metadata.
     """
     from torch.utils.data import DataLoader
+
     from unipercept import file_io
     from unipercept.model import InputData
 

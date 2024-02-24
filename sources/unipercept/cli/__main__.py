@@ -11,10 +11,10 @@ from unipercept.cli import (
     command,
     datasets,
     echo,
+    evaluate,
     profile,
     trace,
     train,
-    evaluate,
 )
 
 __all__ = ["backbones", "echo", "profile", "trace", "train", "datasets", "evaluate"]

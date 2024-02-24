@@ -3,7 +3,7 @@ The `Engine` class is the main class to handle training and evaluation of any ki
 """
 
 from __future__ import annotations
-import sys
+
 import enum as E
 import functools
 import gc
@@ -13,11 +13,12 @@ import operator
 import os
 import re
 import shutil
+import sys
 import time
 import typing as T
+import uuid
 from datetime import datetime
 from uuid import uuid4
-import uuid
 
 import torch
 import torch._dynamo
@@ -35,8 +36,8 @@ from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
 
-from unipercept import file_io
 import unipercept
+from unipercept import file_io
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EngineStage
 from unipercept.engine._trial import Trial, TrialWithParameters
@@ -1213,7 +1214,7 @@ class Engine:
             "wandb": {
                 "name": self.config_name,
                 "job_type": job_type,
-                "reinit": False,
+                "reinit": True,
                 "group": group_name,
                 "notes": "\n\n".join(
                     (

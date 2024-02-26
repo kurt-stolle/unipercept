@@ -12,67 +12,71 @@ if T.TYPE_CHECKING:
 __all__ = ["get_dataset", "get_info", "get_info_at", "list_datasets", "list_info"]
 
 
+def __dir__() -> list[str]:
+    return __all__
+
+
 @T.overload
 def get_dataset(  # noqa: D103
-    name: T.Literal["cityscapes"],
+    query: T.Literal["cityscapes"],
 ) -> type[unisets.cityscapes.CityscapesDataset]:
     ...
 
 
 @T.overload
 def get_dataset(  # noqa: D103
-    name: T.Literal["cityscapes-vps"],
+    query: T.Literal["cityscapes-vps"],
 ) -> type[unisets.cityscapes.CityscapesVPSDataset]:
     ...
 
 
 @T.overload
 def get_dataset(  # noqa: D103
-    name: T.Literal["kitti-360"],
+    query: T.Literal["kitti-360"],
 ) -> type[unisets.kitti_360.KITTI360Dataset]:
     ...
 
 
 @T.overload
 def get_dataset(  # noqa: D103
-    name: T.Literal["kitti-step"],
+    query: T.Literal["kitti-step"],
 ) -> type[unisets.kitti_step.KITTISTEPDataset]:
     ...
 
 
 @T.overload
 def get_dataset(  # noqa: D103
-    name: T.Literal["kitti-sem"],
+    query: T.Literal["kitti-sem"],
 ) -> type[unisets.kitti_sem.SemKITTIDataset]:
     ...
 
 
 @T.overload
 def get_dataset(  # noqa: D103
-    name: T.Literal["vistas"],
+    query: T.Literal["vistas"],
 ) -> type[unisets.vistas.VistasDataset]:
     ...
 
 
 @T.overload
 def get_dataset(  # noqa: D103
-    name: T.Literal["wilddash"],
+    query: T.Literal["wilddash"],
 ) -> type[unisets.wilddash.WildDashDataset]:
     ...
 
 
 @T.overload
-def get_dataset(name: str) -> type[unisets.PerceptionDataset]:  # noqa: D103
+def get_dataset(query: str) -> type[unisets.PerceptionDataset]:  # noqa: D103
     ...
 
 
-def get_dataset(name: str) -> type[unisets.PerceptionDataset]:
+def get_dataset(query: str) -> type[unisets.PerceptionDataset]:
     """
     Read a dataset from the catalog, returning the dataset **class** type.
     """
     from unipercept.data.sets import catalog
 
-    return catalog.get_dataset(name)
+    return catalog.get_dataset(query)
 
 
 def get_info(query: str) -> unisets.Metadata:

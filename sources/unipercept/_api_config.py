@@ -51,6 +51,11 @@ __all__ = [
     "prepare_images",
 ]
 
+
+def __dir__() -> list[str]:
+    return __all__
+
+
 _logger = get_logger(__name__)
 
 

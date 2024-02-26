@@ -1333,8 +1333,10 @@ class Engine:
         logs : dict[str, float]
             The logs to be logged.
         """
-        logs["engine/epoch"] = round(self._state.epoch, 2)
+        logs["engine/epoch"] = round(self._state.epoch, 6)
         logs["engine/step"] = self._state.step
+        logs["engine/gradient_accumulation"] = self._state.gradient_accumulation
+        logs["engine/stage"] = self._state.stage
         logs["engine/epoch_step"] = self.xlr.step
         logs["engine/status"] = self.status
 
@@ -1343,7 +1345,7 @@ class Engine:
         self._state.log_history.append(logs)
         if len(self._state.log_history) > self._params.logging_history:
             self._state.log_history.pop(0)
-        self.xlr.log(logs, step=self._state.step)
+        self.xlr.log(logs)  # , step=self._state.step)
 
     def _load_weights(self, path: Pathable, model: nn.Module) -> nn.Module:
         """

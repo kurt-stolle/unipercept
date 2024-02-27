@@ -236,12 +236,12 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
                     raise TypeError(
                         f"Expected a state_dict or a nn.Module, got {type(state_dict)}"
                     )
-                target.load_state_dict(state_dict, strict=True)
+                res = target.load_state_dict(state_dict, strict=False)
             case ".safetensors":
                 # Load SafeTensors checkpoint
                 import safetensors.torch as st
 
-                st.load_model(target, state_path, strict=True)
+                res = st.load_model(target, state_path, strict=False)
             case _:
                 raise ValueError(
                     f"Checkpoint file must be a .pth or .safetensors file, got {state_path}"
@@ -250,11 +250,18 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
         _logger.info("Loading checkpoint from engine")
         # State was passed as a Engine object
         state.recover(model=target)
+        return
     elif isinstance(state, T.Mapping):
         _logger.info("Loading state from weights mapping")
-        target.load_state_dict(state, strict=True)
+        res = target.load_state_dict(state, strict=False)
     else:
         raise TypeError(f"Expected a checkpoint file path or a dictionary, got {state}")
+
+    missing, unexpected = res
+    if len(missing) > 0:
+        _logger.warning("Missing weights in checkpoint: %s", ", ".join(missing))
+    if len(unexpected) > 0:
+        _logger.warning("Unexpected weights in checkpoint: %s", ", ".join(unexpected))
 
 
 ####################

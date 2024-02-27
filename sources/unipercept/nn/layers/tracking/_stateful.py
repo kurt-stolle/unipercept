@@ -72,7 +72,7 @@ class _MemoryReadWriter(nn.Module):
 
 
 def _split_persistent_buffers(
-    module: nn.Module, prefix: str = ""
+    module: nn.Module, prefix: str
 ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     """
     Split the buffers of a module into two dictionaries: one for
@@ -83,11 +83,12 @@ def _split_persistent_buffers(
     shared = {}
     unique = {}
 
-    for name, buf in module.named_buffers(prefix=prefix, recurse=False):
-        if buf in module._non_persistent_buffers_set:
-            unique[name] = buf
+    for name, buf in module.named_buffers(prefix="", recurse=False):
+        name_prefixed = f"{prefix}.{name}"
+        if name in module._non_persistent_buffers_set:
+            unique[name_prefixed] = buf
         else:
-            shared[name] = buf
+            shared[name_prefixed] = buf
 
     for name, submodule in module.named_children():
         s, u = _split_persistent_buffers(submodule, prefix=f"{prefix}.{name}")
@@ -137,10 +138,26 @@ class StatefulTracker(nn.Module):
         return params, buffers_shared, buffers_unique_map
 
     @override
-    def forward(self, x: TensorDictBase, key: str | int, frame: int) -> Tensor:
+    def forward(self, x: TensorDictBase, ids: torch.Tensor) -> Tensor:
+        """
+        Parameters
+        ----------
+        x: TensorDictBase
+            Represents the state of the current iteration.
+        ids: Tensor[2]
+            Tensor containing int64 tuple: (sequence ID, frame number).
+
+        Returns
+        -------
+        Tensor[N]
+            Assigned instance IDs
+        """
+        key, frame = ids.unbind(-1)
+
         # Read
         params, buffers_shared, buffers_unique = self.memory_storage
-        pbd = (params, {**buffers_shared, **buffers_unique[key]})
+        buffers_unique = buffers_unique[key.item()]
+        pbd = (params, {**buffers_shared, **buffers_unique})
         state_ctx, state_obs = torch.func.functional_call(
             self.memory_delegate, pbd, (False, (frame,)), strict=True
         )

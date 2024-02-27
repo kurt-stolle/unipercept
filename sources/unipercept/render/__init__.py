@@ -10,5 +10,5 @@ import typing_extensions as TX
 
 from ._colormap import *
 from ._plot import *
-from ._visualizer import *
 from ._video import *
+from ._visualizer import *

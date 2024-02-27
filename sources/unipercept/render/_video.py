@@ -1,13 +1,14 @@
-from contextlib import contextmanager
+from __future__ import annotations
+
 import dataclasses as D
 import functools
 import os
 import sys
+import tempfile
+import typing as T
+from contextlib import contextmanager
 
 import PIL.Image as pil_image
-
-import typing as T
-import tempfile
 
 from unipercept.utils.typings import Pathable
 

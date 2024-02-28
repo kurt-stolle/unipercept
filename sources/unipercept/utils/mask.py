@@ -106,3 +106,37 @@ def _get_bounding_box(
     min_index = min_coords.amin(dim=(-1, -2))
 
     return min_index, max_index
+
+
+if __name__ == "__main__":
+    # Example usage, this draws a bounding box around the masks and a circle at the
+    # center of the mask.
+    import matplotlib.patches as pat
+    import matplotlib.pyplot as plt
+    import torch
+
+    import unipercept as up
+
+    mask1 = torch.zeros(128, 128)
+    mask1[32:96, 32:96] = 1
+
+    mask2 = torch.zeros(128, 128)
+    mask2[64:76, 64:120] = 1
+
+    masks = torch.stack([torch.zeros_like(mask1), mask1, mask2])
+    boxes = up.utils.mask.masks_to_boxes(masks)
+    centers = up.utils.mask.masks_to_centers(masks)
+
+    fig, ax = plt.subplots()
+    ax.imshow(masks.argmax(0))
+
+    for xyxy in boxes.unbind(0):
+        x1, y1, x2, y2 = map(float, xyxy.tolist())
+        w = x2 - x1
+        h = y2 - y1
+
+        ax.add_patch(pat.Rectangle((x1, y1), w, h, fill=False, edgecolor="red"))
+
+    for xy in centers:
+        x, y = map(int, xy.tolist())
+        ax.add_patch(pat.Circle((x, y), radius=2, fill=True, color="red"))

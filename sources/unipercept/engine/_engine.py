@@ -27,6 +27,7 @@ import torch.nn as nn
 import torch.optim
 import torch.types
 import torch.utils.data
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tabulate import tabulate
@@ -36,7 +37,6 @@ from torch.utils.data import Dataset
 from typing_extensions import override
 
 import unipercept
-import wandb
 from unipercept import file_io
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EngineStage

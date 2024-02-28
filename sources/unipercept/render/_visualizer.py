@@ -227,6 +227,12 @@ class VisImage:
         rgb, alpha = np.split(img_rgba, [3], axis=2)
         return rgb.astype("uint8")
 
+    def get_pil(self):
+        import PIL.Image as pil_image
+
+        out = self.get_image()
+        return pil_image.fromarray(out).convert("RGB")
+
 
 DEFAULT_JITTERMAP = random_jitters()
 
@@ -325,9 +331,30 @@ class Visualizer:
 
         return "".join(lbl)
 
+    def draw_boxes(
+        self,
+        boxes: torch.Tensor,
+        labels: T.Sequence[T.Any] | None = None,
+        **kwargs,
+    ):
+        """
+        Draw multiple bounding boxes on an image.
+        """
+        if labels is None:
+            labels = [None] * len(boxes)
+
+        for box, lbl in zip(boxes.unbind(0), labels):
+            assert box.ndim == 1, box.shape
+            assert box.numel() == 4, box.shape
+            self.draw_box(box, **kwargs)
+            if lbl is not None:
+                self.draw_text(f"{lbl}", (box[0], box[1]))
+
+        return self.output
+
     def draw_segmentation(
         self,
-        pan: PanopticMap,
+        pan: torch.Tensor,
         *,
         edge_color=_OFF_WHITE,
         edge_size=0.5,
@@ -351,6 +378,12 @@ class Visualizer:
         Returns:
             output (VisImage): image object with visualizations.
         """
+
+        from unipercept.data.tensors import PanopticMap
+
+        pan = pan.as_subclass(PanopticMap)
+
+        assert pan.ndim == 2, pan.shape
 
         if self._instance_mode == ColorMode.IMAGE_BW:
             self.output.reset_image(self._create_grayscale_image(pan.get_nonempty()))
@@ -652,6 +685,8 @@ class Visualizer:
         Returns:
             output (VisImage): image object with box drawn.
         """
+        if isinstance(box_coord, torch.Tensor):
+            box_coord = box_coord.cpu().numpy()
         x0, y0, x1, y1 = box_coord
         width = x1 - x0
         height = y1 - y0

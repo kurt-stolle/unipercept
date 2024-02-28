@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses as D
 import functools
 import os
+import subprocess
 import sys
 import tempfile
 import typing
@@ -96,6 +97,9 @@ def video_writer(
             if write_video:
                 cmd = " ".join(_get_ffmpeg_cmd(fps, dir, out=_parse_output_path(out)))
                 _logger.debug("Writing video: %s", cmd)
-                os.system(cmd)
+                res = subprocess.run(cmd, shell=True, capture_output=True)
+                if res.returncode != 0:
+                    msg = f"Failed to write video: {res}"
+                    _logger.error(msg)
             else:
                 _logger.debug("Video writing was skipped.")

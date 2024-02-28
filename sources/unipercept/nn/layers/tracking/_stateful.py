@@ -169,8 +169,6 @@ class StatefulTracker(nn.Module):
         # Step
         state_obs, new = self.tracker(state_ctx, state_obs, x, n)
 
-        print(f"After tracking, got\n- observations: {state_obs}\n- new: {new}")
-
         # Write
         ids: torch.Tensor = torch.func.functional_call(
             self.memory_delegate, pbd, (True, (state_ctx, state_obs, new)), strict=True
@@ -188,9 +186,6 @@ class StatefulTracker(nn.Module):
                 buffers_shared[buf_key] = buf_val
                 continue
             if buf_key in buffers_unique:
-                print(
-                    f"Assign: {buf_key} = {buf_val.tolist()}, was: {buffers_unique[buf_key].tolist()}"
-                )
                 buffers_unique[buf_key] = buf_val
                 continue
 
@@ -199,8 +194,9 @@ class StatefulTracker(nn.Module):
             )
             raise KeyError(msg)
 
-        print(f"The current buffers has memory address {id(buffers_unique)}")
-
-        print(buffers_unique)
+        if len(ids) != n:
+            raise ValueError(
+                f"Expected {n} IDs to be returned, but got {len(ids)} instead!"
+            )
 
         return ids

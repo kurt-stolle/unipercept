@@ -5,6 +5,9 @@ Implements user-facing API for functions that deal with data loading and managem
 from __future__ import annotations
 
 import typing as T
+import warnings
+
+import typing_extensions as TX
 
 if T.TYPE_CHECKING:
     import unipercept.data.sets as unisets
@@ -16,65 +19,84 @@ def __dir__() -> list[str]:
     return __all__
 
 
-@T.overload
-def get_dataset(  # noqa: D103
-    query: T.Literal["cityscapes"],
-) -> type[unisets.cityscapes.CityscapesDataset]:
-    ...
+if T.TYPE_CHECKING:
+
+    @T.overload
+    def get_dataset(
+        query: T.Literal["cityscapes"],  # noqa: U100
+    ) -> type[unisets.cityscapes.CityscapesDataset]:
+        ...
+
+    @T.overload
+    def get_dataset(
+        query: T.Literal["cityscapes-vps"],  # noqa: U100
+    ) -> type[unisets.cityscapes.CityscapesVPSDataset]:
+        ...
+
+    @T.overload
+    def get_dataset(
+        query: T.Literal["kitti-360"],  # noqa: U100
+    ) -> type[unisets.kitti_360.KITTI360Dataset]:
+        ...
+
+    @T.overload
+    def get_dataset(
+        query: T.Literal["kitti-step"],  # noqa: U100
+    ) -> type[unisets.kitti_step.KITTISTEPDataset]:
+        ...
+
+    @T.overload
+    def get_dataset(
+        query: T.Literal["kitti-sem"],  # noqa: U100
+    ) -> type[unisets.kitti_sem.SemKITTIDataset]:
+        ...
+
+    @T.overload
+    def get_dataset(
+        query: T.Literal["vistas"],  # noqa: U100
+    ) -> type[unisets.vistas.VistasDataset]:
+        ...
+
+    @T.overload
+    def get_dataset(
+        query: T.Literal["wilddash"],  # noqa: U100
+    ) -> type[unisets.wilddash.WildDashDataset]:
+        ...
+
+    @T.overload
+    def get_dataset(
+        query: str,  # noqa: U100
+    ) -> type[unisets.PerceptionDataset]:
+        ...
+
+    @T.overload
+    @TX.deprecated("Use 'name' instead of 'query'.")
+    def get_dataset(
+        query: None,  # noqa: U100
+        **kwargs: T.Any,  # noqa: U100
+    ) -> type[unisets.PerceptionDataset]:
+        ...
 
 
-@T.overload
-def get_dataset(  # noqa: D103
-    query: T.Literal["cityscapes-vps"],
-) -> type[unisets.cityscapes.CityscapesVPSDataset]:
-    ...
-
-
-@T.overload
-def get_dataset(  # noqa: D103
-    query: T.Literal["kitti-360"],
-) -> type[unisets.kitti_360.KITTI360Dataset]:
-    ...
-
-
-@T.overload
-def get_dataset(  # noqa: D103
-    query: T.Literal["kitti-step"],
-) -> type[unisets.kitti_step.KITTISTEPDataset]:
-    ...
-
-
-@T.overload
-def get_dataset(  # noqa: D103
-    query: T.Literal["kitti-sem"],
-) -> type[unisets.kitti_sem.SemKITTIDataset]:
-    ...
-
-
-@T.overload
-def get_dataset(  # noqa: D103
-    query: T.Literal["vistas"],
-) -> type[unisets.vistas.VistasDataset]:
-    ...
-
-
-@T.overload
-def get_dataset(  # noqa: D103
-    query: T.Literal["wilddash"],
-) -> type[unisets.wilddash.WildDashDataset]:
-    ...
-
-
-@T.overload
-def get_dataset(query: str) -> type[unisets.PerceptionDataset]:  # noqa: D103
-    ...
-
-
-def get_dataset(query: str) -> type[unisets.PerceptionDataset]:
+def get_dataset(
+    query: str | None = None, **kwargs: T.Any
+) -> type[unisets.PerceptionDataset]:
     """
     Read a dataset from the catalog, returning the dataset **class** type.
     """
     from unipercept.data.sets import catalog
+
+    if "name" in kwargs:
+        assert query is None
+        query = kwargs.pop("name")
+        msg = "The 'name' argument is deprecated, use 'query' instead."
+        warnings.warn(msg, DeprecationWarning, stacklevel=2)
+    if len(kwargs) > 0:
+        msg = f"Unexpected keyword arguments: {', '.join(kwargs)}"
+        raise TypeError(msg)
+    if query is None:
+        msg = "No dataset query provided."
+        raise ValueError(msg)
 
     return catalog.get_dataset(query)
 

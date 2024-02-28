@@ -138,38 +138,69 @@ class StatefulTracker(nn.Module):
         return params, buffers_shared, buffers_unique_map
 
     @override
-    def forward(self, x: TensorDictBase, ids: torch.Tensor) -> Tensor:
+    def forward(self, x: TensorDict, n: int, key: int, frame: int) -> Tensor:
         """
         Parameters
         ----------
         x: TensorDictBase
             Represents the state of the current iteration.
-        ids: Tensor[2]
-            Tensor containing int64 tuple: (sequence ID, frame number).
+        n: int
+            The amount of detections in the current frame, amounts to the length of
+            IDs returned
+        key: int
+            The key that identifies the sequence in which the detections have been made
+        frame: int
+            The current frame number, used to identify the temporal position within
+            the sequence.
 
         Returns
         -------
-        Tensor[N]
+        Tensor[n]
             Assigned instance IDs
         """
-        key, frame = ids.unbind(-1)
-
         # Read
         params, buffers_shared, buffers_unique = self.memory_storage
-        buffers_unique = buffers_unique[key.item()]
-        pbd = (params, {**buffers_shared, **buffers_unique})
+        buffers_unique = buffers_unique[key]
+        pbd: dict[str, torch.Tensor] = {**params, **buffers_shared, **buffers_unique}
         state_ctx, state_obs = torch.func.functional_call(
             self.memory_delegate, pbd, (False, (frame,)), strict=True
         )
 
         # Step
-        if not isinstance(x, TensorDictBase):
-            x = TensorDict(x, batch_size=[])
-        state_obs, new = self.tracker(state_ctx, state_obs, x)
+        state_obs, new = self.tracker(state_ctx, state_obs, x, n)
+
+        print(f"After tracking, got\n- observations: {state_obs}\n- new: {new}")
 
         # Write
-        ids = torch.func.functional_call(
+        ids: torch.Tensor = torch.func.functional_call(
             self.memory_delegate, pbd, (True, (state_ctx, state_obs, new)), strict=True
         )
+
+        # assert pbd["memory.states." + unitrack.constants.KEY_FRAME] == frame, (
+        #     f"Frame number {frame} was not updated in the memory. "
+        #     f"Found frame {pbd[unitrack.constants.KEY_FRAME]} in states!"
+        # )
+
+        for buf_key, buf_val in pbd.items():
+            if buf_key in params:
+                continue
+            if buf_key in buffers_shared:
+                buffers_shared[buf_key] = buf_val
+                continue
+            if buf_key in buffers_unique:
+                print(
+                    f"Assign: {buf_key} = {buf_val.tolist()}, was: {buffers_unique[buf_key].tolist()}"
+                )
+                buffers_unique[buf_key] = buf_val
+                continue
+
+            msg = (
+                f"Buffer with key {buf_key!r} not found in parameters and buffers dict!"
+            )
+            raise KeyError(msg)
+
+        print(f"The current buffers has memory address {id(buffers_unique)}")
+
+        print(buffers_unique)
 
         return ids

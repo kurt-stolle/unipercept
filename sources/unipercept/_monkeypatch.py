@@ -31,19 +31,23 @@ def __patch_tensor_repr():
         if self.ndim == 0:
             shape = "*"
         else:
-            shape = str(tuple(self.shape)).replace(" ", "").replace(",", "×")[1:-1]
+            shape = str(tuple(self.shape)).replace(" ", "")
         name = self.__class__.__name__
         dtype = str(self.dtype).replace("torch.", "")
         kwargs = ", ".join(
             [f"{k}={getattr(self, k)}" for k in ["device", "requires_grad"]]
         )
 
-        # if self.ndim == 0:
-        #     values = f"\t{self.item()}"
-        # else:
-        #     values = "\n".join([f"\t{v}" for v in self.tolist()])
+        if self.numel == 0:
+            values = "empty"
+        elif self.ndim == 0:
+            values = self.item()
+        elif self.ndim == 1 or self.numel() <= 32:
+            values = repr(self.tolist())
+        else:
+            values = "..."
 
-        return f"{name}<{shape}>({dtype}, {kwargs})"  # {{\n{values}\n}}"
+        return f"{name}({dtype}, shape={shape}, {kwargs}){{{values}}}"
 
     torch.Tensor.__repr__ = patch
 

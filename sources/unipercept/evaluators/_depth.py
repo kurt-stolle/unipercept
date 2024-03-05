@@ -98,6 +98,10 @@ class DepthWriter(Evaluator):
             storage.set(key, item, inplace=True)
 
     @override
+    def compute(self, *args, **kwargs):
+        return {}
+
+    @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         from unipercept.render import draw_image_depth
 
@@ -133,8 +137,7 @@ class DepthEvaluator(DepthWriter):
 
     @override
     def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs):
-        # TODO
-        device = torch.device("cpu")
+        # device = torch.device("cpu")
         num_samples = storage.batch_size[0]
         assert num_samples > 0
         compute_at = functools.partial(_compute_at, storage=storage, device=device)
@@ -144,7 +147,7 @@ class DepthEvaluator(DepthWriter):
             desc="Computing depth metrics",
             disable=not check_main_process(local=True) or not self.show_progress,
         )
-        with concurrent.futures.ThreadPoolExecutor() as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             for metrics_sample in pool.map(compute_at, range(num_samples)):
                 progress_bar.update(1)
                 if metrics_sample is None:

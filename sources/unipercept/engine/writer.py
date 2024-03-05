@@ -143,12 +143,10 @@ class LazyStackedMemmapTensorView:
 
     def _load_at(self, i: int) -> Tensor:
         path = file_io.Path(self._path) / str(i) / f"{self._key}.memmap"
-        tensor = (
-            torch.from_file(str(path), dtype=self._dtype, size=self._shape.numel())
-            .view(self._shape)
-            .contiguous()
-        )
-        return tensor
+        tensor = torch.from_file(
+            str(path), dtype=self._dtype, size=self._shape.numel()
+        ).view(self._shape)
+        return tensor.clone(memory_format=torch.contiguous_format)
 
     def to_tensor(self) -> Tensor:
         return self[:]

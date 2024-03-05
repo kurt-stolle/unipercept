@@ -13,9 +13,9 @@ import typing as T
 
 import torch.nn as nn
 import typing_extensions as TX
-import wandb
 import wandb.errors
 
+import wandb
 from unipercept import file_io
 from unipercept.config import get_env
 from unipercept.engine import EngineParams
@@ -258,9 +258,11 @@ class WandBCallback(CallbackDispatcher):
             self.run.watch(
                 model,
                 log=WandBWatchMode(self.watch_model).value,
-                log_freq=self.watch_steps
-                if self.watch_steps is not None
-                else params.logging_steps,
+                log_freq=(
+                    self.watch_steps
+                    if self.watch_steps is not None
+                    else params.logging_steps
+                ),
                 log_graph=False,
             )
 

@@ -82,19 +82,20 @@ def pickles(fn: T.Callable, use_experiment=True) -> bool:
     if _is_safe_class(fn):
         return True
 
+    name = getattr(fn, "__name__", None)
     if use_experiment:
         try:
             pickle.dumps(fn)
             return True
         except (Exception, pickle.PicklingError) as e:
             warnings.warn(
-                f"Cannot pickle {fn.__name__} using direct pickle experiment.",
+                f"Cannot pickle {name} using direct pickle experiment.",
                 stacklevel=2,
             )
             return False
     else:
         warnings.warn(
-            "Cannot determine whether {fn.__name__} is picklable using heuristics, assuming it is not.",
+            "Cannot determine whether {name} is picklable using heuristics, assuming it is not.",
             stacklevel=2,
         )
 

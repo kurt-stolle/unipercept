@@ -1,6 +1,7 @@
 """
 Extends `pathlib.Path` to work with `iopath.common.file_io.PathManager`.
 """
+
 from __future__ import annotations
 
 import os

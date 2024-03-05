@@ -6,6 +6,7 @@ applied consistently to all frames of a paired record.
 We use the term `ops` instead of `transforms` because the latter is easily confused with
 a camera transform, e.g. movement of an observer.
 """
+
 from __future__ import annotations
 
 import abc
@@ -76,8 +77,7 @@ class Op(torch.nn.Module, metaclass=abc.ABCMeta):
     if T.TYPE_CHECKING:
 
         @override
-        def __call__(self, inputs: InputData) -> InputData:
-            ...
+        def __call__(self, inputs: InputData) -> InputData: ...
 
 
 class CloneOp(Op):

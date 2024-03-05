@@ -2,7 +2,6 @@
 Feature extraction utilities for PyTorch models, wraps the extended version provided by `timm`.
 """
 
-
 from __future__ import annotations
 
 import typing as T

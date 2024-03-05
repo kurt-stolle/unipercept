@@ -7,6 +7,7 @@ import typing as T
 
 from typing_extensions import override
 
+from unipercept.config import get_env
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._optimizer import OptimizerFactory
 from unipercept.engine._scheduler import SchedulerFactory
@@ -83,6 +84,10 @@ class EvaluationSuite:
 
     enabled: bool
     loader: DataLoaderFactory
+    batch_size: int = D.field(
+        default=get_env(int, "UP_ENGINE_EVALUATION_BATCH_SIZE", default=1),
+        metadata={"help": "Batch size to use during evaluation."},
+    )
     handlers: T.Sequence[up.evaluators.Evaluator]
 
 

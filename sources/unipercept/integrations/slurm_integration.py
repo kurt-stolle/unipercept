@@ -3,6 +3,7 @@ SLURM scheduler integration.
 
 Current implementation only supports reading the job configuration, and not interacting with the scheduler itself.
 """
+
 from __future__ import annotations
 
 import multiprocessing

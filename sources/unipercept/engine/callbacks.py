@@ -1,6 +1,7 @@
 """
 Callbacks to use with the Engine class and customize the training loop.
 """
+
 from __future__ import annotations
 
 import dataclasses as D
@@ -327,8 +328,7 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None:
-        ...
+    ) -> Signal | None: ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]

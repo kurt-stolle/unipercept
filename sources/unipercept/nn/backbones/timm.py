@@ -4,7 +4,6 @@ Implements a feature extraction backbone using Timm.
 See: https://huggingface.co/docs/timm/main/en/feature_extraction
 """
 
-
 from __future__ import annotations
 
 import typing as T

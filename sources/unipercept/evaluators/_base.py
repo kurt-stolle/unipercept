@@ -1,6 +1,7 @@
 """
 Implements the baseclass for evaluators
 """
+
 from __future__ import annotations
 
 import abc
@@ -55,23 +56,20 @@ class Evaluator(metaclass=abc.ABCMeta):
         storage: TensorDictBase,  # noqa: U100
         inputs: TensorDictBase,  # noqa: U100
         outputs: TensorDictBase,  # noqa: U100
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abc.abstractmethod
     def compute(
         self,
         storage: TensorDictBase,  # noqa: U100
         **kwargs: T.Unpack[EvaluatorComputeKWArgs],  # noqa: U100
-    ) -> dict[str, int | float | str | bool | dict]:
-        ...
+    ) -> dict[str, int | float | str | bool | dict]: ...
 
     @abc.abstractmethod
     def plot(
         self,
         storage: TensorDictBase,  # noqa: U100
-    ) -> dict[str, pil_image.Image]:
-        ...
+    ) -> dict[str, pil_image.Image]: ...
 
     def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
         tab_fmt = tab.to_markdown(index=False)

@@ -110,9 +110,11 @@ def gather_feature(
 
 def map_values(
     x: torch.Tensor,
-    translation: torch.Tensor
-    | T.Tuple[torch.Tensor, torch.Tensor]
-    | T.Dict[int, int | float | bool],
+    translation: (
+        torch.Tensor
+        | T.Tuple[torch.Tensor, torch.Tensor]
+        | T.Dict[int, int | float | bool]
+    ),
     default: int | float | bool | None = None,
 ) -> torch.Tensor:
     """

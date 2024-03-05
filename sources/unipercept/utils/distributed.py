@@ -49,10 +49,12 @@ def wait_for_sync() -> None:
 
 
 def distributed_concat(
-    tensor: T.Tuple[torch.Tensor]
-    | T.List[torch.Tensor]
-    | T.Mapping[str, torch.Tensor]
-    | torch.Tensor,
+    tensor: (
+        T.Tuple[torch.Tensor]
+        | T.List[torch.Tensor]
+        | T.Mapping[str, torch.Tensor]
+        | torch.Tensor
+    ),
     num_total_examples: T.Optional[int] = None,
 ) -> T.Any:
     try:

@@ -3,6 +3,7 @@ Pascal VOC dataset, with panoptic segmentation.
 
 See: https://pytorch.org/vision/0.10/_modules/torchvision/datasets/voc.html#VOCSegmentation
 """
+
 from __future__ import annotations
 
 import typing as T

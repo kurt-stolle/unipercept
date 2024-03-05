@@ -3,6 +3,7 @@ Implements the DVPQ and DSTQ metrics.
 
 Code adapted from: https://github.com/joe-siyuan-qiao/ViP-DeepLab
 """
+
 from __future__ import annotations
 
 import abc
@@ -174,9 +175,9 @@ class DVPSEvaluator(DVPSWriter):
                     threshold_key = "t_" + str(threshold).replace(".", "_")
                     result[definition][window_key][threshold_key] = {}
                     for metric, df_m in df_t.groupby("Metric"):
-                        result[definition][window_key][threshold_key]["all"][
-                            metric
-                        ] = df_m["All"].mean()
+                        result[definition][window_key][threshold_key]["all"][metric] = (
+                            df_m["All"].mean()
+                        )
                         result[definition][window_key][threshold_key]["thing"][
                             metric
                         ] = df_m["Thing"].mean()
@@ -278,9 +279,9 @@ class DVPSEvaluator(DVPSWriter):
                 pred_seg,
                 true_seg,
                 void_color=void_color,
-                background_ids=self.background_ids
-                if not allow_stuff_instances
-                else None,
+                background_ids=(
+                    self.background_ids if not allow_stuff_instances else None
+                ),
                 num_categories=num_categories,
             )
 

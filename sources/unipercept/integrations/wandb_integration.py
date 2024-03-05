@@ -235,11 +235,11 @@ class WandBCallback(CallbackDispatcher):
         control: Signal,
         *,
         timings: ProfileAccumulator,
-        results_path: str,
+        path: str,
         **kwargs,
     ):
         if self.inference_history > 0:
-            self._log_inference(results_path)
+            self._log_inference(path)
         if self.tabulate_inference_timings:
             self._log_profiling("inference/timings", timings)
 
@@ -304,11 +304,11 @@ class WandBCallback(CallbackDispatcher):
         assert run is not None, "WandB run not initialized"
         run.log({key: wandb.Table(dataframe=timings.to_summary())}, commit=False)
 
-    def _log_inference(self, results_path: str):
+    def _log_inference(self, path: str):
         try:
             _logger.info("Logging evaluation outcomes to WandB")
             artifact = self.run.log_artifact(
-                results_path,
+                path,
                 name=f"{self.run.name}-inference",
                 type=ArtifactType.INFERENCE.value,
             )

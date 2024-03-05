@@ -122,8 +122,8 @@ class DataLoaderFactory:
         """Create a loader factory with default settings for inference mode."""
         return cls(
             dataset=dataset,
-            sampler=SamplerFactory(sampler="inference"),
-            config=DataLoaderConfig(drop_last=False),
+            sampler=SamplerFactory(sampler="training"),
+            config=DataLoaderConfig(drop_last=True),
             **kwargs,
         )
 
@@ -132,8 +132,8 @@ class DataLoaderFactory:
         """Create a loader factory with default settings for training mode."""
         return cls(
             dataset=dataset,
-            sampler=SamplerFactory(sampler="training"),
-            config=DataLoaderConfig(drop_last=True),
+            sampler=SamplerFactory(sampler="inference"),
+            config=DataLoaderConfig(drop_last=False),
             **kwargs,
         )
 

@@ -11,6 +11,7 @@ import typing as T
 
 import accelerate.utils
 import torch
+import torch.distributed
 import torch.types
 import torch.utils.data
 from tensordict import TensorDict, TensorDictBase

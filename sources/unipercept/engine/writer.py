@@ -35,6 +35,7 @@ from unipercept.state import (
     barrier,
     check_main_process,
     cpus_available,
+    gather,
     gather_tensordict,
     get_process_count,
     main_process_first,
@@ -43,7 +44,12 @@ from unipercept.state import (
 from unipercept.utils.tensorclass import Tensorclass
 from unipercept.utils.typings import Pathable
 
-__all__ = ["ResultsWriter", "PersistentTensordictWriter", "MemmapTensordictWriter"]
+__all__ = [
+    "ResultsWriter",
+    "PersistentTensordictWriter",
+    "MemmapTensordictWriter",
+    "MemoryTensordictWriter",
+]
 
 _logger = get_logger(__name__)
 
@@ -120,9 +126,16 @@ class LazyStackedMemmapTensorView:
         loc[1] += self._index[0]
 
         tensors: list[Tensor | None] = [None] * (loc[1] - loc[0])
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            for i, t in pool.map(lambda i: (i, self._load_at(i)), range(*loc)):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            futs = []
+            for i in range(*loc):
+                futs.append(pool.submit(self._load_at, i))
+            for fut in futs:
+                i, t = fut.result()
                 tensors[i] = t
+
+            # for i, t in pool.map(lambda i: (i, self._load_at(i)), range(*loc)):
+            #    tensors[i] = t
 
         if any(t is None for t in tensors):
             raise RuntimeError("Some tensors were not loaded")
@@ -265,11 +278,11 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
 
     @classmethod
     @TX.override
-    def from_module(cls, *args, **kwargs):
+    def _from_module(cls, *args, **kwargs):
         raise NotImplementedError(f"{cls.__name__} does not support from_module")
 
     @TX.override
-    def to_module(self, *args, **kwargs):
+    def _to_module(self, *args, **kwargs):
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support to_module"
         )
@@ -752,6 +765,41 @@ class PersistentTensordictWriter(ResultsWriter):
         if self._td is None:
             self._td = self._td_factory(filename=self._path)
         return self._td
+
+
+class MemoryTensordictWriter(ResultsWriter):
+    """
+    Writer that stores results in a large list of TensorDicts, which is not memory
+    efficient but very fast to write to and read from.
+    When flushed, the results are synchronized to the main process.
+    The resulting tensordict is a LazyStackedTensorDict of the list of TensorDicts.
+    """
+
+    def __init__(self):
+        self._results: list[TensorDictBase] = []
+
+    @TX.override
+    def add(self, data: TensorDictBase) -> None:
+        self._results.append(data.cpu())
+
+    @TX.override
+    def flush(self) -> None:
+        if self._is_closed:
+            msg = f"{self.__class__.__name__} is closed"
+            raise RuntimeError(msg)
+        # TODO
+        raise NotImplementedError()
+
+    @TX.override
+    def close(self) -> None:
+        self._is_closed = True
+
+    @property
+    @TX.override
+    def tensordict(self) -> TensorDictBase:
+        if not self._is_closed:
+            raise RuntimeError("ResultsWriter is not closed")
+        return LazyStackedTensorDict(self._results)
 
 
 def _find_memmap_indices(path: Pathable) -> T.Tuple[int, int]:

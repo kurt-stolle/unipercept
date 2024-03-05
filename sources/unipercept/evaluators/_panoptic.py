@@ -265,26 +265,41 @@ class PanopticEvaluator(PanopticWriter):
             allow_stuff_instances=allow_stuff_instances,
             num_categories=num_categories,
         )
+
+        _logger.debug("Creating MP context")
+        mp_context = M.get_context("spawn" if device.type != "cpu" else None)
         progress_bar = tqdm(
             desc="Computing panoptic metrics",
             dynamic_ncols=True,
             total=sample_amt,
             disable=not check_main_process(local=True) or not self.show_progress,
         )
-        # mp_context = M.get_context("spawn" if device.type != "cpu" else None)
-        # with concurrent.futures.ProcessPoolExecutor(
-        #    min(cpus_available(), M.cpu_count() // 2, 32), mp_context=mp_context
-        # ) as pool:
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            for result in pool.map(compute_at, range(sample_amt)):
-                progress_bar.update(1)
-                if result is None:
-                    continue
-                iou += result[0]
-                tp += result[1]
-                fp += result[2]
-                fn += result[3]
-        progress_bar.close()
+        try:
+            # progress_bar.set_postfix_str("init")
+            # with concurrent.futures.ProcessPoolExecutor(
+            # min(cpus_available(), 16), mp_context=mp_context
+            # ) as pool:
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                # if True:
+                # indices = list(range(sample_amt))
+                # for result in pool.map(compute_at, indices):
+                progress_bar.set_postfix_str("dispatch")
+                futs = []
+                for n in range(sample_amt):
+                    futs.append(pool.submit(compute_at, n))
+                progress_bar.set_postfix_str("update")
+                for fut in futs:
+                    result = fut.result()
+                    # for result in map(compute_at, indices):
+                    progress_bar.update(1)
+                    if result is None:
+                        continue
+                    iou += result[0]
+                    tp += result[1]
+                    fp += result[2]
+                    fn += result[3]
+        finally:
+            progress_bar.close()
         # Compute PQ = SQ * RQ
         sq = H.stable_divide(iou, tp)
         rq = H.stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)

@@ -38,7 +38,7 @@ def test_memmap_writer(benchmark, tmp_path: Path):
     @benchmark
     def write_then_read():
         path = tmp_path / "memmap_writer"
-        writer = MemmapTensordictWriter(path, NUM_SAMPLES)
+        writer = MemmapTensordictWriter(path, NUM_SAMPLES, write_offset=0)
         _run_write_read_benchmark(writer)
         shutil.rmtree(path)
 

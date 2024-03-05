@@ -76,7 +76,10 @@ def _main(args):
 
     try:
         results = engine.run_evaluation(
-            model_factory, suites=args.suite if len(args.suite) > 0 else None
+            model_factory,
+            suites=args.suite
+            if args.suite is not None and len(args.suite) > 0
+            else None,
         )
         _logger.info(
             "Evaluation results: \n%s", up.log.create_table(results, format="long")

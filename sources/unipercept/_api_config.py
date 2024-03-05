@@ -74,9 +74,8 @@ def _read_model_wandb(path: str) -> str:
     from unipercept import file_io
 
     run = _wandb_read_run(path)
-    from wandb.sdk.wandb_run import Run
-
     import wandb
+    from wandb.sdk.wandb_run import Run
 
     assert path.startswith(WANDB_RUN_PREFIX)
 

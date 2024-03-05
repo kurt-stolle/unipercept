@@ -158,6 +158,8 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
         assert not path_files.exists(), f"Path {path_files} already exists"
         assert not path_json.exists(), f"Path {path_json} already exists"
 
+        path_files.mkdir(parents=True, exist_ok=True)
+
         coco_res: list[COCOResultPanoptic] = []
         items = range(storage.batch_size[0])
         for i in self._progress_bar(items, desc="Exporting COCO panoptic"):

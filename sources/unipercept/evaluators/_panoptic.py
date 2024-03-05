@@ -53,13 +53,21 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
 
     info: Metadata = D.field(repr=False)
 
-    plot_samples: int = 1
+    plot_samples: int = D.field(
+        default=1, metadata={"help": "Number of samples to plot"}
+    )
     plot_true: PlotMode = PlotMode.ONCE
     plot_pred: PlotMode = PlotMode.ALWAYS
 
-    true_key = ("captures", "segmentations")
-    true_group_index = -1  # the most recent index [batch, group, ...] dimensions
-    pred_key = "segmentations"
+    true_key: tuple[str, ...] = D.field(
+        default=("captures", "segmentations"),
+        metadata={"help": "The key for the ground truth in the input TensorDict"},
+    )
+    true_group_index: int = -1  # the most recent index [batch, group, ...] dimensions
+    pred_key: str = D.field(
+        default="segmentations",
+        metadata={"help": "The key for the predictions in the output TensorDict"},
+    )
 
     coco_export: bool = D.field(
         default=False,
@@ -159,7 +167,7 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
 
             coco_img, coco_info = true.to_coco()
 
-            path_file = (path_files / i).with_suffix(".png")
+            path_file = (path_files / str(i)).with_suffix(".png")
             coco_res.append(
                 {
                     "image_id": i,

@@ -73,13 +73,12 @@ def _main(args):
 
     engine = up.create_engine(lazy_config)
     model_factory = up.create_model_factory(lazy_config, weights=args.weights or None)
-
+    suites = args.suite if args.suite is not None and len(args.suite) > 0 else None
     try:
         results = engine.run_evaluation(
             model_factory,
-            suites=args.suite
-            if args.suite is not None and len(args.suite) > 0
-            else None,
+            suites=suites,
+            path=up.file_io.Path(args.path) if args.path is not None else None,
         )
         _logger.info(
             "Evaluation results: \n%s", up.log.create_table(results, format="long")

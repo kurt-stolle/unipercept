@@ -114,7 +114,7 @@ class DepthWriter(Evaluator):
                 setattr(self, mode_attr, PlotMode.NEVER)
             plot_keys.append(key)
 
-        result = super().plot(storage)
+        result = {}
         for i in range(self.plot_samples):
             for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_depth(

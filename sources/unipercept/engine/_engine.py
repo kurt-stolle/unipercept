@@ -537,6 +537,7 @@ class Engine:
         *,
         suites: T.Collection[str] | None = None,
         prefix: str = "evaluation",
+        path: Pathable | None = None,
     ) -> dict[str, float]:
         if self.dry_run:
             _logger.info("Dry run: skipping evaluation")
@@ -575,8 +576,18 @@ class Engine:
 
             loader = suite.loader(1, use_distributed=True)
 
+            if path is not None:
+                path_suite = file_io.Path(path) / suite_key
+                path_suite.mkdir(parents=True, exist_ok=True)
+            else:
+                path_suite = None
+
             metrics, samples_processed = self.run_inference_loop(
-                model, loader, prefix=prefix_suite, handlers=suite.handlers
+                model,
+                loader,
+                prefix=prefix_suite,
+                handlers=suite.handlers,
+                path=path_suite,
             )
 
             self._train_log(metrics)
@@ -986,7 +997,7 @@ class Engine:
         dataloader: torch.utils.data.DataLoader,
         prefix: str,
         handlers: T.Sequence[Evaluator],
-        results_path: T.Optional[file_io.PathLike] = None,
+        path: T.Optional[file_io.PathLike] = None,
         *,
         weights: T.Optional[file_io.PathLike] = None,
         batch_size: int = 1,
@@ -1036,17 +1047,17 @@ class Engine:
         t_start_all = time.time()
 
         # Output memory
-        if results_path is None:
+        if path is None:
             results_remove_on_exit = True
-            results_path = file_io.Path(
+            path = file_io.Path(
                 f"//scratch/{self._params.project_name}/{str(self.session_id)}/{prefix}-results"  # .h5"
             )
-            results_path.mkdir(parents=True, exist_ok=True)
+            path.mkdir(parents=True, exist_ok=True)
         else:
             results_remove_on_exit = False
 
         results_mem = MemmapTensordictWriter(
-            str(results_path),
+            str(path),
             samples_total,
             write_offset=batch_offsets[get_process_index()] * batch_size,
         )
@@ -1110,7 +1121,7 @@ class Engine:
                 Event.ON_INFERENCE_END,
                 timings=timings,
                 results=results_mem,
-                results_path=results_path,
+                path=path,
             )
 
             # Compute metrics
@@ -1129,7 +1140,7 @@ class Engine:
                     _logger.debug(f"Running evaluation and visualization: {evaluator}")
                     metrics.update(
                         evaluator.compute(
-                            results_mem.tensordict, device=self.xlr.device
+                            results_mem.tensordict, device=self.xlr.device, path=path
                         )
                     )
                     visuals.update(evaluator.plot(results_mem.tensordict))
@@ -1139,10 +1150,10 @@ class Engine:
         finally:
             results_mem.close()
             if self.xlr.is_main_process and results_remove_on_exit:
-                _logger.info(f"Cleaning stored evaluation results at {results_path!r}")
-                shutil.rmtree(results_path, ignore_errors=True)
+                _logger.info(f"Cleaning stored evaluation results at {path!r}")
+                shutil.rmtree(path, ignore_errors=True)
             else:
-                _logger.info("Evaluation results are stored at %s", results_path)
+                _logger.info("Evaluation results are stored at %s", path)
         if hasattr(self, "jit_compilation_time"):
             metrics[f"{prefix}/jit_compilation_time"] = self.jit_compilation_time  # type: ignore
         _enforce_prefix(metrics, prefix)

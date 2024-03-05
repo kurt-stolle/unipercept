@@ -167,7 +167,9 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
         self._metadata = (
             metadata
             if metadata is not None
-            else load_metadata(file_io.Path(path) / str(self._index[0]) / "meta.json")
+            else _load_tensordict_metadata(
+                file_io.Path(path) / str(self._index[0]) / "meta.json"
+            )
         )
 
     @property
@@ -564,10 +566,9 @@ class MemmapTensordictWriter(ResultsWriter):
                 copy_existing=False,
             )
             self._futures.extend(futures)
-
             self._td_cursor += 1
 
-        self._futures = [f for f in self._futures if not f.done()]
+        self._futures = _wait_until_futures_below_limit(self._futures)
 
     @TX.override
     def close(self):
@@ -634,7 +635,11 @@ class PersistentTensordictWriterProcess(M.Process):
 
 class PersistentTensordictWriter(ResultsWriter):
     """
-    Writes results to a H5 file using PersistentTensorDict from multiple processes, uses a buffer to reduce the number of writes.
+    Writes results to a H5 file using PersistentTensorDict from multiple processes,
+    uses a buffer to reduce the number of writes.
+    The main process spawns a writing process, to which all processes will send
+    each added item.
+    On flush, all processes wait until the writer process has completed writing.
     """
 
     def __init__(
@@ -785,7 +790,7 @@ class MemoryTensordictWriter(ResultsWriter):
         if self._is_closed:
             msg = f"{self.__class__.__name__} is closed"
             raise RuntimeError(msg)
-        # TODO
+        # TODO synchronization
         raise NotImplementedError()
 
     @TX.override
@@ -798,6 +803,46 @@ class MemoryTensordictWriter(ResultsWriter):
         if not self._is_closed:
             raise RuntimeError("ResultsWriter is not closed")
         return LazyStackedTensorDict(self._results)
+
+
+@functools.cache
+def _get_concurrent_write_limit() -> int:
+    """
+    Get the maximum number of concurrent writes to the file system.
+
+    Reads the environment variable ``UP_ENGINE_WRITER_CONCURRENT_WRITE_LIMIT``, by
+    default set to the amount of CPUs available times 2 on the system.
+    This is used as a proxy for the number of concurrent writes that can fit in memory
+    without causing a significant performance hit.
+
+    Returns
+    -------
+    int
+        The maximum number of concurrent writes.
+        Negative values indicate no limit is imposed.
+    """
+    from unipercept.config import get_env
+
+    return get_env(
+        int, "UP_ENGINE_WRITER_CONCURRENT_WRITE_LIMIT", default=cpus_available() * 2
+    )
+
+
+def _wait_until_futures_below_limit(
+    futures: list[concurrent.futures.Future],
+) -> list[concurrent.futures.Future]:
+    futures = [f for f in futures if not f.done()]
+    limit = _get_concurrent_write_limit()
+    if limit < 0:
+        return futures
+    num_exceeded = len(futures) - limit
+    if num_exceeded > 0:
+        for _ in range(num_exceeded):
+            _, not_done = concurrent.futures.wait(
+                futures, timeout=None, return_when=concurrent.futures.FIRST_COMPLETED
+            )
+            futures = list(not_done)
+    return futures
 
 
 def _find_memmap_indices(path: Pathable) -> T.Tuple[int, int]:
@@ -823,7 +868,7 @@ def _find_memmap_indices(path: Pathable) -> T.Tuple[int, int]:
     return indices[0], indices[-1]
 
 
-def load_metadata(path: Pathable):
+def _load_tensordict_metadata(path: Pathable):
     with open(file_io.Path(path)) as json_metadata:
         metadata = json.load(json_metadata)
     return metadata

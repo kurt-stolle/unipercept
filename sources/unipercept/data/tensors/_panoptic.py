@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing as T
 from enum import StrEnum, auto
 
+import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
 from torchvision.tv_tensors import Mask as _Mask
@@ -10,6 +11,7 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.tensors.helpers import write_png
+from unipercept.data.types.coco import COCOResultPanoptic, COCOResultPanopticSegment
 from unipercept.utils.typings import Pathable
 
 from .registry import pixel_maps
@@ -373,7 +375,9 @@ class PanopticMap(_Mask):
         for class_ in semantic_list:
             self[can_map == class_] = class_ * self.DIVISOR
 
-    def translate_semantic_(self, translation: dict[int, int]) -> None:
+    def translate_semantic_(
+        self, translation: dict[int, int], inverse: bool = False
+    ) -> None:
         """
         Apply a translation to the class labels. The translation is a dictionary mapping old class IDs to
         new class IDs. All old class IDs that are not in the dictionary are mapped to ``ignore_label``.
@@ -388,12 +392,31 @@ class PanopticMap(_Mask):
             old_id,
             new_id,
         ) in translation.items():
+            if inverse:
+                old_id, new_id = new_id, old_id
+
             mask = sem_map == old_id
             self[mask] = new_id * self.DIVISOR + ins_map[mask]
 
     def get_nonempty(self) -> _Mask:
         """Return a new instance with only the non-empty pixels."""
         return self[self != self.IGNORE * self.DIVISOR].as_subclass(_Mask)
+
+    def to_coco(self) -> tuple[pil_image.Image, list[COCOResultPanopticSegment]]:
+        segm = torch.zeros_like(self, dtype=torch.int32)
+
+        segments_info = []
+
+        for i, (sem_id, ins_id, mask) in enumerate(self.get_masks()):
+            coco_id = i + 1
+            segm[mask] = coco_id
+            segments_info.append(
+                COCOResultPanopticSegment(id=coco_id, category_id=sem_id)
+            )
+
+        img = pil_image.fromarray(segm.numpy().astype("uint8"), mode="L")
+
+        return img, segments_info
 
 
 # def transform_label_map(label_map: torch.Tensor, transform: Transform) -> PanopticMap:

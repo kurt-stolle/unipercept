@@ -104,8 +104,8 @@ class DataLoaderFactory:
     """
 
     dataset: PerceptionDataset
-    actions: T.Sequence[Op]
     sampler: SamplerFactory
+    actions: T.Sequence[Op] = D.field(default_factory=list)
     config: DataLoaderConfig = D.field(default_factory=DataLoaderConfig)
     iterable: bool = D.field(
         default=False,
@@ -116,6 +116,26 @@ class DataLoaderFactory:
             )
         },
     )
+
+    @classmethod
+    def with_training_defaults(cls, dataset: PerceptionDataset, **kwargs) -> T.Self:
+        """Create a loader factory with default settings for inference mode."""
+        return cls(
+            dataset=dataset,
+            sampler=SamplerFactory(sampler="inference"),
+            config=DataLoaderConfig(drop_last=False),
+            **kwargs,
+        )
+
+    @classmethod
+    def with_inference_defaults(cls, dataset: PerceptionDataset, **kwargs) -> T.Self:
+        """Create a loader factory with default settings for training mode."""
+        return cls(
+            dataset=dataset,
+            sampler=SamplerFactory(sampler="training"),
+            config=DataLoaderConfig(drop_last=True),
+            **kwargs,
+        )
 
     def __call__(
         self, batch_size: int | None = None, /, use_distributed: bool = True

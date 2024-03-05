@@ -14,8 +14,16 @@ from unipercept.engine.debug import DebugMode
 from unipercept.log import LOG_LEVELS, get_logger
 from unipercept.state import check_main_process
 
-__all__ = ["EngineParams", "EngineStage", "InferencePrecision", "Interval"]
+if T.TYPE_CHECKING:
+    import unipercept as up
 
+__all__ = [
+    "EngineParams",
+    "InferencePrecision",
+    "Interval",
+    "TrainingStage",
+    "EvaluationSuite",
+]
 _logger = get_logger(__name__)
 
 _DEFAULT_EXPERIMENT_TRACKERS: set[str] = {"tensorboard"}
@@ -67,13 +75,24 @@ class Interval(T.NamedTuple):
         raise ValueError(msg)
 
 
+@D.dataclass(kw_only=True)
+class EvaluationSuite:
+    """
+    A suite of evaluators to run on a specific dataloader.
+    """
+
+    enabled: bool
+    loader: DataLoaderFactory
+    handlers: T.Sequence[up.evaluators.Evaluator]
+
+
 @D.dataclass(frozen=True, slots=True)
-class EngineStage:
+class TrainingStage:
     """
     Defines a stage in the training process.
     """
 
-    dataloader: str | DataLoaderFactory  # key in dataloaders dict or a factory function
+    loader: DataLoaderFactory
     batch_size: int
     optimizer: OptimizerFactory
     scheduler: SchedulerFactory

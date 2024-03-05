@@ -8,7 +8,6 @@ import typing as T
 
 import typing_extensions as TX
 
-from . import sanity
-from ._coco import *
+from . import coco, sanity
 from ._info import *
 from ._manifest import *

@@ -5,6 +5,7 @@ Code adapted from: https://github.com/joe-siyuan-qiao/ViP-DeepLab
 """
 from __future__ import annotations
 
+import abc
 import dataclasses as D
 import itertools
 import typing as T
@@ -42,6 +43,7 @@ _logger = get_logger(__name__)
 __all__ = ["DVPSWriter", "DVPSEvaluator"]
 
 
+@D.dataclass(kw_only=True)
 class DVPSWriter(PanopticWriter, DepthWriter):
     """
     Writes DVPS requirements to storage.
@@ -71,7 +73,7 @@ class DVPSWriter(PanopticWriter, DepthWriter):
         storage.set(FRAME_ID, frame_id, inplace=True)
 
 
-@D.dataclass(kw_only=True)
+@D.dataclass(kw_only=True, slots=True)
 class DVPSEvaluator(DVPSWriter):
     """
     Computes (D)VPQ and (D)STQ metrics.

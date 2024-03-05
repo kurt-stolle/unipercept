@@ -1,4 +1,4 @@
-"""Training and evaluation entry point."""
+"""Evaluation entry point."""
 from __future__ import annotations
 
 import argparse
@@ -35,12 +35,17 @@ def evaluate(p: argparse.ArgumentParser):
         type=str,
         help="path to load model weights from, if not are inferred from the configuration path",
     )
-
     p.add_argument(
-        "suites",
-        nargs="*",
+        "--path",
+        "-o",
+        type=up.file_io.Path,
+        help="path to store outputs from evaluation",
+    )
+    p.add_argument(
+        "--suite",
+        nargs="+",
         type=str,
-        help="evaluation suites to run (default: all available)",
+        help="evaluation suite to run",
     )
 
     return _main
@@ -68,8 +73,11 @@ def _main(args):
 
     engine = up.create_engine(lazy_config)
     model_factory = up.create_model_factory(lazy_config, weights=args.weights or None)
+
     try:
-        results = engine.run_evaluation(model_factory)
+        results = engine.run_evaluation(
+            model_factory, suites=args.suite if len(args.suite) > 0 else None
+        )
         _logger.info(
             "Evaluation results: \n%s", up.log.create_table(results, format="long")
         )

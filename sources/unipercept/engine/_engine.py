@@ -27,7 +27,6 @@ import torch.nn as nn
 import torch.optim
 import torch.types
 import torch.utils.data
-import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tabulate import tabulate
@@ -36,10 +35,10 @@ from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
 
-import unipercept
+import wandb
 from unipercept import file_io
 from unipercept.data import DataLoaderFactory
-from unipercept.engine._params import EngineParams, EngineStage
+from unipercept.engine._params import EngineParams, EvaluationSuite, TrainingStage
 from unipercept.engine._trial import Trial, TrialWithParameters
 from unipercept.engine.accelerate import Accelerator, find_executable_batch_size
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
@@ -54,7 +53,6 @@ from unipercept.state import (
     get_process_count,
     get_process_index,
     get_total_batchsize,
-    on_main_process,
 )
 from unipercept.utils.seed import set_seed
 from unipercept.utils.status import StatusDescriptor
@@ -66,7 +64,8 @@ from unipercept.utils.ulid import ULID
 torch._dynamo.config.suppress_errors = True
 
 if T.TYPE_CHECKING:
-    from unipercept.evaluators import Evaluator
+    import unipercept as up
+    from unipercept.evaluators import Evaluator as Evaluator
     from unipercept.model import ModelFactory
 
 MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
@@ -117,17 +116,19 @@ class Engine:
         "dry_run",
         "session_id",
         "_config",
+        "_dataloaders",
+        "_stages",
         "__dict__",
     )
 
     def __init__(
         self,
         *,
-        params: EngineParams,
+        params: up.engine.EngineParams,
         callbacks: T.Sequence[CallbackType | type[CallbackType]],
-        loaders: T.Mapping[str, DataLoaderFactory],
-        stages: T.Iterable[EngineStage] | None = None,
-        evaluators: T.Mapping[str, T.Iterable[Evaluator]] | None = None,
+        stages: T.Iterable[up.engine.TrainingStage] | None = None,
+        evaluators: T.Mapping[str, T.Iterable[Evaluator] | EvaluationSuite]
+        | None = None,
         log_events: bool = False,
         dry_run: bool = False,
     ):
@@ -149,10 +150,16 @@ class Engine:
         self._root = None
         self._config = None
 
-        self._dataloaders: T.Final = loaders or {}
         self._stages = list(stages) if stages is not None else []
-        self._evaluators: T.Final = (
-            {k: list(v) for k, v in evaluators.items()}
+        self._evaluators: T.Final[dict[str, EvaluationSuite]] = (
+            {
+                k: (
+                    EvaluationSuite(enabled=True, loader=k, handlers=list(v))
+                    if not isinstance(v, EvaluationSuite)
+                    else v
+                )
+                for k, v in evaluators.items()
+            }
             if evaluators is not None
             else {}
         )
@@ -355,8 +362,6 @@ class Engine:
             ),
         )
 
-        print("\n\n", file=sys.stderr, flush=True)
-        print("\n\n", file=sys.stderr, flush=True)
         weights = weights
         stage_num = start_stage
         while True:
@@ -381,7 +386,7 @@ class Engine:
         model_factory: ModelFactory,
         *,
         trial: Trial | None = None,
-        stage: int | EngineStage | None = None,
+        stage: int | TrainingStage | None = None,
         weights: str | None = None,
     ) -> str:
         """
@@ -434,9 +439,9 @@ class Engine:
 
         _logger.info(f"Starting training procedure for stage {stage_num}...")
 
-        if not isinstance(stage, EngineStage):
+        if not isinstance(stage, TrainingStage):
             raise TypeError(
-                f"Expected stage to be of type EngineStage, got {type(stage)}"
+                f"Expected stage to be of type TrainingStage, got {type(stage)}"
             )
 
         trial = TrialWithParameters(
@@ -473,7 +478,7 @@ class Engine:
             ), "Expected gradient accumulation to be greater than 0"
 
             loader, steps_per_epoch, updates_per_epoch = self.build_training_dataloader(
-                stage.dataloader, batch_size, gradient_accumulation
+                stage.loader, batch_size, gradient_accumulation
             )
             model = model_factory(overrides=trial.config, weights=trial.weights)
             scheduled_epochs = stage.get_epochs(steps_per_epoch)
@@ -540,16 +545,23 @@ class Engine:
 
         metrics_overall = {}
 
-        for loader_key, handlers in self._evaluators.items():
-            if suites is not None and loader_key not in suites:
-                continue
+        if suites is None:
+            suites = [k for k, v in self._evaluators.items() if v.enabled]
+        else:
+            for k in suites:
+                if k not in self._evaluators:
+                    msg = f"Evaluation suite {k} is not available"
+                    raise ValueError(msg)
+
+        for suite_key in suites:
+            suite = self._evaluators[suite_key]
             _logger.info(
                 "Running inference on loader '%s' for %d handlers",
-                loader_key,
-                len(handlers),
+                suite.loader,
+                len(suite.handlers),
             )
 
-            prefix_suite = "/".join([prefix, loader_key])
+            prefix_suite = "/".join([prefix, suite_key])
 
             torch.cuda.empty_cache()
             gc.collect()
@@ -561,11 +573,10 @@ class Engine:
             else:
                 model = model_factory()
 
-            loader_factory = self._dataloaders[loader_key]
-            loader = loader_factory(1, use_distributed=True)
+            loader = suite.loader(1, use_distributed=True)
 
             metrics, samples_processed = self.run_inference_loop(
-                model, loader, prefix=prefix_suite, handlers=handlers
+                model, loader, prefix=prefix_suite, handlers=suite.handlers
             )
 
             self._train_log(metrics)
@@ -589,7 +600,7 @@ class Engine:
     @T.overload
     def build_training_dataloader(
         self,
-        dataloader: str | DataLoaderFactory,
+        dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
     ) -> tuple[torch.utils.data.DataLoader, int, None]:
@@ -598,7 +609,7 @@ class Engine:
     @T.overload
     def build_training_dataloader(
         self,
-        dataloader: str | DataLoaderFactory,
+        dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
     ) -> tuple[torch.utils.data.DataLoader, int, int]:
@@ -606,7 +617,7 @@ class Engine:
 
     def build_training_dataloader(
         self,
-        dataloader: str | DataLoaderFactory,
+        dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int | None = None,
     ) -> tuple[torch.utils.data.DataLoader, int, int | None]:
@@ -639,17 +650,7 @@ class Engine:
             f"Training batch size {batch_size} must be divisible over the amount of "
             f"processes {get_process_count()}."
         )
-
-        if isinstance(dataloader, str):
-            dl_factory = self._dataloaders[dataloader]
-            dl = dl_factory(batch_size // get_process_count(), use_distributed=False)
-        elif callable(dataloader):
-            dl = dataloader(batch_size // get_process_count(), use_distributed=False)
-        else:
-            raise TypeError(
-                f"Expected dataloader to be a string or a callable, got {type(dataloader)}"
-            )
-
+        dl = dataloader(batch_size // get_process_count(), use_distributed=False)
         steps_per_epoch = len(dl) // get_process_count()
 
         if gradient_accumulation is not None:
@@ -947,6 +948,7 @@ class Engine:
         self._mem_tracker.stop_and_update_metrics("train", metrics)
         self._train_log(metrics)
         self._edge(Event.ON_TRAIN_END)
+        self._stop_experiment_trackers()
 
         return model
 
@@ -1190,7 +1192,7 @@ class Engine:
                 return
             else:
                 _logger.info("Restarting experiment trackers")
-                self.xlr.trackers.clear()
+                self._stop_experiment_trackers()
         else:
             _logger.info("Setting up experiment trackers")
             self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED

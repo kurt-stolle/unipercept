@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import abc
 import dataclasses
 import dataclasses as D
 import enum as E
@@ -9,9 +10,11 @@ import functools
 import typing as T
 
 import torch
+import torch.utils.data
 import typing_extensions as TX
 
 from unipercept.data.tensors import PanopticMap
+from unipercept.data.types import Manifest, QueueItem
 from unipercept.utils.camera import build_calibration_matrix
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
@@ -20,11 +23,11 @@ from unipercept.utils.frozendict import frozendict
 from unipercept.utils.tensorclass import Tensorclass
 
 if T.TYPE_CHECKING:
-    from unipercept.data.collect import ExtractIndividualFrames
-    from unipercept.model import CaptureData
-    from unipercept.data.collect import QueueGeneratorType
+    import unipercept
+    from unipercept.data.collect import ExtractIndividualFrames, QueueGeneratorType
+    from unipercept.data.types.coco import COCOCategory
+    from unipercept.model import CaptureData, ModelOutput
 
-from unipercept.data.types import COCOCategory, Manifest, QueueItem
 
 __all__ = [
     "PerceptionDataset",
@@ -527,7 +530,8 @@ class PerceptionDataset(
     """Baseclass for datasets that are composed of captures and motions."""
 
     queue_fn: T.Callable[[Manifest], QueueGeneratorType] = dataclasses.field(
-        default_factory=_individual_frames_queue
+        default_factory=_individual_frames_queue,
+        metadata={"help": "Queue generator", "locate": True},
     )
 
     @TX.override
@@ -589,17 +593,17 @@ class PerceptionDataset(
 
     @classmethod
     def _load_motion_data(
-        cls, sources: T.Sequence[up.data.types.MotionSources], info: Metadata
-    ) -> up.model.MotionData:
+        cls, sources: T.Sequence[unipercept.data.types.MotionSources], info: Metadata
+    ) -> unipercept.model.MotionData:
         raise NotImplementedError(f"{cls.__name__} does not implement motion sources!")
 
-    _data_cache: T.ClassVar[dict[str, up.model.InputData]] = {}
+    _data_cache: T.ClassVar[dict[str, unipercept.model.InputData]] = {}
 
     @classmethod
     @TX.override
     def _load_data(
         cls, key: str, item: QueueItem, info: Metadata
-    ) -> up.model.InputData:
+    ) -> unipercept.model.InputData:
         from unipercept.model import CameraModel, InputData
 
         # Check for cache hit, should be a memmaped tensor

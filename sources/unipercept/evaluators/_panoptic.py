@@ -5,10 +5,12 @@ Based on the Torchmetrics implementation of the Panoptic Quality metric.
 """
 from __future__ import annotations
 
+import abc
 import concurrent.futures
 import dataclasses as D
 import enum as E
 import functools
+import json
 import typing as T
 
 import pandas as pd
@@ -20,9 +22,11 @@ from tensordict import TensorDictBase
 from tqdm import tqdm
 from typing_extensions import override
 
+from unipercept import file_io
 from unipercept.data.tensors import PanopticMap
+from unipercept.data.types.coco import COCOResultPanoptic
 from unipercept.evaluators import helpers as H
-from unipercept.evaluators._base import Evaluator, PlotMode
+from unipercept.evaluators._base import Evaluator, EvaluatorComputeKWArgs, PlotMode
 from unipercept.log import get_logger
 from unipercept.state import check_main_process, cpus_available
 
@@ -42,7 +46,7 @@ PRED_PANOPTIC: T.Final[str] = "pred_panoptic"
 
 
 @D.dataclass(kw_only=True)
-class PanopticWriter(Evaluator):
+class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
     """
     Stores and optionally renders panoptic segmentation outputs.
     """
@@ -54,8 +58,13 @@ class PanopticWriter(Evaluator):
     plot_pred: PlotMode = PlotMode.ALWAYS
 
     true_key = ("captures", "segmentations")
-    true_group_index = -1  # the most recent group, assuming temporal ordering
+    true_group_index = -1  # the most recent index [batch, group, ...] dimensions
     pred_key = "segmentations"
+
+    coco_export: bool = D.field(
+        default=False,
+        metadata={"help": "Export COCO panoptic segmentation to the given path"},
+    )
 
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
@@ -83,7 +92,8 @@ class PanopticWriter(Evaluator):
 
         pred = outputs.get(self.pred_key)
         if pred is None:
-            raise RuntimeError(f"Panoptic segmentation output not found in {outputs=}")
+            msg = f"Panoptic segmentation output not found in {outputs=}"
+            raise RuntimeError(msg)
 
         true: torch.Tensor = inputs.get(self.true_key, default=None)
         if true is None:  # Generate dummy values for robust evaluation downstream
@@ -98,13 +108,13 @@ class PanopticWriter(Evaluator):
             (PRED_PANOPTIC, pred),
             (VALID_PANOPTIC, valid),
         ):
-            storage.set(key, item, inplace=True)
+            storage.set(key, item, inplace=True)  # noqa: PD002
 
     @override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
-        result = super().plot(storage)
-
         from unipercept.render import draw_image_segmentation
+
+        result = {}
 
         plot_keys = []
         for key, mode_attr in (
@@ -114,7 +124,7 @@ class PanopticWriter(Evaluator):
             mode = getattr(self, mode_attr)
             if mode == PlotMode.NEVER:
                 continue
-            elif mode == PlotMode.ONCE:
+            if mode == PlotMode.ONCE:
                 setattr(self, mode_attr, PlotMode.NEVER)
             plot_keys.append(key)
 
@@ -124,6 +134,44 @@ class PanopticWriter(Evaluator):
                     storage.get_at(key, i), self.info
                 )
         return result
+
+    @override
+    def compute(
+        self, storage: TensorDictBase, **kwargs: T.Unpack[EvaluatorComputeKWArgs]
+    ):
+        if self.coco_export:
+            self._export_coco(storage, **kwargs)
+        return {}
+
+    def _export_coco(self, storage: TensorDictBase, *, path: str, **kwargs) -> None:
+        path_files = file_io.Path(path) / "coco_panoptic"
+        path_json = path_files.with_suffix(".json")
+
+        assert not path_files.exists(), f"Path {path_files} already exists"
+        assert not path_json.exists(), f"Path {path_json} already exists"
+
+        coco_res: list[COCOResultPanoptic] = []
+        items = range(storage.batch_size[0])
+        for i in self._progress_bar(items, desc="Exporting COCO panoptic"):
+            true = T.cast(torch.Tensor, storage.get_at(TRUE_PANOPTIC, i))
+            true = true.as_subclass(PanopticMap)
+            true.translate_semantic_(self.info.translations_dataset, inverse=True)
+
+            coco_img, coco_info = true.to_coco()
+
+            path_file = (path_files / i).with_suffix(".png")
+            coco_res.append(
+                {
+                    "image_id": i,
+                    "file_name": path_file.name,
+                    "segments_info": coco_info,
+                }
+            )
+            coco_img.save(path_file, format="PNG")
+
+        _logger.info("Exporting COCO panoptic segmentation to %s", path_json)
+        with open(path_json, "w") as f:
+            json.dump(coco_res, f)
 
 
 class PQMetrics(T.NamedTuple):
@@ -147,7 +195,6 @@ class PanopticEvaluator(PanopticWriter):
     Computes PQ metrics for panoptic segmentation tasks.
     """
 
-    show_progress: bool = True
     show_summary: bool = True
     show_details: bool = False
     report_details: bool = False

@@ -5,13 +5,18 @@ Cityscapes DPS and VPS datasets.
 from __future__ import annotations
 
 import dataclasses as D
+import functools
 import operator
 import re
 import typing as T
 from dataclasses import dataclass
 from datetime import datetime
+from importlib import metadata
 from typing import Iterable, Literal, Mapping
 
+import torch.utils.data
+import typing_extensions as TX
+from tensordict import TensorDictBase
 from typing_extensions import override
 
 from unipercept import file_io
@@ -23,10 +28,14 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
+from unipercept.evaluators import Evaluator
+from unipercept.model import ModelOutput
 from unipercept.utils.formatter import formatter
 
 if T.TYPE_CHECKING:
     import unipercept as up
+    from unipercept.data import DataLoaderFactory
+    from unipercept.data.types.coco import COCOResultPanoptic
 
 __all__ = ["CityscapesDataset", "CityscapesVPSDataset"]
 
@@ -64,6 +73,16 @@ class FileID:
             path,
         )
 
+    @property
+    def primary_key(self) -> str:
+        """Return a canonical primary key for the file.
+
+        Returns
+        -------
+            Primary key, e.g. "berlin_000123_000019"
+        """
+        return f"{self.city}_{self.drive}_{self.frame}"
+
     def __lt__(self, other: FileID) -> bool:
         return D.astuple(self) < D.astuple(other)
 
@@ -77,8 +96,8 @@ class FileID:
         return D.astuple(self) >= D.astuple(other)
 
 
-def get_primary_key(seq_key: str, idx: int) -> str:
-    return f"{seq_key}_{idx:06d}"
+# def get_primary_key(seq_key: str, idx: int) -> str:
+#     return f"{seq_key}_{idx:06d}"
 
 
 def get_sequence_key(seq_idx: int) -> str:
@@ -289,6 +308,7 @@ CLASSES: T.Final[T.Sequence[SClass]] = [
 ]
 
 
+@functools.lru_cache()
 def get_info():
     return create_metadata(
         CLASSES,
@@ -309,8 +329,10 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
     Link: https://www.cityscapes-dataset.com/
     """
 
-    split: Literal["train", "val", "test"]
-    root: str = "//datasets/cityscapes"
+    split: Literal["train", "val", "test"] = D.field(metadata={"help": "Dataset split"})
+    root: str = D.field(
+        default="//datasets/cityscapes", metadata={"help": "Root directory"}
+    )
 
     path_image = formatter("{self.root}/leftImg8bit/{self.split}")
     path_panoptic = formatter("{self.root}/gtFine/cityscapes_panoptic_{self.split}")
@@ -437,7 +459,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
             camera = CAMERA.to_canonical()  # TODO: read from json
             captures: list[up.data.types.CaptureRecord] = [
                 {
-                    "primary_key": get_primary_key(seq_key, i),
+                    "primary_key": id.primary_key,  # get_primary_key(seq_key, i),
                     "sources": sources_map[id],
                 }
                 for i, id in enumerate(ids)

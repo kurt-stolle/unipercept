@@ -70,7 +70,6 @@ if T.TYPE_CHECKING:
         ...
 
     @T.overload
-    @TX.deprecated("Use 'name' instead of 'query'.")
     def get_dataset(
         query: None,  # noqa: U100
         **kwargs: T.Any,  # noqa: U100

@@ -1,4 +1,5 @@
 """Layers that can generalically be used in a neural network."""
+
 from __future__ import annotations
 
 import typing as T

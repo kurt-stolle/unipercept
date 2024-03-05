@@ -4,7 +4,6 @@ Implementation of mixed convolutional layers.
 Paper: https://arxiv.org/abs/1907.09595
 """
 
-
 from __future__ import annotations
 
 import torch

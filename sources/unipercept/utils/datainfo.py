@@ -1,6 +1,7 @@
 """
 Various descriptors for dataset info (metadata about the dataset)
 """
+
 from __future__ import annotations
 
 from typing import Any, Callable, Final, Generic, Iterable, TypeAlias, TypeVar

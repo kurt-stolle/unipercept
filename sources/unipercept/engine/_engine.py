@@ -27,7 +27,6 @@ import torch.nn as nn
 import torch.optim
 import torch.types
 import torch.utils.data
-import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tabulate import tabulate
@@ -36,6 +35,7 @@ from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
 
+import wandb
 from unipercept import file_io
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EvaluationSuite, TrainingStage
@@ -127,8 +127,9 @@ class Engine:
         params: up.engine.EngineParams,
         callbacks: T.Sequence[CallbackType | type[CallbackType]],
         stages: T.Iterable[up.engine.TrainingStage] | None = None,
-        evaluators: T.Mapping[str, T.Iterable[Evaluator] | EvaluationSuite]
-        | None = None,
+        evaluators: (
+            T.Mapping[str, T.Iterable[Evaluator] | EvaluationSuite] | None
+        ) = None,
         log_events: bool = False,
         dry_run: bool = False,
     ):
@@ -574,7 +575,7 @@ class Engine:
             else:
                 model = model_factory()
 
-            loader = suite.loader(1, use_distributed=True)
+            loader = suite.loader(suite.batch_size, use_distributed=True)
 
             if path is not None:
                 path_suite = file_io.Path(path) / suite_key
@@ -614,8 +615,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
 
     @T.overload
     def build_training_dataloader(
@@ -623,8 +623,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
 
     def build_training_dataloader(
         self,
@@ -1000,7 +999,6 @@ class Engine:
         path: T.Optional[file_io.PathLike] = None,
         *,
         weights: T.Optional[file_io.PathLike] = None,
-        batch_size: int = 1,
     ) -> tuple[dict[str, T.Any], int]:
         """
         Evaluation loop, which roughly follows the folowing procedure:
@@ -1021,6 +1019,9 @@ class Engine:
         gc.collect()
 
         # Find the size of the dataset
+        batch_size = dataloader.batch_size
+        if batch_size is None:
+            raise RuntimeError("Batch size must be set on the dataloader")
         batch_total, batch_offsets = get_total_batchsize(dataloader, self.xlr.device)
         samples_total = batch_total * batch_size
         _logger.debug(

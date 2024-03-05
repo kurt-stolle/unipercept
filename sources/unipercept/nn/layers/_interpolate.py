@@ -11,6 +11,7 @@ class Interpolate2d(nn.Module):
     r"""
     Wraps :func:`torch.nn.functional.interpolate` as a module.
     """
+
     name: torch.jit.Final[str]
     size: torch.jit.Final[int | tuple[int, int] | None]
     scale_factor: torch.jit.Final[float | tuple[float, float] | None]

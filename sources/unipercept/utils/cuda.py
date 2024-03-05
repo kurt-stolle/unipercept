@@ -2,7 +2,6 @@
 Implements utility functions that assert whether the current system supports certain features.
 """
 
-
 from __future__ import annotations
 
 __all__ = []

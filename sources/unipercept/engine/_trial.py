@@ -2,7 +2,6 @@
 Impements HP search and NAS using a backend provider.
 """
 
-
 from __future__ import annotations
 
 import abc

@@ -19,12 +19,10 @@ ShadowFunction = Callable[Concatenate[_T, _P], _R]
 
 class shadowmutate(Generic[_T, _P, _R]):
     @overload
-    def __new__(cls, fn: ShadowFunction, /, **kwargs) -> ShadowFunction:
-        ...
+    def __new__(cls, fn: ShadowFunction, /, **kwargs) -> ShadowFunction: ...
 
     @overload
-    def __new__(cls, **kwargs) -> Self:
-        ...
+    def __new__(cls, **kwargs) -> Self: ...
 
     def __new__(cls, *args, **kwargs) -> ShadowFunction | Self:
         # Case 1: Decorator as @shadowmutate without arguments

@@ -1,6 +1,5 @@
 """Implements a feature extraction backbone using Torchvision."""
 
-
 from __future__ import annotations
 
 import typing as T

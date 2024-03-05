@@ -3,6 +3,7 @@ Implements an evaluator for panoptic segmentation tasks.
 
 Based on the Torchmetrics implementation of the Panoptic Quality metric.
 """
+
 from __future__ import annotations
 
 import abc

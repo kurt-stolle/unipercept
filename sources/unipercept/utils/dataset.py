@@ -203,9 +203,12 @@ class Dataset(
     # QUEUE #
     # ----- #
 
-    queue_fn: T.Callable[
-        [_T_MFST], T.Mapping[str, _T_QITEM] | T.Iterable[tuple[str, _T_QITEM]]
-    ] | None = D.field(default=None, repr=True, compare=False, kw_only=True)
+    queue_fn: (
+        T.Callable[
+            [_T_MFST], T.Mapping[str, _T_QITEM] | T.Iterable[tuple[str, _T_QITEM]]
+        ]
+        | None
+    ) = D.field(default=None, repr=True, compare=False, kw_only=True)
 
     _queue: _Dataqueue[_T_QITEM] | None = D.field(
         default=None, hash=False, repr=False, compare=False, init=False

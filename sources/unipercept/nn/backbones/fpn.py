@@ -221,8 +221,7 @@ class LastLevelP6P7(ExtraFPNBlock):
 
     if T.TYPE_CHECKING:
         # Backwards compatability
-        def __init__(self, channels: int):
-            ...
+        def __init__(self, channels: int): ...
 
     else:
 

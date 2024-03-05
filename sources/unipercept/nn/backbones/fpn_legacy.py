@@ -622,9 +622,11 @@ def build_quad_routing(
                 "level": i,
                 "in_offsets": [
                     level_first_id(i),
-                    level_last_id(i - 1)
-                    if i != min_level + 1
-                    else level_first_id(i - 1),
+                    (
+                        level_last_id(i - 1)
+                        if i != min_level + 1
+                        else level_first_id(i - 1)
+                    ),
                 ],
                 "weight_method": weight_method,
             }

@@ -1,6 +1,7 @@
 """
 Implements an evaluator for depth estimation tasks.
 """
+
 from __future__ import annotations
 
 import concurrent.futures

@@ -2,7 +2,6 @@
 Wrap and register torchvision's tensor types.
 """
 
-
 from __future__ import annotations
 
 import typing as T

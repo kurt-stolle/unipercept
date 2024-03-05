@@ -41,9 +41,11 @@ class GroupAdjacentTime:
         num_frames: int,
         *,
         use_typecheck=False,
-        required_capture_sources: set[KnownCaptureSources | str]
-        | T.Sequence[set[KnownCaptureSources | str]]
-        | None = None,
+        required_capture_sources: (
+            set[KnownCaptureSources | str]
+            | T.Sequence[set[KnownCaptureSources | str]]
+            | None
+        ) = None,
         verbose: bool = False,
         step_size: set[int] | None = None,
     ):

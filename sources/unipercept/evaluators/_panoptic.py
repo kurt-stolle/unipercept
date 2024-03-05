@@ -228,11 +228,11 @@ class PanopticEvaluator(PanopticWriter):
 
         if self.pq_definition & PQDefinition.ORIGINAL:
             metrics["original"] = self.compute_pq(
-                storage, **kwargs, allow_stuff_instances=True
+                storage, device=kwargs["device"], allow_stuff_instances=True
             )
         if self.pq_definition & PQDefinition.BALANCED:
             metrics["balanced"] = self.compute_pq(
-                storage, **kwargs, allow_stuff_instances=False
+                storage, device=kwargs["device"], allow_stuff_instances=False
             )
 
         if len(metrics) == 0:

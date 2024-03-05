@@ -20,7 +20,7 @@ from torch.nn.parameter import Parameter
 
 from ..weight import init_xavier_fill_
 from ._extended import Conv2d
-from .utils import NormActivationMixin, PaddingMixin
+from .utils import NormActivationMixin
 
 __all__ = ["ModDeform2d", "DeformConv2d"]
 
@@ -223,7 +223,7 @@ class DeformConv2d(nn.Module):
         return s
 
 
-class ModDeform2d(NormActivationMixin, PaddingMixin, nn.Module):
+class ModDeform2d(NormActivationMixin, nn.Module):
     """
     Modulated deformable convolution.
     The offset mask is computed by  a convolutional layer.

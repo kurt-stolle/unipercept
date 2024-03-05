@@ -152,4 +152,10 @@ def gather_tensordict(td: TensorDictBase) -> TensorDict:
 
 
 def cpus_available():
-    return len(os.sched_getaffinity(0))
+    from multiprocessing import cpu_count
+
+    try:
+        return len(os.sched_getaffinity(0))
+    except:
+        pass
+    return max(cpu_count(), 1)

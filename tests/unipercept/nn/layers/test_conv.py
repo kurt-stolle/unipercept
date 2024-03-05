@@ -69,21 +69,7 @@ def test_forward(
     )
 
     y = m.forward(input_tensor)
-
     out = y.sum()
-
     assert out.isfinite().all(), out
-
     out.backward()
-
     assert input_tensor.grad is not None
-
-    print(
-        f"x     : mean {input_tensor.mean().item(): 4.3f}, std {input_tensor.std().item(): 4.3f} | {tuple(input_tensor.shape)}"
-    )
-    print(
-        f"y     : mean {y.mean().item(): 4.3f}, std {y.std().item(): 4.3f} | {tuple(y.shape)}"
-    )
-    print(
-        f"dx/dy : mean {input_tensor.grad.mean().item(): 4.3f}, std {input_tensor.grad.std().item(): 4.3f} | {tuple(input_tensor.grad.shape)}"
-    )

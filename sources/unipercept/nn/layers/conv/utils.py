@@ -21,9 +21,6 @@ from unipercept.utils.function import to_2tuple
 __all__ = [
     "with_norm_activation",
     "NormActivationMixin",
-    "with_padding_support",
-    "Padding",
-    "PaddingMixin",
 ]
 
 
@@ -67,7 +64,6 @@ def get_output_channels(
 # ---------------------- #
 
 
-@torch.jit.ignore()
 def _init_sequential_norm_activation(
     cls,
     *args,
@@ -85,7 +81,6 @@ def _init_sequential_norm_activation(
     return seq
 
 
-@torch.jit.ignore()
 def _init_sequential_norm(
     cls, *args, norm: T.Optional[NormSpec], bias: T.Optional[bool] = None, **kwargs
 ) -> nn.Sequential:
@@ -109,7 +104,6 @@ def _init_sequential_norm(
     return seq
 
 
-@torch.jit.ignore()
 def _init_sequential_activation(
     cls, *args, activation: T.Optional[ActivationSpec] = None, **kwargs
 ) -> nn.Sequential:

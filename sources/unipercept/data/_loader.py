@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import abc
-import dataclasses
 import dataclasses as D
 import enum
 import functools
 import itertools
 import math
-import multiprocessing as M
 import operator
 import typing as T
 import warnings
@@ -47,41 +45,34 @@ __all__ = [
 _logger = get_logger(__name__)
 
 
-def _suggest_workers():
-    """
-    Suggests the number of workers for the dataloader based on the number of available CPUs
-    """
-    try:
-        return max(cpus_available() - (cpus_available() // 4), 1)
-    except Exception:
-        return M.cpu_count() // get_process_count()
-
-
-DEFAULT_NUM_WORKERS = get_env(
-    int,
-    "UP_DATALOADER_WORKERS",
-    "UNIPERCEPT_DATALOADER_WORKERS",
-    default=_suggest_workers(),
-)
-
-DEFAULT_PREFETCH_FACTOR = get_env(
-    int,
-    "UP_DATALOADER_PREFETCH_FACTOR",
-    "UNIPERCEPT_DATALOADER_PREFETCH_FACTOR",
-    default=2,
-)
-
-
-@dataclasses.dataclass(slots=True, frozen=True)
+@D.dataclass(slots=True, frozen=True)
 class DataLoaderConfig:
     """
     Configuration parameters passed to the PyTorch dataoader
     """
 
     drop_last: bool = False
-    pin_memory: bool = True
-    num_workers: int = DEFAULT_NUM_WORKERS
-    prefetch_factor: int | None = DEFAULT_PREFETCH_FACTOR
+    pin_memory: bool = D.field(
+        default_factory=lambda: get_env(
+            bool,
+            "UP_DATALOADER_PIN_MEMORY",
+            default=False,
+        )
+    )
+    num_workers: int = D.field(
+        default_factory=lambda: get_env(
+            int,
+            "UP_DATALOADER_WORKERS",
+            default=max(cpus_available(), 16),
+        )
+    )
+    prefetch_factor: int | None = D.field(
+        default_factory=lambda: get_env(
+            int,
+            "UP_DATALOADER_PREFETCH_FACTOR",
+            default=2,
+        )
+    )
     persistent_workers: bool | None = False
 
 
@@ -90,7 +81,7 @@ class DataLoaderConfig:
 ##################
 
 
-@dataclasses.dataclass(slots=True, frozen=True)
+@D.dataclass(slots=True, frozen=True)
 class DataLoaderFactory:
     """
     Factory for creating dataloaders.
@@ -115,8 +106,8 @@ class DataLoaderFactory:
     dataset: PerceptionDataset
     actions: T.Sequence[Op]
     sampler: SamplerFactory
-    config: DataLoaderConfig = dataclasses.field(default_factory=DataLoaderConfig)
-    iterable: bool = dataclasses.field(
+    config: DataLoaderConfig = D.field(default_factory=DataLoaderConfig)
+    iterable: bool = D.field(
         default=False,
         metadata={
             "help": (
@@ -142,11 +133,10 @@ class DataLoaderFactory:
 
         # Keyword arguments for the loader
         loader_kwargs = {
-            k: v for k, v in dataclasses.asdict(self.config).items() if v is not None
+            k: v for k, v in D.asdict(self.config).items() if v is not None
         }
 
         # Instantiate sampler
-
         sampler_kwargs = {}
         if not use_distributed:
             sampler_kwargs["process_count"] = 1
@@ -187,7 +177,12 @@ class DataLoaderFactory:
         # Loader
         loader_kwargs["batch_size"] = batch_size
         loader_kwargs.setdefault("collate_fn", InputData.collate)
-        loader_kwargs.setdefault("worker_init_fn", _worker_init_fn)
+
+        if loader_kwargs["num_workers"] > 0:
+            loader_kwargs.setdefault("worker_init_fn", _worker_init_fn)
+        elif "worker_init_fn" in loader_kwargs:
+            msg = f"Worker init function is set, but num_workers is {loader_kwargs['num_workers']}."
+            raise ValueError(msg)
 
         _logger.debug(
             "Creating dataloader (%d queued; %d × %d items):\n%s",
@@ -683,7 +678,3 @@ class SamplerFactory:
 
     def __call__(self, queue: PerceptionDataqueue) -> Sampler:
         return self._fn(queue)
-
-
-if __name__ == "__main__":
-    print("Default configuration for dataloader workers: ", DEFAULT_NUM_WORKERS)

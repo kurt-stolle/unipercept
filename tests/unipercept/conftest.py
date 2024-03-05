@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
 import typing as T
-from dis import disco
-from email.mime import image
 from pathlib import Path
 
 import pytest
@@ -13,6 +12,10 @@ from tensordict import TensorDict
 
 import unipercept as up
 from unipercept.data.sets import Metadata
+
+os.environ["WANDB_MODE"] = "disabled"
+os.environ["WANDB_SILENT"] = "true"
+os.environ["UP_DATALOADER_WORKERS"] = "1"
 
 #################################
 # Directories with testing data #

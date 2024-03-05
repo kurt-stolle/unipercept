@@ -346,7 +346,7 @@ class ModelFactory:
                 overrides_list = list(overrides)
             _logger.info(
                 "Instantiating model with configuration overrides: %s",
-                ", ".join(overrides_list),
+                ", ".join(overrides_list) if len(overrides_list) > 0 else "(none)",
             )
             model_config = apply_overrides(model_config, overrides_list)
         else:

@@ -7,21 +7,13 @@ import torch
 import torch.nn as nn
 import typing_extensions as TX
 
-from .utils import NormActivationMixin, PaddingMixin
+from .utils import NormActivationMixin
 
-__all__ = ["Conv2d", "Standard2d", "PadConv2d", "Separable2d"]
+__all__ = ["Conv2d", "Standard2d", "Separable2d"]
 
 
 class Conv2d(NormActivationMixin, nn.Conv2d):
     pass
-
-
-class PadConv2d(PaddingMixin, Conv2d):
-    @TX.override
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self._padding_forward(x, self.kernel_size, self.stride, self.dilation)
-        x = self._conv_forward(x, self.weight, self.bias)
-        return x
 
 
 class Standard2d(Conv2d):
@@ -43,7 +35,7 @@ class Standard2d(Conv2d):
 
     @TX.override
     def forward(self, x):
-        weight = F.batch_norm(
+        weight = nn.functional.batch_norm(
             self.weight.reshape(1, self.out_channels, -1),
             None,
             None,

@@ -17,7 +17,7 @@ from typing_extensions import override
 
 from unipercept.utils.function import to_2tuple
 
-from .utils import NormActivationMixin, PaddingMixin
+from .utils import NormActivationMixin
 
 
 def get_condconv_initializer(initializer, num_experts, expert_shape):
@@ -40,7 +40,7 @@ def get_condconv_initializer(initializer, num_experts, expert_shape):
     return condconv_initializer
 
 
-class CondConv2d(PaddingMixin, NormActivationMixin, nn.Module):
+class CondConv2d(NormActivationMixin, nn.Module):
     r"""
     Based on the implementation in `timm.layers`, where their docs state:
     >   Conditionally Parameterized Convolution

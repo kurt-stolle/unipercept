@@ -75,9 +75,8 @@ def _read_model_wandb(path: str) -> str:
     from unipercept import file_io
 
     run = _wandb_read_run(path)
-    from wandb.sdk.wandb_run import Run
-
     import wandb
+    from wandb.sdk.wandb_run import Run
 
     assert path.startswith(WANDB_RUN_PREFIX)
 
@@ -388,7 +387,8 @@ def create_dataset(
     variant: T.Optional[str | re.Pattern] = None,
     batch_size: int = 1,
     return_loader: bool = True,
-) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]: ...
+) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
+    ...
 
 
 @T.overload
@@ -397,7 +397,8 @@ def create_dataset(
     variant: T.Optional[str | re.Pattern] = None,
     batch_size: int = 1,
     return_loader: bool = True,
-) -> tuple[T.Iterator[InputData], Metadata]: ...
+) -> tuple[T.Iterator[InputData], Metadata]:
+    ...
 
 
 def create_dataset(

@@ -328,7 +328,8 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None: ...
+    ) -> Signal | None:
+        ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]

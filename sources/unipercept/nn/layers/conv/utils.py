@@ -30,13 +30,15 @@ _OUTPUT_CHANNEL_PROPERTIES = ["out_channels", "out_dims"]
 @T.overload
 def get_output_channels(
     mod: nn.Module, *, use_weight: bool = True, none_ok: bool = False
-) -> int: ...
+) -> int:
+    ...
 
 
 @T.overload
 def get_output_channels(
     mod: nn.Module, *, use_weight: bool = True, none_ok: bool = True
-) -> int | None: ...
+) -> int | None:
+    ...
 
 
 def get_output_channels(

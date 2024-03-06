@@ -175,9 +175,9 @@ class DVPSEvaluator(DVPSWriter):
                     threshold_key = "t_" + str(threshold).replace(".", "_")
                     result[definition][window_key][threshold_key] = {}
                     for metric, df_m in df_t.groupby("Metric"):
-                        result[definition][window_key][threshold_key]["all"][metric] = (
-                            df_m["All"].mean()
-                        )
+                        result[definition][window_key][threshold_key]["all"][
+                            metric
+                        ] = df_m["All"].mean()
                         result[definition][window_key][threshold_key]["thing"][
                             metric
                         ] = df_m["Thing"].mean()

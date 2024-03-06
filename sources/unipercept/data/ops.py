@@ -77,7 +77,8 @@ class Op(torch.nn.Module, metaclass=abc.ABCMeta):
     if T.TYPE_CHECKING:
 
         @override
-        def __call__(self, inputs: InputData) -> InputData: ...
+        def __call__(self, inputs: InputData) -> InputData:
+            ...
 
 
 class CloneOp(Op):
@@ -261,12 +262,9 @@ class GuidedRandomCrop(Op):
         top, left = self._find_crop(inputs.captures.segmentations)
 
         def apply_crop(x: torch.Tensor) -> torch.Tensor:
-            if not type(x) in pixel_maps:
+            if type(x) not in pixel_maps:
                 return x
-            else:
-                return torchvision.transforms.v2.functional.crop(
-                    x, top, left, *self._size
-                )
+            return torchvision.transforms.v2.functional.crop(x, top, left, *self._size)
 
         inputs.captures = inputs.captures.fix_subtypes_().apply(
             apply_crop, batch_size=inputs.captures.batch_size
@@ -354,6 +352,46 @@ class PseudoMotion(Op):
             # if reverse:
             #     mots.reverse()
             # inputs.motions = torch.cat(mots, dim=0)
+
+        return inputs
+
+
+########################################################################################
+# PAD TO DIVISIBLE
+########################################################################################
+
+
+class PadToDivisible(Op):
+    """
+    Pads the input to be divisible by a given number.
+    """
+
+    def __init__(self, divisor: int):
+        super().__init__()
+        self._divisor = divisor
+
+    @override
+    def _run(self, inputs: InputData) -> InputData:
+        from .tensors.registry import pixel_maps
+
+        if inputs.motions is not None:
+            raise NotImplementedError("Transforms for motion data not supported!")
+
+        h, w = inputs.captures.images.shape[-2:]
+        pad_h = (self._divisor - h % self._divisor) % self._divisor
+        pad_w = (self._divisor - w % self._divisor) % self._divisor
+
+        if pad_h == 0 and pad_w == 0:
+            return inputs
+
+        def apply_padding(x: torch.Tensor) -> torch.Tensor:
+            if type(x) not in pixel_maps:
+                return x
+            return torchvision.transforms.v2.functional.pad(x, [0, 0, pad_w, pad_h])
+
+        inputs.captures = inputs.captures.fix_subtypes_().apply(
+            apply_padding, batch_size=inputs.captures.batch_size
+        )
 
         return inputs
 

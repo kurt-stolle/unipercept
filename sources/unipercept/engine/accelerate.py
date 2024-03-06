@@ -102,20 +102,23 @@ if T.TYPE_CHECKING:
         function: _Fin[_P, _R],
         *,
         starting_batch_size: int = 128,
-    ) -> _Fout[_P, _R]: ...
+    ) -> _Fout[_P, _R]:
+        ...
 
     @T.overload
     def find_executable_batch_size(
         function: None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]:
+        ...
 
     def find_executable_batch_size(
         function: _Fin | None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]:
+        ...
 
 else:
     find_executable_batch_size = accelerate.utils.find_executable_batch_size

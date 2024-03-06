@@ -159,30 +159,51 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
         assert not path_files.exists(), f"Path {path_files} already exists"
         assert not path_json.exists(), f"Path {path_json} already exists"
 
+        _logger.info("Exporting COCO panoptic segmentation to %s", path_json)
+
         path_files.mkdir(parents=True, exist_ok=True)
 
         coco_res: list[COCOResultPanoptic] = []
-        items = range(storage.batch_size[0])
-        for i in self._progress_bar(items, desc="Exporting COCO panoptic"):
-            true = T.cast(torch.Tensor, storage.get_at(TRUE_PANOPTIC, i))
-            true = true.as_subclass(PanopticMap)
-            true.translate_semantic_(self.info.translations_dataset, inverse=True)
+        sample_amt = storage.batch_size[0]
+        export_at = functools.partial(
+            _export_coco_at,
+            storage=storage,
+            translations_dataset=self.info.translations_dataset,
+            path_files=path_files,
+        )
+        progress_bar = self._progress_bar(
+            total=sample_amt, desc="Exporting COCO panoptic"
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+            for result in pool.map(
+                export_at,
+                range(sample_amt),
+            ):
+                progress_bar.update(1)
+                if result is not None:
+                    coco_res.append(result)
 
-            coco_img, coco_info = true.to_coco()
-
-            path_file = (path_files / str(i)).with_suffix(".png")
-            coco_res.append(
-                {
-                    "image_id": i,
-                    "file_name": path_file.name,
-                    "segments_info": coco_info,
-                }
-            )
-            coco_img.save(path_file, format="PNG")
-
-        _logger.info("Exporting COCO panoptic segmentation to %s", path_json)
         with open(path_json, "w") as f:
             json.dump(coco_res, f)
+
+
+def _export_coco_at(
+    i: int, *, storage, translations_dataset, path_files
+) -> COCOResultPanoptic | None:
+    valid = storage.get_at(VALID_PANOPTIC, i).item()
+    if not valid:
+        return None
+    true = T.cast(torch.Tensor, storage.get_at(PRED_PANOPTIC, i))
+    true = true.as_subclass(PanopticMap)
+    true.translate_semantic_(translations_dataset, inverse=True)
+    coco_img, coco_info = true.to_coco()
+    path_file = (path_files / str(i)).with_suffix(".png")
+    coco_img.save(path_file, format="PNG")
+    return {
+        "image_id": i,
+        "file_name": path_file.name,
+        "segments_info": coco_info,
+    }
 
 
 class PQMetrics(T.NamedTuple):

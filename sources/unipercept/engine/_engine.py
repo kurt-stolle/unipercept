@@ -27,6 +27,7 @@ import torch.nn as nn
 import torch.optim
 import torch.types
 import torch.utils.data
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tabulate import tabulate
@@ -35,7 +36,6 @@ from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
 
-import wandb
 from unipercept import file_io
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EvaluationSuite, TrainingStage
@@ -591,7 +591,6 @@ class Engine:
                 path=path_suite,
             )
 
-            self._train_log(metrics)
             self._edge(Event.ON_EVALUATE, metrics=metrics)
             self._mem_tracker.stop_and_update_metrics("eval", metrics)
 
@@ -601,11 +600,12 @@ class Engine:
             for metric_key in list(metrics.keys()):
                 if not metric_key.startswith(prefix_suite):
                     metrics[prefix_suite] = metrics.pop(metric_key)
-
             metrics_overall.update(metrics)
 
         if len(metrics_overall) == 0:
             _logger.warning("No metrics were logged during evaluation")
+
+        self._train_log(metrics_overall)
 
         return metrics_overall
 
@@ -615,7 +615,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]:
+        ...
 
     @T.overload
     def build_training_dataloader(
@@ -623,7 +624,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]:
+        ...
 
     def build_training_dataloader(
         self,
@@ -1195,19 +1197,23 @@ class Engine:
         This should be called at the beginning of training  and inference.
         """
         if self.dry_run:
-            _logger.info("Skipping experiment trackers (dry run)")
+            _logger.info("Start trackers: skipping (dry run)")
             return
 
         if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status:
             if not restart:
-                _logger.debug("Trackers already started, skipping setup")
+                _logger.debug("Start trackers: skipping (already started)")
                 return
             else:
-                _logger.info("Restarting experiment trackers")
+                _logger.info("Start trackers: performing restart")
                 self._stop_experiment_trackers()
-        else:
-            _logger.info("Setting up experiment trackers")
-            self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED
+
+        barrier()
+
+        _logger.info("Start trackers: initializing")
+
+        self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED
+        self.xlr.trackers.clear()
 
         # Determine the job type from the status
         if self.status & EngineStatus.IS_TRAINING_RUN:
@@ -1254,7 +1260,8 @@ class Engine:
             config_path=str(self.config_path),
             session_id=str(self.session_id),
         )
-        self.xlr.wait_for_everyone()
+
+        barrier()
 
     def _stop_experiment_trackers(self) -> None:
         """
@@ -1262,15 +1269,17 @@ class Engine:
         anymore.
         """
         if self.dry_run:
-            _logger.info("Skipping stopping experiment trackers (dry run)")
+            _logger.info("Stop trackers: skipping (dry run)")
             return
 
         if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status:
-            _logger.info("Stopping experiment trackers")
+            _logger.info("Stop trackers: marking experiment as finished")
             for tracker in self.xlr.trackers:
                 tracker.finish()
             self.xlr.trackers.clear()
             self.status &= ~EngineStatus.EXPERIMENT_TRACKERS_STARTED
+        else:
+            _logger.info("Stop trackers: skipping (not started)")
 
     def _train_handle_signals(
         self,
@@ -1420,22 +1429,19 @@ class Engine:
         Load the engine state from the given path, if no path is given, the last checkpoint is used.
         """
         if path is not None:
-            path = file_io.get_local_path(path)
+            path = file_io.Path(path)
         elif self._recover_path is not None:
-            path = file_io.get_local_path(self._recover_path)
+            path = file_io.Path(self._recover_path)
         else:
             if (
-                not file_io.isdir(self.states_dir)
-                or len(file_io.ls(self.states_dir)) == 0
+                not self.states_dir.is_dir()
+                or len(list(self.states_dir.iterdir())) == 0
             ):
-                raise FileNotFoundError(
-                    "No engine state path given and no automatic checkpoints found."
-                )
-            path = _find_latest_checkpoint(self.states_dir)
-
+                msg = "No engine state path given and no automatic checkpoints found."
+                raise FileNotFoundError(msg)
+            path = _find_recent_generated_item(self.states_dir)
         _logger.info("Loading state from %s", path)
-
-        self.xlr.load_state(file_io.get_local_path(path))  # type: ignore
+        self.xlr.load_state(str(path))
 
     def _save_state(self, path: T.Optional[Pathable]) -> str:
         """

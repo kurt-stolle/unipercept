@@ -65,15 +65,14 @@ def _step(args) -> config_t:
     if args.debug:
         _apply_debug_mode(args.config)
 
+    up.state.barrier()  # Ensure the config file is not created before all processes validate its existence
     return args.config
 
 
 def _main(args):
-    lazy_config = _step(args)
-    up.state.barrier()  # Ensure the config file is not created before all processes validate its existence
-
-    engine = up.create_engine(lazy_config)
-    model_factory = up.create_model_factory(lazy_config, weights=args.weights or None)
+    config = _step(args)
+    engine = up.create_engine(config)
+    model_factory = up.create_model_factory(config, weights=args.weights or None)
     suites = args.suite if args.suite is not None and len(args.suite) > 0 else None
     try:
         results = engine.run_evaluation(
@@ -85,9 +84,6 @@ def _main(args):
             "Evaluation results: \n%s", up.log.create_table(results, format="long")
         )
     except KeyboardInterrupt:
-        print("\n\n", flush=True, file=sys.stdout)
-        print("\n\n", flush=True, file=sys.stderr)
-
         _logger.info("Evaluation interrupted")
 
 

@@ -50,10 +50,8 @@ def train(p: argparse.ArgumentParser):
 
 @torch.inference_mode()
 def _main(args: argparse.Namespace):
-    config = args.config
-
-    model = up.models.load(config.model)
-    preprocess = _build_transforms()
+    model = up.create_model(args.config)
+    preprocess = _build_transforms(args)
 
     if up.file_io.isdir(args.input):
         run = _run_filesystem(model, preprocess, args.input)
@@ -71,9 +69,11 @@ def _build_transforms(args):
 
     tf = []
     if args.size:
-        tf.append(transforms.Resize(args.size))
+        tf.append(up.data.ops.TorchvisionOp(transforms.Resize(args.size)))
 
-    return up.data.ops.TorchvisionOp(tf)
+    tf.append(up.data.ops.PadToDivisible(32))
+
+    return tf
 
 
 def _get_capture(cap_num):

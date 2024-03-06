@@ -108,7 +108,7 @@ def infer_shapes(
     import copy
 
     mod_clone = copy.deepcopy(mod)
-    with torch.inference_mode():
+    with torch.no_grad():
         inp = torch.randn((8, 3, *test_shape), dtype=torch.float32, requires_grad=False)
         out = mod_clone(inp)
         if isinstance(out, dict):

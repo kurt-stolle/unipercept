@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import typing as T
 from collections import OrderedDict
-
+import warnings
 import timm
 import timm.data
 import torch
@@ -133,6 +133,8 @@ def _build_extractor(
     out_indices: T.Sequence[int] | None | int,
     use_graph: bool,
 ) -> tuple[nn.Module, dict[str, T.Any]]:
+    from unipercept.config import get_env
+
     mdl = timm.create_model(name, features_only=False, pretrained=pretrained)
     config = timm.data.resolve_data_config({}, model=mdl)
 
@@ -146,6 +148,14 @@ def _build_extractor(
         idxs = tuple(range(num_features - out_indices, num_features))
     else:
         idxs = tuple(out_indices)
+
+    if get_env(bool, "UP_NN_BACKBONES_DISABLE_GRAPH", default=False):
+        warnings.warn(
+            "FX graph backbone tracing is disabled by environment variable UP_NN_BACKBONES_DISABLE_GRAPH",
+            UserWarning,
+            stacklevel=0,
+        )
+        use_graph = False
 
     if use_graph:
         out = timm.models.FeatureGraphNet(mdl, out_indices=idxs)

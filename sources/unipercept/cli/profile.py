@@ -13,6 +13,7 @@ import torch.autograd.profiler
 import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
+from omegaconf.errors import ConfigAttributeError
 
 from unipercept import create_dataset, create_engine, create_model, file_io
 from unipercept.cli._command import command
@@ -25,7 +26,11 @@ from unipercept.utils.time import get_timestamp
 @command.with_config
 def profile(subparser: argparse.ArgumentParser):
     subparser.add_argument(
-        "--loader", "-l", type=str, default="train", help="loader to use for profiling"
+        "--loader",
+        "-l",
+        type=str,
+        default=None,
+        help="key of the evaluation suite of which the loader is used for profiling",
     )
     subparser.add_argument(
         "--iterations",
@@ -48,8 +53,16 @@ def profile(subparser: argparse.ArgumentParser):
     )
     subparser.add_argument(
         "--flops",
+        "-f",
         action="store_true",
         help="profile FLOPs using methodology proposed by FAIR's `fvcore` package.",
+        default=False,
+    )
+    subparser.add_argument(
+        "--parameter-count",
+        "-p",
+        action="store_true",
+        help="profile model parameters using `fvcore` package.",
         default=False,
     )
     subparser.add_argument(
@@ -78,23 +91,36 @@ def _find_session_path(config: T.Any) -> file_io.Path:
     """
     Find the path to the session file.
     """
+
+    proj_name = config.ENGINE.params.project_name
+
     try:
-        path = file_io.Path(
-            f"//output/{config.engine.params.project_name}/{config.engine.params.session_name}/profile"
-        )
-    except KeyError:
-        path = file_io.Path(f"//output/uncategorized/{get_timestamp()}/profile")
-        _logger.warning("No session file found in config, using default path")
+        path = file_io.Path(f"//output/{proj_name}/{config.session_id}/profile")
+    except (KeyError, ConfigAttributeError):
+        path = file_io.Path(f"//output/profile/{proj_name}/{get_timestamp()}/profile")
+        _logger.warning("No session file found in config, using default path: %s", path)
 
     path.mkdir(exist_ok=True, parents=True)
 
     return path
 
 
-def _analyse_flops(model: nn.Module, loader: torch.utils.data.DataLoader) -> None:
+def _analyse_params(
+    model: nn.Module,
+    **kwargs
+) -> None:
+    from fvcore.nn import parameter_count_table
+
+    _logger.info("Analysing model parameters...")
+    _logger.info("Parameter count:\n%s", parameter_count_table(model, **kwargs))
+
+def _analyse_flops(
+    model: nn.Module, loader: torch.utils.data.DataLoader, device: torch.types.Device
+) -> None:
     from fvcore.nn import FlopCountAnalysis
 
     inputs = next(iter(loader))
+    inputs = inputs.to(device)
     model_adapter = ModelAdapter(model, inputs, allow_non_tensor=True)
 
     flops = FlopCountAnalysis(model_adapter, inputs=model_adapter.flattened_inputs)
@@ -111,8 +137,6 @@ def _analyse_memory(
     iterations: int,
     path_export: file_io.Path,
 ) -> None:
-    """ """
-
     _logger.info("Profiling model with snapshot")
     torch.cuda.memory._record_memory_history()
 
@@ -179,31 +203,36 @@ def _main(args):
     _logger.info("Saving results to %s", path_export)
 
     engine = create_engine(config)
+    config.MODEL.tracker = None  # DEBUG
     model = create_model(config, state=args.weights)
-    model.to(engine.device)
+    model.to(engine.xlr.device)
 
+    if args.parameter_count:
+        _analyse_params(model)
+
+    # Exit early when no further profiling is requested
+    if not any([args.flops, args.memory, args.trace]):
+        exit(0)
+
+    # Prepare model and loader
     if args.training:
         handler = engine.run_training_step
         model.train()
-        torch.inference_mode(True)
+        msg = "Training profiling is not yet supported"
+        raise NotImplementedError(msg)  # TODO
     elif args.inference:
         handler = engine.run_inference_step
         model.eval()
-        torch.inference_mode(False)
+        _logger.info("Preparing dataset")
+        loader, info = create_dataset(config, variant=args.loader, batch_size=1)
     else:
         _logger.error(
             "Unknown mode; provide either the `--training` or `--inference` flag"
         )
         exit(1)
 
-    _logger.info("Preparing dataset")
-    loader, info = create_dataset(config, variant=args.loader, batch_size=1)
-
-    if not any([args.flops, args.memory, args.trace]):
-        _logger.info("No profiling method specified; exiting")
-        exit(0)
     if args.flops:
-        _analyse_flops(model, loader)
+        _analyse_flops(model, loader, device=engine.xlr.device)
     if args.memory:
         _analyse_memory(
             model, loader, handler, iterations=args.iterations, path_export=path_export

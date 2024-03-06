@@ -321,9 +321,15 @@ class ModelFactory:
         self,
         model_config,
         weights: Pathable | None = None,
+        compile: bool | dict[str, T.Any] = False,
     ):
         self.model_config = model_config
         self.weights = weights or None
+
+        if isinstance(compile, bool):
+            self.compile = {} if compile else None
+        else:
+            self.compile = compile
 
     def __call__(
         self,
@@ -337,30 +343,39 @@ class ModelFactory:
         from unipercept import load_checkpoint
         from unipercept.config import apply_overrides, instantiate
 
+        # Configuration
         model_config = copy.deepcopy(self.model_config)
-
         if overrides is not None:
             if isinstance(overrides, T.Mapping):
                 overrides_list = [f"{k}={v}" for k, v in overrides.items()]
             else:
                 overrides_list = list(overrides)
             _logger.info(
-                "Instantiating model with configuration overrides: %s",
+                "Model factory: config %s",
                 ", ".join(overrides_list) if len(overrides_list) > 0 else "(none)",
             )
             model_config = apply_overrides(model_config, overrides_list)
         else:
-            _logger.info("Instantiating model without configuration overrides")
+            _logger.info("Model factory: config has no overrides")
 
+        # Instantiate model
         model = T.cast(ModelBase, instantiate(self.model_config))
 
+        # Compile if options (kwargs to torch.compile) are set
+        if self.compile is not None:
+            _logger.info("Model factory: compile options: %s", self.compile)
+            model = torch.compile(model, **self.compile)
+        else:
+            _logger.info("Model factory: compile disabled")
+
+        # Load weights
         if weights is None:
             weights = self.weights
         if weights is not None:
-            _logger.info("Loading model weights: %s", weights)
+            _logger.info("Model factory: using weights from %s", weights)
             load_checkpoint(weights, model)
         else:
-            _logger.info("Using model without initial weights (random initialization)")
+            _logger.info("Model factory: using random initialization")
 
         return model
 
@@ -373,8 +388,9 @@ class ModelAdapter(nn.Module):
 
     Notes
     -----
-    This implementation is based on the Detectron2 ``TracingAdapter`` class. We use a custom implementation because
-    Detectron2's implementation is not compatible with PyTree-based flattening.
+    This implementation is based on the Detectron2 ``TracingAdapter`` class. 
+    We use a custom implementation because Detectron2's implementation is not 
+    compatible with PyTree-based flattening.
     """
 
     flattened_inputs: T.Tuple[torch.Tensor, ...]
@@ -443,19 +459,19 @@ class ModelAdapter(nn.Module):
 
         self.flattened_inputs = tuple(inputs_flat)  # type: ignore
         self.inputs_schema = inputs_spec
+        self.outputs_schema = None
 
     @TX.override
     def forward(self, *args: torch.Tensor):
-        with torch.inference_mode():
+        with torch.no_grad():
             if self.inputs_schema is not None:
                 inputs_orig_format = tree_unflatten(list(args), self.inputs_schema)
             else:
                 if args != self.flattened_inputs:
-                    raise ValueError(
-                        "TracingAdapter does not contain valid inputs_schema."
+                    msg = "TracingAdapter does not contain valid inputs_schema."
                         " So it cannot generalize to other inputs and must be"
                         " traced with `.flattened_inputs`."
-                    )
+                    raise ValueError(msg)
                 inputs_orig_format = self.inputs
 
             outputs = self.inference_func(self.model, *inputs_orig_format)

@@ -148,8 +148,13 @@ def list_nodes(name: str) -> set[str]:
 def build_extractor(name: str, *, nodes: T.Iterable[str], weights: str | None = None):
     from torchvision.models import get_model
     from torchvision.models.feature_extraction import create_feature_extractor
+    from unipercept.config import get_env
 
     model = get_model(name, weights=weights)
+    
+    if get_env(bool, "UP_NN_BACKBONES_DISABLE_GRAPH", default=False):
+        msg = "Torchvision backbone extraction is not yet supported without graph trace mode"
+        raise NotImplementedError(msg)
 
     return create_feature_extractor(model, list(nodes))
 

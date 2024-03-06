@@ -12,12 +12,12 @@ from unipercept.cli import (
     datasets,
     echo,
     evaluate,
+    export,
     profile,
-    trace,
     train,
 )
 
-__all__ = ["backbones", "echo", "profile", "trace", "train", "datasets", "evaluate"]
+__all__ = ["backbones", "echo", "profile", "export", "train", "datasets", "evaluate"]
 
 command.root()
 sys.exit(0)

@@ -34,30 +34,27 @@ class CoordCat2d(nn.Module):
         split_size: int = _get_split_size(t, self.groups)
         t_split = t.split(split_size, dim=1)
 
-        # Add the grid to each group
-        grid_x, grid_y = _make_grid(self.gamma, t.shape, t.device)
-
-        t_split = [torch.cat([t_n, grid_x, grid_y], dim=1) for t_n in t_split]
-
         # Concatenate the groups back together
-        return torch.cat(t_split, dim=1)
+        return _make_grid(t_split, self.gamma, t.shape, t.device)
 
 
-@torch.fx.wrap
-@torch.no_grad()
 def _make_grid(
-    gamma: float, shape: torch.Size, device: torch.device
-) -> T.Tuple[torch.Tensor, torch.Tensor]:
-    x_pos = torch.linspace(-gamma, gamma, shape[-2], device=device)
-    y_pos = torch.linspace(-gamma, gamma, shape[-1], device=device)
+    t_split: torch.Tensor, gamma: float, shape: torch.Size, device: torch.device
+) -> torch.Tensor:
+    with torch.no_grad():
+        x_pos = torch.linspace(-gamma, gamma, shape[-2], device=device)
+        y_pos = torch.linspace(-gamma, gamma, shape[-1], device=device)
 
-    grid_x, grid_y = torch.meshgrid(x_pos, y_pos, indexing="ij")
-    grid_x = grid_x.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
-    grid_y = grid_y.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
+        grid_x, grid_y = torch.meshgrid(x_pos, y_pos, indexing="ij")
+        grid_x = grid_x.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
+        grid_y = grid_y.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
+    t_list = [torch.cat([t_n, grid_x, grid_y], dim=1) for t_n in t_split]
+    return torch.cat(t_list, dim=1)
 
-    return grid_x, grid_y
 
-
-@torch.fx.wrap
 def _get_split_size(t: Tensor, groups: int) -> int:
     return int(t.size(1)) // groups
+
+
+torch.fx.wrap("_make_grid")
+torch.fx.wrap("_get_split_size")

@@ -47,7 +47,6 @@ __all__ = [
     "create_model",
     "create_model_factory",
     "create_dataset",
-    "create_loaders",
     "create_inputs",
     "prepare_images",
 ]
@@ -301,7 +300,7 @@ def create_engine(config: ConfigParam) -> unipercept.engine.Engine:
 
 
 def create_model_factory(
-    config: ConfigParam, *, weights: str | None = None
+    config: ConfigParam, *, weights: str | None = None, **kwargs
 ) -> unipercept.model.ModelFactory:
     """
     Create a factory for models from a configuration file. The factory will be initialized with the default parameters,
@@ -310,7 +309,9 @@ def create_model_factory(
     from unipercept.model import ModelFactory
 
     config = read_config(config)
-    return ModelFactory(config.MODEL, weights=weights or config.get(KEY_WEIGHTS))
+    return ModelFactory(
+        config.MODEL, weights=weights or config.get(KEY_WEIGHTS), **kwargs
+    )
 
 
 def create_model(
@@ -384,8 +385,8 @@ def create_model(
 @T.overload
 def create_dataset(
     config: ConfigParam,
-    variant: T.Optional[str | re.Pattern] = None,
-    batch_size: int = 1,
+    variant: T.Optional[str | re.Pattern],
+    batch_size: int,
     return_loader: bool = True,
 ) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
     ...
@@ -394,9 +395,9 @@ def create_dataset(
 @T.overload
 def create_dataset(
     config: ConfigParam,
-    variant: T.Optional[str | re.Pattern] = None,
-    batch_size: int = 1,
-    return_loader: bool = True,
+    variant: T.Optional[str | re.Pattern],
+    batch_size: int,
+    return_loader: bool = False,
 ) -> tuple[T.Iterator[InputData], Metadata]:
     ...
 
@@ -435,7 +436,7 @@ def create_dataset(
 
     config = read_config(config)
 
-    loaders = dict(config.ENGINE.loaders)
+    loaders = dict(config.ENGINE.evaluators)
 
     if isinstance(variant, str) and variant in loaders:
         # Lookup by direct key
@@ -467,41 +468,12 @@ def create_dataset(
                 key_list,
             )
 
-    datafactory = instantiate(loaders[key])
+    datafactory = instantiate(loaders[key].loader)
     dataloader = datafactory(batch_size)
     if return_loader:
         return dataloader, datafactory.dataset.info
     else:
         return iter(datafactory(batch_size)), datafactory.dataset.info
-
-
-def create_loaders(config: ConfigParam, *, keys: T.Optional[T.Collection[str]] = None):
-    """
-    Create a dictionary of dataloaders as specified in a configuration file.
-
-    Parameters
-    ----------
-    config
-        The configuration file to use.
-    keys
-        The keys of the loaders to create. If `None`, then all loaders will be created. Defaults to `None`.
-
-    Returns
-    -------
-    loaders
-        A dictionary of dataloaders.
-    """
-    from .config import instantiate
-
-    config = read_config(config)
-
-    loaders = {}
-    for key, loader in config.ENGINE.loaders.items():
-        if keys is not None and key not in keys:
-            continue
-        loaders[key] = instantiate(loader)
-
-    return loaders
 
 
 ####################################################

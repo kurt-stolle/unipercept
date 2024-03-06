@@ -3,7 +3,7 @@ Implements a handler for writing results to a file from multiple processes.
 """
 
 from __future__ import annotations
-
+import shutil
 import abc
 import collections
 import concurrent.futures
@@ -528,13 +528,56 @@ class MemmapTensordictWriter(ResultsWriter):
     def __len__(self) -> int:
         return self._size
 
+    def recover(self) -> bool:
+        """
+        Check whether a previous run has already written all the required results
+        to our path.
+
+        If recovered, we automatically close.
+
+        Returns
+        -------
+        bool
+            True when recovered, False when not
+        """
+        if self._is_closed:
+            msg = f"{self.__class__.__name__} is closed"
+            raise RuntimeError(msg)
+
+        barrier()
+
+        num_tensordict_subdirs = len(
+            [
+                d
+                for d in self.path.iterdir()
+                if d.is_dir() and (d / "meta.json").is_file()
+            ]
+        )
+
+        barrier()
+
+        if check_main_process():
+            if num_tensordict_subdirs == len(self):
+                self.close()
+                return True
+            for p in self.path.iterdir():
+                if p.is_file():
+                    p.unlink()
+                else:
+                    shutil.rmtree(p)
+
+        barrier()
+        
+        return False
+
     @TX.override
     def flush(self):
         """
         Write the results to disk.
         """
         if self._is_closed:
-            raise RuntimeError(f"{self.__class__.__name__} is closed")
+            msg = f"{self.__class__.__name__} is closed"
+            raise RuntimeError(msg)
         concurrent.futures.wait(self._futures)
         self.close()
 

@@ -388,8 +388,8 @@ class ModelAdapter(nn.Module):
 
     Notes
     -----
-    This implementation is based on the Detectron2 ``TracingAdapter`` class. 
-    We use a custom implementation because Detectron2's implementation is not 
+    This implementation is based on the Detectron2 ``TracingAdapter`` class.
+    We use a custom implementation because Detectron2's implementation is not
     compatible with PyTree-based flattening.
     """
 
@@ -468,9 +468,11 @@ class ModelAdapter(nn.Module):
                 inputs_orig_format = tree_unflatten(list(args), self.inputs_schema)
             else:
                 if args != self.flattened_inputs:
-                    msg = "TracingAdapter does not contain valid inputs_schema."
+                    msg = (
+                        "TracingAdapter does not contain valid inputs_schema."
                         " So it cannot generalize to other inputs and must be"
                         " traced with `.flattened_inputs`."
+                    )
                     raise ValueError(msg)
                 inputs_orig_format = self.inputs
 

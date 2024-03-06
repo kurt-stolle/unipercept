@@ -1046,101 +1046,108 @@ class Engine:
         model = self.xlr.unwrap_model(model, keep_fp32_wrapper=False)
         model.eval()
 
-        # Global start time
-        t_start_all = time.time()
-
         # Output memory
         if path is None:
             results_remove_on_exit = True
             path = file_io.Path(
-                f"//scratch/{self._params.project_name}/{str(self.session_id)}/{prefix}-results"  # .h5"
+                f"//scratch/{self._params.project_name}/{str(self.session_id)}/results/{prefix}"  # .h5"
             )
             path.mkdir(parents=True, exist_ok=True)
         else:
             results_remove_on_exit = False
-
-        results_mem = MemmapTensordictWriter(
-            str(path),
-            samples_total,
-            write_offset=batch_offsets[get_process_index()] * batch_size,
-        )
-
-        # print(f"writing results to {results_mem}")
-
-        self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
         try:
-            # Prediction
-            _logger.info(f"Running inference loop on {get_process_count()} processes.")
+            results_mem = MemmapTensordictWriter(
+                str(path),
+                samples_total,
+                write_offset=batch_offsets[get_process_index()] * batch_size,
+            )
+
+            t_start_all = time.time()  # global start time
             samples_processed = 0
-            timings = ProfileAccumulator()
-            for inputs in dataloader:
-                with profile(timings, "copy"):
-                    inputs = inputs.to(self.xlr.device, non_blocking=True)
-                with profile(timings, "model"):
-                    outputs = self.run_inference_step(model, inputs)
-                with profile(timings, "update"):
-                    samples_in_batch = inputs.batch_size[0]
-                    results_merged = TensorDict(
-                        {
-                            "valid": torch.ones(
-                                samples_in_batch,
-                                dtype=torch.bool,
-                                device=self.xlr.device,
-                            )
-                        },
-                        [samples_in_batch],
-                        self.xlr.device,
-                    )
-                    for evaluator in handlers:
-                        evaluator.update(results_merged, inputs=inputs, outputs=outputs)
-                with profile(timings, "write"):
-                    results_mem.add(results_merged)
-                    samples_processed += samples_in_batch
-                with profile(timings, "event"):
-                    self._edge(
-                        Event.ON_INFERENCE_STEP,
-                        loader=dataloader,
-                        inputs=inputs,
-                        outputs=outputs,
-                    )
-
-            _logger.info(
-                "Profiling report on process {}/{}:\n{}".format(
-                    get_process_index() + 1,
-                    get_process_count(),
-                    timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
+            results_recovered = results_mem.recover()
+            if not results_recovered:
+                _logger.info(
+                    "Inference loop: running on %d processes", get_process_count()
                 )
-            )
-            # Sleep for 1 second appears to help with memory consistency
-            time.sleep(1)
-            gc.collect()
-            torch.cuda.empty_cache()
+                self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
+                timings = ProfileAccumulator()
+                for inputs in dataloader:
+                    with profile(timings, "copy"):
+                        inputs = inputs.to(self.xlr.device, non_blocking=True)
+                    with profile(timings, "model"):
+                        outputs = self.run_inference_step(model, inputs)
+                    with profile(timings, "update"):
+                        samples_in_batch = inputs.batch_size[0]
+                        results_merged = TensorDict(
+                            {
+                                "valid": torch.ones(
+                                    samples_in_batch,
+                                    dtype=torch.bool,
+                                    device=self.xlr.device,
+                                )
+                            },
+                            [samples_in_batch],
+                            self.xlr.device,
+                        )
+                        for evaluator in handlers:
+                            evaluator.update(
+                                results_merged, inputs=inputs, outputs=outputs
+                            )
+                    with profile(timings, "write"):
+                        results_mem.add(results_merged)
+                        samples_processed += samples_in_batch
+                    with profile(timings, "event"):
+                        self._edge(
+                            Event.ON_INFERENCE_STEP,
+                            loader=dataloader,
+                            inputs=inputs,
+                            outputs=outputs,
+                        )
 
-            # Flush results memory
-            results_mem.flush()
-            barrier()
+                _logger.info(
+                    "Profiling report on process {}/{}:\n{}".format(
+                        get_process_index() + 1,
+                        get_process_count(),
+                        timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
+                    )
+                )
+                # Sleep for 1 second appears to help with memory consistency
+                time.sleep(1)
+                gc.collect()
+                torch.cuda.empty_cache()
 
-            self._edge(
-                Event.ON_INFERENCE_END,
-                timings=timings,
-                results=results_mem,
-                path=path,
-            )
+                # Flush results memory
+                results_mem.flush()
+                barrier()
+
+                self._edge(
+                    Event.ON_INFERENCE_END,
+                    timings=timings,
+                    results=results_mem,
+                    path=path,
+                )
+            else:
+                _logger.info(
+                    "Inference loop: recovered evaluation results from previous run"
+                )
 
             # Compute metrics
             metrics: dict[str, T.Any] = {}
             if self.xlr.is_main_process:
-                metrics.update(
-                    _build_speed_metrics(
-                        prefix,
-                        t_start_all,
-                        sample_amount=samples_processed,
-                        step_amount=math.ceil(samples_processed * get_process_count()),
+                if not results_recovered:
+                    metrics.update(
+                        _build_speed_metrics(
+                            prefix,
+                            t_start_all,
+                            sample_amount=samples_processed,
+                            step_amount=math.ceil(
+                                samples_processed * get_process_count()
+                            ),
+                        )
                     )
-                )
                 visuals: dict[str, pil_image.Image] = {}
                 for evaluator in handlers or []:
-                    _logger.debug(f"Running evaluation and visualization: {evaluator}")
+                    _logger.debug("Inference loop: evaluating %s", repr(evaluator))
                     metrics.update(
                         evaluator.compute(
                             results_mem.tensordict, device=self.xlr.device, path=path
@@ -1153,10 +1160,10 @@ class Engine:
         finally:
             results_mem.close()
             if self.xlr.is_main_process and results_remove_on_exit:
-                _logger.info(f"Cleaning stored evaluation results at {path!r}")
+                _logger.info("Inference loop: cleaning up %s", path)
                 shutil.rmtree(path, ignore_errors=True)
             else:
-                _logger.info("Evaluation results are stored at %s", path)
+                _logger.info("Inference loop: results stored at %s", path)
         if hasattr(self, "jit_compilation_time"):
             metrics[f"{prefix}/jit_compilation_time"] = self.jit_compilation_time  # type: ignore
         _enforce_prefix(metrics, prefix)

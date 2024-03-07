@@ -45,7 +45,7 @@ from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, S
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import MemmapTensordictWriter, PersistentTensordictWriter
-from unipercept.log import get_logger
+from unipercept.log import create_table, get_logger
 from unipercept.state import (
     barrier,
     check_main_process,
@@ -84,6 +84,7 @@ class EngineStatus(E.IntFlag):
     control flow, e.g. in cases where the evaluation loop is ran while also training.
     """
 
+    IS_TRAINING_PROCEDURE = E.auto()
     IS_TRAINING_RUN = E.auto()
     IS_EVALUATION_RUN = E.auto()
     IS_PREDICTION_RUN = E.auto()
@@ -348,6 +349,7 @@ class Engine:
 
         return None
 
+    @status(EngineStatus.IS_TRAINING_PROCEDURE)
     def run_training_procedure(
         self, model_factory, start_stage: int, *, weights: str | None = None
     ):
@@ -357,13 +359,12 @@ class Engine:
 
         _logger.info(
             "Starting training procedure:\n%s",
-            tabulate(
-                [("starting stage", start_stage), ("initial weights", weights)],
-                tablefmt="simple",
+            create_table(
+                {"starting stage": start_stage, "initial weights": weights},
+                format="long",
             ),
         )
 
-        weights = weights
         stage_num = start_stage
         while True:
             weights = self.run_training(model_factory, stage=stage_num, weights=weights)
@@ -376,9 +377,12 @@ class Engine:
                 "Training completed for stage %d. Moving to next...", stage_num - 1
             )
 
+        self._stop_experiment_trackers()
         _logger.info(
             "Training completed for all stages: \n%s",
-            tabulate([("final weights", weights)], tablefmt="simple"),
+            create_table(
+                {"final stage": stage_num - 1, "final weights": weights}, format="long"
+            ),
         )
 
     @status(EngineStatus.IS_TRAINING_RUN)
@@ -438,7 +442,8 @@ class Engine:
             except ValueError:
                 stage_num = -1
 
-        _logger.info(f"Starting training procedure for stage {stage_num}...")
+        self._state.stage = stage_num
+        _logger.info(f"Training run: stage {stage_num}...")
 
         if not isinstance(stage, TrainingStage):
             raise TypeError(
@@ -451,6 +456,8 @@ class Engine:
             weights=weights,
             parent=trial,
         )
+
+        self._start_experiment_trackers(restart=False)
 
         @find_executable_batch_size(starting_batch_size=stage.batch_size)
         def train(batch_size: int) -> nn.Module:
@@ -469,6 +476,14 @@ class Engine:
             if EngineStatus.FINDING_BATCH_SIZE not in self.status:
                 msg = "Aborting training (OOM)"
                 raise RuntimeError(msg)
+            if batch_size >= stage.batch_size:
+                _logger.info("Training start: batch size %d", batch_size)
+            else:
+                _logger.info(
+                    "Training restart: batch size %d (original: %d)",
+                    batch_size,
+                    stage.batch_size,
+                )
 
             # gradient_accumulation = stage.gradient_accumulation * (
             #    stage.batch_size // batch_size
@@ -493,24 +508,22 @@ class Engine:
             assert train_epochs > 0, "Expected train epochs to be greater than 0"
 
             _logger.info(
-                f"Training for {train_epochs} epochs in {train_epochs*steps_per_epoch} steps"
+                "Training start: running %.1f epochs (%d steps)",
+                float(train_epochs),
+                int(train_epochs * steps_per_epoch),
             )
 
             # Reset the state
-            self._state.reset()
-            self._state.stage = stage_num
-            self._state.logging_steps = self._params.logging_steps
-            self._state.eval_steps = self._params.get_eval_interval_steps(
-                steps_per_epoch
+            self._state.register_training(
+                logging_steps=self._params.logging_steps,
+                eval_steps=self._params.get_eval_interval_steps(steps_per_epoch),
+                save_steps=self._params.get_save_interval_steps(steps_per_epoch),
+                train_steps=stage.get_steps(steps_per_epoch),
+                gradient_accumulation=gradient_accumulation,
+                best_metric=None,
+                trial_name=trial.name,
+                trial_config=trial.config,
             )
-            self._state.save_steps = self._params.get_save_interval_steps(
-                steps_per_epoch
-            )
-            self._state.train_steps = stage.get_steps(steps_per_epoch)
-            self._state.gradient_accumulation = gradient_accumulation
-            self._state.best_metric = None
-            self._state.trial_name = trial.name
-            self._state.trial_params = trial.config
 
             return self.run_training_loop(
                 loader,
@@ -524,10 +537,11 @@ class Engine:
         self.status |= EngineStatus.FINDING_BATCH_SIZE
         result = train()
 
-        # Save final model weights
-        last_weights = self._save_weights(None, result)
+        # If we are not running a larger procedure of stages, stop trackers
+        if EngineStatus.IS_TRAINING_PROCEDURE not in self.status:
+            self._stop_experiment_trackers()
 
-        return last_weights
+        return self._save_weights(None, result)
 
     @status(EngineStatus.IS_EVALUATION_RUN)
     @torch.no_grad()
@@ -605,7 +619,7 @@ class Engine:
         if len(metrics_overall) == 0:
             _logger.warning("No metrics were logged during evaluation")
 
-        self._train_log(metrics_overall)
+        self._push_logs(metrics_overall)
 
         return metrics_overall
 
@@ -671,17 +685,18 @@ class Engine:
             updates_per_epoch = None
 
         # Tabulate and log the loader information
-        table = {
-            "Batch size": batch_size,
-            "Batch count": len(dl),
-            "Gradient acc.": gradient_accumulation,
-            "Processes": get_process_count(),
-            "Steps/Epoch": steps_per_epoch,
-            "Updates/Epoch": updates_per_epoch,
-        }
-
         _logger.debug(
-            "Using dataloader settings:\n%s", tabulate(table.items(), tablefmt="simple")
+            "Using dataloader settings:\n%s",
+            create_table(
+                {
+                    "batch size": batch_size,
+                    "batch count": len(dl),
+                    "gradient acc.": gradient_accumulation,
+                    "processes": get_process_count(),
+                    "steps/epoch": steps_per_epoch,
+                    "updates/epoch": updates_per_epoch,
+                }
+            ),
         )
 
         return dl, steps_per_epoch, updates_per_epoch
@@ -723,7 +738,6 @@ class Engine:
         # Backend configuration
         self.xlr.gradient_accumulation_steps = self._state.gradient_accumulation
         self.xlr.free_memory()
-        self._start_experiment_trackers()
 
         # Sync backnorm
         if self._params.convert_sync_batchnorm:
@@ -782,11 +796,6 @@ class Engine:
             setattr(loader, "epoch", start_epoch)
         if hasattr(loader.sampler, "epoch"):
             setattr(loader.sampler, "epoch", start_epoch)
-
-        if self.xlr.is_main_process:
-            _logger.info(
-                f"Train loop: starting epoch {start_epoch} at step {self.xlr.step}"
-            )
 
         for epoch in range(start_epoch, train_epochs):
             # Set the epoch iterator to the original dataloader
@@ -871,39 +880,19 @@ class Engine:
                     # last step in epoch but step is always smaller than gradient_accumulation
                     is_last_step_and_steps_less_than_grad_acc
                 ):
-                    # Gradient clipping
-                    if (
-                        self._params.max_grad_norm is not None
-                        and self._params.max_grad_norm > 0
-                    ):
-                        if hasattr(optimizer, "clip_grad_norm"):
-                            # Some optimizers (like the sharded optimizer) have a specific way to do gradient clipping
-                            optimizer.clip_grad_norm(self._params.max_grad_norm)  # type: ignore
-                        elif hasattr(model, "clip_grad_norm_"):
-                            # Some models (like FullyShardedDDP) have a specific way to do gradient clipping
-                            model.clip_grad_norm_(self._params.max_grad_norm)  # type: ignore
-                        else:
-                            self.xlr.clip_grad_norm_(
-                                model.parameters(),
-                                self._params.max_grad_norm,
-                            )
-
-                    # Optimizer step
+                    self._train_clip_gradients(model)
                     optimizer.step()
                     if not self.xlr.optimizer_step_was_skipped:
-                        scheduler.step_update(
-                            self._state.step, metric=None
-                        )  # TODO metric is not used
+                        scheduler.step_update(self._state.step, metric=None)
                     else:
                         _logger.debug("Step was skipped")
                     optimizer.zero_grad()
-                    self._state.step += 1
-                    self._state.epoch = (
-                        epoch + (step + 1 + steps_skipped) / steps_in_epoch
+                    self._state.register_step(
+                        epoch=epoch,
+                        step=step,
+                        steps_skipped=steps_skipped,
+                        steps_in_epoch=steps_in_epoch,
                     )
-
-                    del inputs
-
                     self._edge(
                         Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer
                     )
@@ -963,11 +952,17 @@ class Engine:
                 metrics["engine/" + k] = metrics.pop(k)
 
         self._mem_tracker.stop_and_update_metrics("train", metrics)
-        self._train_log(metrics)
+        self._push_logs(metrics)
         self._edge(Event.ON_TRAIN_END)
-        self._stop_experiment_trackers()
 
         return model
+
+    def _train_clip_gradients(self, model: nn.Module):
+        if not self.xlr.sync_gradients or self._params.max_grad_norm is None:
+            return
+        max_norm = self._params.max_grad_norm
+        self.xlr.unscale_gradients()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm, norm_type=2)
 
     def run_inference_step(
         self,
@@ -1110,11 +1105,8 @@ class Engine:
                         )
 
                 _logger.info(
-                    "Profiling report on process {}/{}:\n{}".format(
-                        get_process_index() + 1,
-                        get_process_count(),
-                        timings.to_summary().to_markdown(index=True, floatfmt=".3f"),
-                    )
+                    "Inference loop: timing report:\n%s",
+                    create_table(timings.to_summary()),
                 )
                 # Sleep for 1 second appears to help with memory consistency
                 time.sleep(1)
@@ -1216,15 +1208,15 @@ class Engine:
             if not restart:
                 _logger.debug("Start trackers: skipping (already started)")
                 return
-            else:
-                _logger.info("Start trackers: performing restart")
-                self._stop_experiment_trackers()
+            _logger.debug("Start trackers: performing restart")
+            self._stop_experiment_trackers()
 
         barrier()
 
         _logger.info("Start trackers: initializing")
 
         self.status |= EngineStatus.EXPERIMENT_TRACKERS_STARTED
+        self._state.step_experiment = 0
         self.xlr.trackers.clear()
 
         # Determine the job type from the status
@@ -1332,7 +1324,7 @@ class Engine:
 
             self._step_last_logged = self._state.step
             # self.store_flops()
-            self._train_log(logs)
+            self._push_logs(logs)
 
         # SIGNAL: save model
         if self._signal.should_save and not self._saved_in_last_step:
@@ -1357,7 +1349,7 @@ class Engine:
             self.run_evaluation(lambda *args, **kwargs: model, trial=trial)
             self._step_last_evaluated = self._state.step
 
-    def _train_log(self, logs: dict[str, T.Any]) -> None:
+    def _push_logs(self, logs: dict[str, T.Any]) -> None:
         """
         Log `logs` on the various objects watching training.
 
@@ -1374,13 +1366,11 @@ class Engine:
         logs["engine/stage"] = self._state.stage
         logs["engine/epoch_step"] = self.xlr.step
         logs["engine/status"] = self.status
-
+        logs["engine/step_experiment"] = self._state.step_experiment
         self._edge(Event.ON_LOG, logs=logs)  # NOTE: logs may be updated in-place
+        self._state.register_logs(logs, max_history=self._params.logging_history)
 
-        self._state.log_history.append(logs)
-        if len(self._state.log_history) > self._params.logging_history:
-            self._state.log_history.pop(0)
-        self.xlr.log(logs)  # , step=self._state.step)
+        self.xlr.log(logs)
 
     def _load_weights(self, path: Pathable, model: nn.Module) -> nn.Module:
         """

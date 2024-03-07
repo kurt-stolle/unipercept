@@ -387,7 +387,14 @@ class PadToDivisible(Op):
         def apply_padding(x: torch.Tensor) -> torch.Tensor:
             if type(x) not in pixel_maps:
                 return x
-            return torchvision.transforms.v2.functional.pad(x, [0, 0, pad_w, pad_h])
+
+            if isinstance(x, PanopticMap):
+                value = PanopticMap.IGNORE
+            else:
+                value = 0.0
+            return torchvision.transforms.v2.functional.pad(
+                x, [0, 0, pad_w, pad_h], fill=value
+            )
 
         inputs.captures = inputs.captures.fix_subtypes_().apply(
             apply_padding, batch_size=inputs.captures.batch_size

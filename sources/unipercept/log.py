@@ -3,7 +3,7 @@ Canonical logger used throughout the project.
 """
 
 from __future__ import annotations
-
+import pandas as pd
 import atexit
 import functools
 import io
@@ -76,7 +76,12 @@ def log_every_n_seconds(
 
 
 def create_table(
-    mapping: T.Mapping[T.Any, T.Any], format: T.Literal["long", "wide"] = "wide"
+    mapping: T.Mapping[T.Any, T.Any] | pd.DataFrame,
+    format: T.Literal["long", "wide", "auto"] = "auto",
+    *,
+    style: str = "rounded_outline",
+    max_depth: int = 3,
+    _depth: int = 0,
 ) -> str:
     """
     Create a small table using the keys of small_dict as headers. This is only
@@ -91,16 +96,60 @@ def create_table(
     -------
     The table as a string.
     """
-    keys, values = tuple(zip(*mapping.items()))
-    table = tabulate(
-        [values],
-        headers=keys,
-        tablefmt="pipe",
+
+    if isinstance(mapping, pd.DataFrame):
+        mapping = mapping.to_dict(orient="list")
+
+    if format == "auto":
+        if all(
+            isinstance(v, T.Sequence) and not isinstance(v, str)
+            for v in mapping.values()
+        ):
+            format = "wide"
+        else:
+            format = "long"
+
+    if format == "wide":
+        headers = list(mapping.keys())
+        # Create a wide table, i.e. where each key is a header and the values are under
+        # the corresponding header. If the value is a non-sequence, it will be displayed as-is
+        data = list(map(list, mapping.values()))
+        # Transpose the data to make it wide
+        data = list(zip(*data))
+
+    elif format == "long":
+        data = []
+        for k, v in mapping.items():
+            if isinstance(v, dict) and _depth < max_depth:
+                for linenum, line in enumerate(
+                    create_table(
+                        v,
+                        format="auto",
+                        style=style,
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                    ).split("\n")
+                ):
+                    data.append((k if linenum == 0 else "", line))
+            else:
+                v = repr(v)
+                if len(v) > 50:
+                    v = v[:50] + "..."
+                data.append((k, v))
+        # Create a long table, i.e. with a 'key' and 'value' header
+        headers = ["Key", "Value"] if _depth == 0 else ()
+    else:
+        msg = f"Unknown table format: {format}"
+        raise ValueError(msg)
+
+    return tabulate(
+        data,
+        headers=headers,
+        tablefmt=style,
         floatfmt=".3f",
-        stralign="center",
-        numalign="center",
+        stralign="left",
+        numalign="right",
     )
-    return table
 
 
 def get_logger(name: Optional[str] = None, **kwargs: T.Any) -> logging.Logger:

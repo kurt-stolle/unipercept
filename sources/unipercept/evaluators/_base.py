@@ -75,7 +75,12 @@ class Evaluator(metaclass=abc.ABCMeta):
         ...
 
     def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
-        tab_fmt = tab.to_markdown(index=False)
+        from unipercept.log import create_table
+
+        # tab_fmt = tab.to_markdown(index=False)
+
+        tab_fmt = create_table(tab.to_dict(orient="list"))
+
         _logger.info("%s:\n%s", msg, tab_fmt)
 
     def _progress_bar(self, *args, **kwargs):

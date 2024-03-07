@@ -27,7 +27,7 @@ from typing_extensions import override
 
 from unipercept.config import get_env
 from unipercept.data.ops import Op, apply_dataset
-from unipercept.log import get_logger
+from unipercept.log import create_table, get_logger
 from unipercept.state import cpus_available, get_process_count, get_process_index
 
 if T.TYPE_CHECKING:
@@ -63,6 +63,7 @@ class DataLoaderConfig:
         default_factory=lambda: get_env(
             int,
             "UP_DATALOADER_WORKERS",
+            "SLURM_CPUS_PER_GPU",
             default=min(cpus_available(), 16),
         )
     )
@@ -209,7 +210,8 @@ class DataLoaderFactory:
             len(self.dataset.queue),
             len(interface),
             batch_size,
-            tabulate(loader_kwargs.items(), tablefmt="simple"),
+            create_table(loader_kwargs, format="long"),
+            # tabulate(loader_kwargs.items(), tablefmt="simple"),
         )
 
         return DataLoader(interface, **loader_kwargs)

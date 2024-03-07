@@ -201,7 +201,7 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
             else:
                 return default
         if isinstance(idx, int):
-            idx_at = [idx, idx + 1]
+            idx_at = (idx, idx + 1)
         else:
             idx_at = idx
         tds = LazyStackedMemmapTensorView(

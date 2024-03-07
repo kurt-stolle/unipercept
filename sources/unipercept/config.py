@@ -146,7 +146,9 @@ def get_env(
 
     If no default is given, an error is raised if the variable is not set.
     """
+    keys_read = []
     for k in keys:
+        keys_read.append(k)
         v = os.getenv(k)
         if v is None:
             continue
@@ -156,10 +158,10 @@ def get_env(
             v = __type(v)
         if not EnvFilter.apply(filter, v):
             continue
-        _logger.debug("%s = %s (user)", k, str(v))
+        _logger.debug("%s = %s (user)", " | ".join(keys_read), str(v))
         break
     else:
-        _logger.debug("%s = %s (default)", k, str(default))
+        _logger.debug("%s = %s (default)", " | ".join(keys), str(default))
         v = default
     return T.cast(_R, v)
 

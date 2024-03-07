@@ -109,11 +109,11 @@ def _main(args):
 
     _logger.info(
         "Starting engine session:\n%s",
-        tabulate(
-            [
-                ("Session ID", engine.session_id),
-                ("Session path", str(engine.session_dir)),
-            ],
+        up.log.create_table(
+            {
+                "Session ID": engine.session_id,
+                "Session path": str(engine.session_dir),
+            }
         ),
     )
 

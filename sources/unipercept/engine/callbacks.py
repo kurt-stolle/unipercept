@@ -50,6 +50,7 @@ class State:
     # Epochs and steps
     epoch: float = 0.0
     step: int = 0
+    step_experiment: int = 0
 
     # Training stage index
     stage: int = 0
@@ -91,8 +92,55 @@ class State:
     def load_state_dict(self, state_dict: dict[str, T.Any]):
         self.__init__(**state_dict)
 
-    def reset(self):
-        self.__init__()
+    def register_step(
+        self,
+        *,
+        epoch: int,
+        step: int,
+        steps_skipped: int,
+        steps_in_epoch: int,
+        n: int = 1,
+    ) -> None:
+        """Called when a training step has been performed"""
+        self.step += n
+        self.step_experiment += n
+        self.epoch = epoch + (step + n + steps_skipped) / steps_in_epoch
+
+    def register_logs(self, logs: dict[str, T.Any], *, max_history: int) -> None:
+        """Called when logs are being pushed"""
+        if max_history <= 0:
+            return
+        self.log_history.append(logs)
+        if len(self.log_history) > max_history:
+            self.log_history.pop(0)
+
+    def register_training(
+        self,
+        *,
+        logging_steps: int | None,
+        eval_steps: int | None,
+        save_steps: int | None,
+        train_steps: int,
+        gradient_accumulation: int,
+        best_metric: float | None,
+        trial_name: str | None,
+        trial_config: dict[str, T.Any] | None,
+    ):
+        """Called when a training loop is started"""
+
+        self.logging_steps = logging_steps
+        self.eval_steps = eval_steps
+        self.save_steps = save_steps
+        self.train_steps = train_steps
+        self.gradient_accumulation = gradient_accumulation
+        self.best_metric = best_metric
+        self.trial_name = trial_name
+        self.trial_params = trial_config
+        self.step = 0
+        self.epoch = 0.0
+        self.total_flops = 0
+        self.log_history = []
+
 
 
 @D.dataclass

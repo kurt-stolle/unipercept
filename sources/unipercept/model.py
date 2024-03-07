@@ -301,8 +301,8 @@ class ModelBase(nn.Module):
     subclass.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     if T.TYPE_CHECKING:
 

@@ -52,6 +52,12 @@ class DVPSWriter(PanopticWriter, DepthWriter):
 
     ids_key = "ids"
 
+    @classmethod
+    def from_metadata(cls, name: str, **kwargs) -> T.Self:
+        from unipercept import get_info
+
+        return cls(info=get_info(name), **kwargs)
+
     @TX.override
     def update(
         self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
@@ -70,8 +76,8 @@ class DVPSWriter(PanopticWriter, DepthWriter):
         sequence_id = combined_id[..., 0]
         frame_id = combined_id[..., 1]
 
-        storage.set(SEQUENCE_ID, sequence_id, inplace=True)
-        storage.set(FRAME_ID, frame_id, inplace=True)
+        storage.set(SEQUENCE_ID, sequence_id, inplace=True)  # noqa: PD002
+        storage.set(FRAME_ID, frame_id, inplace=True)  # noqa: PD002
 
 
 @D.dataclass(kw_only=True, slots=True)
@@ -93,9 +99,10 @@ class DVPSEvaluator(DVPSWriter):
     dstq_thresholds: list[float] = D.field(default_factory=lambda: [1.25, 1.1])
 
     @classmethod
-    @TX.override
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        return super().from_metadata(name, **kwargs)
+        from unipercept import get_info
+
+        return cls(info=get_info(name), **kwargs)
 
     @property
     def object_ids(self) -> frozenset[int]:
@@ -115,12 +122,14 @@ class DVPSEvaluator(DVPSWriter):
     def compute_dvpq(
         self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
     ) -> dict[str, T.Any]:
-        indices_per_sequence: dict[int, list[int]] = {}
+        num_samples: int = storage.batch_size[0]
+        _logger.debug("DVPQ: Ordering %d samples into sequences", num_samples)
 
         # Group by sequence
-        for i, seq_id in enumerate(storage[SEQUENCE_ID]):
-            indices_per_sequence.setdefault(seq_id.item(), []).append(i)
-
+        indices_per_sequence: dict[int, list[int]] = {}
+        for i in range(num_samples):
+            seq_id = T.cast(torch.Tensor, storage.get_at(SEQUENCE_ID, i))
+            indices_per_sequence.setdefault(int(seq_id.item()), []).append(i)
         # Sort each sequence by frame id
         for indices in indices_per_sequence.values():
             indices.sort(key=lambda i: storage.get_at(FRAME_ID, i).item())
@@ -137,7 +146,7 @@ class DVPSEvaluator(DVPSWriter):
                         indices,
                         window,
                         threshold,
-                        **kwargs,
+                        device=device,
                         allow_stuff_instances=True,
                     )
                     sum.Definition = "original"
@@ -148,7 +157,7 @@ class DVPSEvaluator(DVPSWriter):
                         indices,
                         window,
                         threshold,
-                        **kwargs,
+                        device=device,
                         allow_stuff_instances=False,
                     )
                     sum.Definition = "balanced"

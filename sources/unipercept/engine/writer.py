@@ -3,7 +3,7 @@ Implements a handler for writing results to a file from multiple processes.
 """
 
 from __future__ import annotations
-import shutil
+
 import abc
 import collections
 import concurrent.futures
@@ -12,6 +12,7 @@ import gc
 import itertools as I
 import json
 import os
+import shutil
 import sys
 import typing as T
 
@@ -567,7 +568,7 @@ class MemmapTensordictWriter(ResultsWriter):
                     shutil.rmtree(p)
 
         barrier()
-        
+
         return False
 
     @TX.override

@@ -12,8 +12,8 @@ import torch.autograd
 import torch.autograd.profiler
 import torch.nn as nn
 import torch.utils.data
-from tqdm import tqdm
 from omegaconf.errors import ConfigAttributeError
+from tqdm import tqdm
 
 from unipercept import create_dataset, create_engine, create_model, file_io
 from unipercept.cli._command import command
@@ -105,14 +105,12 @@ def _find_session_path(config: T.Any) -> file_io.Path:
     return path
 
 
-def _analyse_params(
-    model: nn.Module,
-    **kwargs
-) -> None:
+def _analyse_params(model: nn.Module, **kwargs) -> None:
     from fvcore.nn import parameter_count_table
 
     _logger.info("Analysing model parameters...")
     _logger.info("Parameter count:\n%s", parameter_count_table(model, **kwargs))
+
 
 def _analyse_flops(
     model: nn.Module, loader: torch.utils.data.DataLoader, device: torch.types.Device

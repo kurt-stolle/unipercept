@@ -735,12 +735,15 @@ class Engine:
         try:
             self._load_state(None)  # type: ignore
         except FileNotFoundError:
-            _logger.info("Could not load state from checkpoint")
+            _logger.info("Train loop: no previous state found")
 
         # Debugging
         # debug_overflow = DebugUnderflowOverflow(model)  # noqa
-        if DebugMode.UNDERFLOW_OVERFLOW & self._params.debug != 0:
+        if DebugMode.UNDERFLOW_OVERFLOW & self._params.debug:
+            _logger.info("Train loop: underflow/overflow debugging is enabled")
             DebugUnderflowOverflow(model)
+        else:
+            _logger.info("Train loop: underflow/overflow debugging is disabled")
 
         # Variables that track the progress of the training
         time_start = time.time()
@@ -781,7 +784,9 @@ class Engine:
             setattr(loader.sampler, "epoch", start_epoch)
 
         if self.xlr.is_main_process:
-            _logger.info(f"Starting at epoch {start_epoch} at step {self.xlr.step}")
+            _logger.info(
+                f"Train loop: starting epoch {start_epoch} at step {self.xlr.step}"
+            )
 
         for epoch in range(start_epoch, train_epochs):
             # Set the epoch iterator to the original dataloader
@@ -1395,7 +1400,7 @@ class Engine:
         """
         from accelerate import load_checkpoint_and_dispatch
 
-        _logger.debug("Loading weights from %s", path)
+        _logger.debug("Load weights: loading from %s", path)
         return load_checkpoint_and_dispatch(model, file_io.get_local_path(path))
 
     def _save_weights(self, path: T.Optional[Pathable], model: nn.Module) -> str:

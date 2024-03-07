@@ -9,6 +9,7 @@ import builtins
 import collections.abc as abc
 import dataclasses as D
 import enum
+import functools
 import os
 import types
 import typing as T
@@ -24,10 +25,13 @@ from omegaconf import DictConfig, ListConfig, OmegaConf, SCMode
 from typing_extensions import override
 
 import unipercept.file_io as file_io
+from unipercept.log import get_logger
 from unipercept.utils.inspect import generate_path, locate_object
 
 if T.TYPE_CHECKING:
     from unipercept.utils.typings import Pathable
+
+_logger = get_logger(__name__)
 
 __all__ = [
     "apply_overrides",
@@ -129,6 +133,7 @@ def get_env(
     ...
 
 
+@functools.cache
 def get_env(
     __type: type[_R],
     /,
@@ -151,8 +156,10 @@ def get_env(
             v = __type(v)
         if not EnvFilter.apply(filter, v):
             continue
+        _logger.debug("%s = %s (user)", k, str(v))
         break
     else:
+        _logger.debug("%s = %s (default)", k, str(default))
         v = default
     return T.cast(_R, v)
 

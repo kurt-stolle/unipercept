@@ -56,21 +56,21 @@ class DataLoaderConfig:
         default_factory=lambda: get_env(
             bool,
             "UP_DATALOADER_PIN_MEMORY",
-            default=False,
+            default=True,
         )
     )
     num_workers: int = D.field(
         default_factory=lambda: get_env(
             int,
             "UP_DATALOADER_WORKERS",
-            default=max(cpus_available(), 16),
+            default=min(cpus_available(), 16),
         )
     )
     prefetch_factor: int | None = D.field(
         default_factory=lambda: get_env(
             int,
             "UP_DATALOADER_PREFETCH_FACTOR",
-            default=2,
+            default=4,
         )
     )
     persistent_workers: bool | None = False

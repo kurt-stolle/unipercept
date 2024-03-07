@@ -19,7 +19,6 @@ from PIL import Image as pil_image
 from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
 from unipercept.integrations.wandb_integration import read_run as _wandb_read_run
 from unipercept.log import get_logger
-from unipercept.state import check_main_process
 from unipercept.utils.typings import Pathable
 
 if T.TYPE_CHECKING:
@@ -208,6 +207,7 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
     """
     from unipercept import file_io
     from unipercept.engine import Engine
+    from unipercept.state import barrier
 
     # Check remote
     if isinstance(state, str) and state.startswith(WANDB_RUN_PREFIX):
@@ -215,7 +215,7 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
 
     # Check argument type
     if isinstance(state, str) or isinstance(state, os.PathLike):
-        _logger.info("Loading checkpoint from path %s", state)
+        _logger.info("Load checkpoint: using %s", state)
         # State was passed as a file path
         state_path = file_io.Path(state)
         if state_path.is_dir():
@@ -262,6 +262,8 @@ def load_checkpoint(state: StateParam, target: nn.Module) -> None:
         _logger.warning("Missing weights in checkpoint: %s", ", ".join(missing))
     if len(unexpected) > 0:
         _logger.warning("Unexpected weights in checkpoint: %s", ", ".join(unexpected))
+
+    barrier()
 
 
 ####################

@@ -7,8 +7,9 @@ See: https://huggingface.co/docs/timm/main/en/feature_extraction
 from __future__ import annotations
 
 import typing as T
-from collections import OrderedDict
 import warnings
+from collections import OrderedDict
+
 import timm
 import timm.data
 import torch

@@ -102,10 +102,7 @@ def create_table(
         mapping = mapping.to_dict(orient="list")
 
     if format == "auto":
-        if all(
-            isinstance(v, T.Sequence) and not isinstance(v, str)
-            for v in mapping.values()
-        ):
+        if len(mapping) <= 5 and _depth <= 1:
             format = "wide"
         else:
             format = "long"
@@ -130,7 +127,12 @@ def create_table(
                 v = [v]
             data.append(v)
 
-        pad_to = max(len(v) for v in data)
+        col_lens = [len(v) for v in data]
+        if len(col_lens) > 1:
+            pad_to = max(col_lens)
+        else:
+            pad_to = 1
+            
         for v in data:
             v.extend([""] * (pad_to - len(v)))
         # Transpose the data to make it wide

@@ -114,7 +114,25 @@ def create_table(
         headers = list(mapping.keys())
         # Create a wide table, i.e. where each key is a header and the values are under
         # the corresponding header. If the value is a non-sequence, it will be displayed as-is
-        data = list(map(list, mapping.values()))
+        data = []
+        for v in mapping.values():
+            if isinstance(v, dict):
+                v = create_table(
+                    v,
+                    format="auto",
+                    style=style,
+                    max_depth=max_depth,
+                    _depth=_depth + 1,
+                )
+            if isinstance(v, str):
+                v = v.split("\n")
+            elif not isinstance(v, T.Sequence):
+                v = [v]
+            data.append(v)
+
+        pad_to = max(len(v) for v in data)
+        for v in data:
+            v.extend([""] * (pad_to - len(v)))
         # Transpose the data to make it wide
         data = list(zip(*data))
 

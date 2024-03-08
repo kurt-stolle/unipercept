@@ -35,7 +35,7 @@ from unipercept.evaluators._panoptic import (
     _panoptic_quality_update_sample,
     _preprocess_mask,
 )
-from unipercept.log import get_logger
+from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available
 from unipercept.utils.dicttools import (
     defaultdict_recurrent,
@@ -101,7 +101,7 @@ class DVPSEvaluator(DVPSWriter):
     pq_definition: PQDefinition = PQDefinition.ORIGINAL
 
     # See Qiao et al. "ViP-DeepLab" (2020) for details on parameters
-    dvpq_windows: list[int] = D.field(default_factory=lambda: [0, 1, 2, 3, 4])
+    dvpq_windows: list[int] = D.field(default_factory=lambda: [1, 2, 3, 4])
     dvpq_thresholds: list[float] = D.field(default_factory=lambda: [0.5, 0.25, 0.1])
     dstq_thresholds: list[float] = D.field(default_factory=lambda: [1.25, 1.1])
 
@@ -171,15 +171,20 @@ class DVPSEvaluator(DVPSWriter):
             msg = "No windows to compute (D)VPQ."
             raise ValueError(msg)
 
+        metric_name = "DVPQ" if thresholds is not None else "VPQ"
+
         # Run for each window
         summaries = []
-        for win, th in itertools.product(
-            windows, thresholds if thresholds is not None else [0]
-        ):
-            with self._progress_bar(
-                desc=f"DVPQ: window {win} @ {th}" if th > 0 else f"VPQ: window {win}",
-                total=len(indices_per_sequence),
-            ) as pbar:
+        thresholds_values = thresholds if thresholds is not None else [0]
+        win_th_prod = list(itertools.product(windows, thresholds_values))
+        with self._progress_bar(
+            desc=metric_name, total=len(indices_per_sequence) * len(win_th_prod)
+        ) as pbar:
+            for win, th in win_th_prod:
+                if th > 0:
+                    pbar.set_postfix({"threshold": th, "window": win})
+                else:
+                    pbar.set_postfix({"window": win})
                 for indices in indices_per_sequence.values():
                     pbar.update(1)
                     if len(indices) == 0:
@@ -260,7 +265,12 @@ class DVPSEvaluator(DVPSWriter):
                 for c in supercats:
                     c_metric = df_m[c].mean()
                     result[definition]["overall"][c][metric] = c_metric
-        return defaultdict_recurrent_to_dict(result)
+        metrics = defaultdict_recurrent_to_dict(result)
+
+        if self.show_summary:
+            _logger.info("(D)VPQ metrics:\n%s", create_table(metrics, format="wide"))
+
+        return metrics
 
     def _compute_dvpq_at(
         self,

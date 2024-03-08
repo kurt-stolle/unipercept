@@ -192,7 +192,7 @@ class DepthEvaluator(DepthWriter):
                 v /= metrics[_KEY_VALID_PX]
 
         if self.show_summary:
-            _logger.info("Depth summary:\n%s", create_table(metrics), format="wide")
+            _logger.info("Depth summary:\n%s", create_table(metrics, format="wide"))
 
         # Add metrics from parent class
         metrics.update(super().compute(storage, device=device))

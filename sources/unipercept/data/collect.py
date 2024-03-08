@@ -118,9 +118,6 @@ class GroupAdjacentTime:
             assert all(
                 len(v) == self._num_frames - 1 for _, v in indices_from_start
             ), indices_from_start
-
-            _logger.debug("Queue: gathered pairs in %s: %s", seq, indices_from_start)
-
             # Collect the sequence for each frame and the designated number of subsequent frames
             for i, indices in indices_from_start:
                 cap_start = cap_list[i]
@@ -154,7 +151,7 @@ class GroupAdjacentTime:
                 success += 1
         if success <= 0:
             raise ValueError(f"No sequences with {self._num_frames} captures found!")
-        _logger.debug(f"Queue: {success} pairs with {self._num_frames} captures!")
+        _logger.debug(f"{self}: {success} pairs with {self._num_frames} captures!")
 
 
 class ExtractIndividualFrames(GroupAdjacentTime):

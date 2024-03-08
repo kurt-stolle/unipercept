@@ -5,9 +5,9 @@ Implements a framework for working with datasets that have varying layouts and d
 from __future__ import annotations
 
 import abc
-import base64
 import dataclasses as D
 import functools
+import hashlib
 import pickle
 import random
 import types
@@ -26,7 +26,7 @@ from unipercept.utils.frozendict import frozendict
 
 __all__ = ["Dataset"]
 
-_T_MFST = T.TypeVar("_T_MFST", bound=T.TypedDict)  # Manifest
+_T_MFST = T.TypeVar("_T_MFST", bound=dict)  # Manifest
 _T_QITEM = T.TypeVar("_T_QITEM")  # Item in queue
 _T_DITEM = T.TypeVar("_T_DITEM")  # Item in datapipe
 _T_DINFO = T.TypeVar("_T_DINFO")  # Meta info about the dataset
@@ -159,18 +159,18 @@ class Dataset(
         if self._manifest is None:
             if self.use_manifest_cache:
                 # The manifest should be stored until the cache path provided by the environment
-                file_name = base64.b64encode(
-                    repr(self).encode(), "+-".encode()
-                ).decode()
-                path = file_io.get_local_path(
-                    f"//cache/datasets/manifest_{file_name}.pth"
-                )
+                # file_name = base64.b64encode(
+                #    repr(self).encode(), "+-".encode()
+                # ).decode()
+                file_name = hashlib.sha512(repr(self).encode("utf-8")).hexdigest()
+                path = file_io.get_local_path(f"//cache/manifest/{file_name}.pth")
 
                 # Load the manifest from cache
                 cache = LazyPickleCache(path)
 
                 # Generate the manifest if it is not cached
                 if not file_io.isfile(path) and is_main_process():
+                    # TODO: Add check to see if version has changed
                     cache.data = self._build_manifest()
 
                 # Wait while the manifest is being generated
@@ -364,9 +364,9 @@ class _Datapipe(
         retry: int = 0,
     ):
         self._retry = retry
-        self._queue = queue
         self._load_fn = load_fn
-        self._info = info
+        self.queue = queue
+        self.info = info
 
     def sample(self, k: int) -> T.Iterator[_T_DITEM]:
         rng = list(range(len(self)))
@@ -377,16 +377,16 @@ class _Datapipe(
 
     @override
     def __getitem__(self, key_or_idx: str | int) -> tuple[_T_DITEM]:
-        key, item = self._queue[key_or_idx]
-        return self._load_fn(key, item, self._info)
+        key, item = self.queue[key_or_idx]
+        return self._load_fn(key, item, self.info)
 
     def __iter__(self) -> T.Iterable[_T_DITEM]:
-        queue = iter(self._queue)
+        queue = iter(self.queue)
         while True:
             for _ in range(self._retry + 1):
                 try:
                     key, item = next(queue)
-                    yield self._load_fn(key, item, self._info)
+                    yield self._load_fn(key, item, self.info)
                     break
                 except StopIteration:
                     return
@@ -397,4 +397,4 @@ class _Datapipe(
                 raise RuntimeError(f"Failed to load item after {self._retry} retries")
 
     def __len__(self) -> int:
-        return len(self._queue)
+        return len(self.queue)

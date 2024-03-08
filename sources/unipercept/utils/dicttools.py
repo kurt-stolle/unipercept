@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence, TypedDict, TypeGuard, TypeVar, is_typeddict
 
-DictType = TypeVar("DictType", bound=TypedDict)
+DictType = TypeVar("DictType", bound=dict)
 
 
 def is_dict_type(obj: Any, type_: type[DictType]) -> TypeGuard[DictType]:
@@ -50,3 +50,24 @@ def is_dict_type(obj: Any, type_: type[DictType]) -> TypeGuard[DictType]:
         return False
 
     return True
+
+
+from collections import defaultdict
+
+
+def defaultdict_recurrent() -> defaultdict:
+    """
+    Returns a defaultdict that recurrently creates defaultdicts.
+    """
+    return defaultdict(defaultdict_recurrent)
+
+
+def defaultdict_recurrent_to_dict(d: defaultdict) -> dict:
+    """
+    Returns a dict from a recurrently created defaultdict
+    """
+
+    if not isinstance(d, defaultdict):
+        return d
+
+    return {k: defaultdict_recurrent_to_dict(v) for k, v in d.items()}

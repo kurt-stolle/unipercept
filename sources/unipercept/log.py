@@ -3,7 +3,7 @@ Canonical logger used throughout the project.
 """
 
 from __future__ import annotations
-import pandas as pd
+
 import atexit
 import functools
 import io
@@ -15,6 +15,7 @@ import typing as T
 from collections import Counter
 from typing import Optional
 
+import pandas as pd
 from tabulate import tabulate
 from termcolor import colored
 from typing_extensions import override
@@ -80,7 +81,7 @@ def create_table(
     format: T.Literal["long", "wide", "auto"] = "auto",
     *,
     style: str = "rounded_outline",
-    max_depth: int = 3,
+    max_depth: int = 5,
     _depth: int = 0,
 ) -> str:
     """

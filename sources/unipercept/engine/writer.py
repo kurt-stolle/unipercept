@@ -45,171 +45,191 @@ from unipercept.state import (
 from unipercept.utils.tensorclass import Tensorclass
 from unipercept.utils.typings import Pathable
 
-__all__ = [
-    "ResultsWriter",
-    "PersistentTensordictWriter",
-    "MemmapTensordictWriter",
-    "MemoryTensordictWriter",
-]
-
 _logger = get_logger(__name__)
 
-_P = T.ParamSpec("_P")
-_R = T.TypeVar("_R")
+_NO_DEFAULT: T.Final = T.cast(torch.Tensor, "_no_default_")
+_IndexType: T.TypeAlias = torch.Tensor | slice | T.Iterable[int]
 
 
-class ResultsWriter(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def add(self, data: TensorDictBase) -> None:
-        raise NotImplementedError("Abstract method `add` not implemented.")
+class MemoryMappedTensorMeta(T.TypedDict):
+    """
+    Metadata for tensors saved with every tensordict in a memory-mapped directory.
+    """
 
-    @abc.abstractmethod
-    def flush(self) -> None:
-        raise NotImplementedError("Abstract method `write` not implemented.")
-
-    @abc.abstractmethod
-    def close(self) -> None:
-        raise NotImplementedError("Abstract method `close` not implemented.")
-
-    @property
-    @abc.abstractmethod
-    def tensordict(self) -> TensorDictBase:
-        raise NotImplementedError("Abstract property `tensordict` not implemented.")
+    dtype: torch.dtype
+    shape: torch.Size
 
 
 class LazyStackedMemmapTensorView:
-    def __init__(self, path: str, key: str, index: tuple[int, int], dtype, shape):
+    """
+    Represents a tensor within a sub-view of a stacked memory-mapped tensordict
+    """
+
+    __slots__ = ("dtype", "shape", "_executor", "_path", "_key", "_view")
+
+    def __init__(
+        self,
+        path: str,
+        key: str,
+        view: _IndexType,
+        dtype: torch.dtype,
+        shape: torch.Size,
+        executor: concurrent.futures.Executor,
+    ):
         from tensordict.utils import _STRDTYPE2DTYPE
 
-        self._path = path
-        self._key = key
-        self._index = index
-        self._dtype = _STRDTYPE2DTYPE[dtype] if isinstance(dtype, str) else dtype
-        self._shape = torch.Size(shape)
+        self._path: T.Final = path
+        self._key: T.Final = key
+        self._view: T.Final = self._view_to_indices(view)
+        self.dtype: T.Final = (
+            _STRDTYPE2DTYPE[dtype] if isinstance(dtype, str) else dtype
+        )
+        self.shape: T.Final = torch.Size(shape)
+        self._executor: T.Final = executor
+
+    @staticmethod
+    def _view_to_indices(view: _IndexType) -> list[int]:
+        if isinstance(view, slice):
+            assert view.start is not None
+            assert view.stop is not None
+            return list(range(view.start, view.stop, view.step or 1))
+        if isinstance(view, torch.Tensor):
+            return view.tolist()
+        elif isinstance(view, T.Iterable):
+            return list(view)
+        msg = f"Unsupported sub-view type, got: {view} ({type(view)})"
+        raise TypeError(msg)
 
     def __len__(self) -> int:
-        return self._index[1] - self._index[0]
+        return len(self._view)
 
     @TX.override
     def __getstate__(self):
-        return self.__dict__
+        msg = f"{self.__class__.__name__} does not support pickling"
+        raise NotImplementedError(msg)
 
     def __setstate__(self, state):
-        self.__dict__ = state
+        msg = f"{self.__class__.__name__} does not support pickling"
+        raise NotImplementedError(msg)
 
-    def __getitem__(self, index: int | slice | tuple[int, int]) -> Tensor:
+    def __getitem__(self, index: int | _IndexType) -> Tensor:
         if isinstance(index, int):
             return self._load_at(index)
-        size = len(self)
         if isinstance(index, slice):
-            start = index.start
-            if start is None:
-                start = 0
-            if start < 0:
-                start = size + start
-                assert start >= 0
-            stop = index.stop
-            if stop is None:
-                stop = size
-            if stop < 0:
-                stop = size + stop
-                assert stop >= start
-            step = index.step or 1
-            loc = list(range(start, stop, step))
+            parent_indices = self._view[index]
         else:
-            loc = [i if i >= 0 else size + i for i in index]
-
-        assert loc[0] > 0, f"{loc[0]} > 0, got: {loc} from index {index}"
-        assert loc[1] > loc[0], f"{loc[1]} > {loc[0]}, got: {loc} from index {index}"
-        assert loc[1] <= size, f"{loc[1]} > {size}, got: {loc} from index {index}"
-
-        loc[0] += self._index[0]
-        loc[1] += self._index[0]
-
-        tensors: list[Tensor | None] = [None] * (loc[1] - loc[0])
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-            futs = []
-            for i in range(*loc):
-                futs.append(pool.submit(self._load_at, i))
-            for fut in futs:
-                i, t = fut.result()
-                tensors[i] = t
-
-            # for i, t in pool.map(lambda i: (i, self._load_at(i)), range(*loc)):
-            #    tensors[i] = t
-
-        if any(t is None for t in tensors):
-            raise RuntimeError("Some tensors were not loaded")
+            parent_indices = [self._view[i] for i in index]
+        futures = [self._executor.submit(self._load_at, i) for i in parent_indices]
+        tensors = [f.result() for f in futures]
         return torch.stack(T.cast(list[torch.Tensor], tensors))
 
     def _load_at(self, i: int) -> Tensor:
         path = file_io.Path(self._path) / str(i) / f"{self._key}.memmap"
-        tensor = torch.from_file(
-            str(path), dtype=self._dtype, size=self._shape.numel()
-        ).view(self._shape)
-        return tensor.clone(memory_format=torch.contiguous_format)
+        return (
+            torch.from_file(
+                str(path),
+                shared=False,
+                dtype=self.dtype,
+                size=self.shape.numel(),
+                requires_grad=False,
+            )
+            .reshape(self.shape)
+            .pin_memory()
+        )
+
+        # return tensor.clone(memory_format=torch.contiguous_format)
 
     def to_tensor(self) -> Tensor:
         return self[:]
 
 
 class LazyStackedMemmapTensorDict(TensorDictBase):
+    """
+    This tensordict is a read-only view of a dictory with containig previously
+    memory-mapped tensordicts.
+    """
+
     _is_locked = True
-    _is_memmap = True
+    _is_memmap = False
 
     def __init__(
         self,
         path: str,
-        index: tuple[int, int] | None = None,
+        *,
+        executor: concurrent.futures.Executor,
+        index: T.Sequence[int] | None = None,
         metadata: dict[str, T.Any] | None = None,
     ):
         self._path = path
-        self._index = _find_memmap_indices(path) if index is None else index
-        self._metadata = (
-            metadata
-            if metadata is not None
-            else _load_tensordict_metadata(
-                file_io.Path(path) / str(self._index[0]) / "meta.json"
-            )
-        )
+        self._indices = _find_memmap_indices(path) if index is None else index
+        self._executor = executor
+        # NOTE: metadata is the same for all tensordicts in the directory
+
+        if metadata is None:
+            if len(self._indices) > 0:
+                self._metadata = _load_tensordict_metadata(
+                    file_io.Path(path) / str(self._indices[0]) / "meta.json"
+                )
+            else:
+                self._metadata = {}
+        else:
+            self._metadata = metadata
 
     @property
     @TX.override
     def batch_size(self) -> torch.Size:
-        return torch.Size([self._index[1] - self._index[0]])
+        return torch.Size([len(self._indices)])
 
+    @TX.override
     def _index_tensordict(self, index, *args, **kwargs) -> T.Self:
-        sub_td = self.__class__(self._path, index, self._metadata)
-        return sub_td
+        return self.__class__(
+            self._path, executor=self._executor, index=index, metadata=self._metadata
+        )
 
     # ---------------------- #
     # Reading mapped tensors #
     # ---------------------- #
 
-    @TX.override
-    def _get_str(self, key, default) -> Tensor:
-        if key not in self.keys():
-            return default
-        return LazyStackedMemmapTensorView(self._path, key, self._index).to_tensor()
+    def _get_meta(
+        self, key: str, required: bool = False
+    ) -> MemoryMappedTensorMeta | None:
+        meta = T.cast(MemoryMappedTensorMeta | None, self._metadata.get(key))
+        if meta is None and required:
+            msg = f"Key {key} not found in {self}"
+            raise KeyError(msg)
+        return meta
 
     @TX.override
-    def _get_at_str(self, key, idx, default) -> Tensor:
-        meta = self._metadata.get(key, None)
+    def _get_str(self, key: str, default: Tensor = _NO_DEFAULT) -> Tensor:
+        meta = self._get_meta(key, default is _NO_DEFAULT)
         if meta is None:
-            if default is None:
-                raise KeyError(f"Key {key} not found in {self}")
-            else:
-                return default
-        if isinstance(idx, int):
-            idx_at = (idx, idx + 1)
-        else:
-            idx_at = idx
-        tds = LazyStackedMemmapTensorView(
-            self._path, key, idx_at, meta["dtype"], meta["shape"]
+            return default
+        view = LazyStackedMemmapTensorView(
+            self._path,
+            key,
+            self._indices,
+            dtype=meta["dtype"],
+            shape=meta["shape"],
+            executor=self._executor,
         )
-        if isinstance(idx, int):
-            return tds[0]
-        return tds.to_tensor()
+        return view.to_tensor()
+
+    @TX.override
+    def _get_at_str(
+        self, key: str, idx: int | _IndexType, default: Tensor = _NO_DEFAULT
+    ) -> Tensor:
+        meta = self._get_meta(key, default is _NO_DEFAULT)
+        if meta is None:
+            return default
+        view = LazyStackedMemmapTensorView(
+            self._path,
+            key,
+            self._indices,
+            meta["dtype"],
+            meta["shape"],
+            executor=self._executor,
+        )
+        return view[idx]
 
     @TX.override
     def _get_tuple(self, key, default) -> Tensor:
@@ -268,9 +288,10 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
             yield key, LazyStackedMemmapTensorView(
                 self._path,
                 key,
-                self._index,
+                self._indices,
                 self._metadata[key]["dtype"],
                 self._metadata[key]["shape"],
+                executor=self._executor,
             )
 
     # ---------- #
@@ -295,11 +316,12 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
     @TX.override
     def state_dict(
         self, destination=None, prefix="", keep_vars=False, flatten=False
-    ) -> OrderedDict[str, Any]:
+    ) -> collections.OrderedDict[str, T.Any]:
         source = self
         out = collections.OrderedDict()
         out[prefix + "__path"] = source._path
-        out[prefix + "__index"] = source._index
+        out[prefix + "__index"] = source._indices
+        out[prefix + "__executor"] = source._executor
         if destination is not None:
             destination.update(out)
             return destination
@@ -308,7 +330,7 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
     @TX.override
     def load_state_dict(
         self,
-        state_dict: OrderedDict[str, Any],
+        state_dict: collections.OrderedDict[str, T.Any],
         strict=True,
         assign=False,
         from_flatten=False,
@@ -354,10 +376,7 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
     memmap_ = __error_is_memmaped
     memmap = __error_is_memmaped
     memmap_like = __error_is_memmaped
-
-    @classmethod
-    def load_memmap(cls, prefix: str | Path) -> T.Self:
-        return cls(prefix)
+    load_memmap = __error_is_memmaped
 
     # ----------- #
     # Unsupported #
@@ -487,7 +506,7 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
         return NotImplementedError("Method to is not supported!")
 
 
-class MemmapTensordictWriter(ResultsWriter):
+class MemmapTensordictWriter:
     """
     Writes results to a MemmapTensor directory.
 
@@ -495,6 +514,8 @@ class MemmapTensordictWriter(ResultsWriter):
     --------
     - TensorDict documentation: https://pytorch.org/tensordict/saving.html
     """
+
+    __slots__ = ("is_closed", "path", "_size", "_futures", "_td_cursor", "_executor")
 
     def __init__(self, path: str, size: int, write_offset: int):
         """
@@ -505,26 +526,15 @@ class MemmapTensordictWriter(ResultsWriter):
         size : int
             The size of the first dimension of the results.
         """
+        self.path = file_io.Path(path)
+        self.is_closed = False
         self._size: T.Final = size
-        self._is_closed = False
-        self._path = path
-        self._pool = concurrent.futures.ThreadPoolExecutor(
-            min(cpus_available(), M.cpu_count() // get_process_count(), 16)
-        )
         self._futures = []
-
-        self._td: TensorDict | None = None
         self._td_cursor = write_offset
 
     @TX.override
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(path={self._path!r}, size={len(self)}, cursor={self._td_cursor})"
-
-    @functools.cached_property
-    def path(self) -> file_io.Path:
-        p = file_io.Path(self._path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
+        return f"{self.__class__.__name__}(path={self.path!r}, size={len(self)}, cursor={self._td_cursor})"
 
     def __len__(self) -> int:
         return self._size
@@ -541,11 +551,9 @@ class MemmapTensordictWriter(ResultsWriter):
         bool
             True when recovered, False when not
         """
-        if self._is_closed:
+        if self.is_closed:
             msg = f"{self.__class__.__name__} is closed"
             raise RuntimeError(msg)
-
-        barrier()
 
         num_tensordict_subdirs = len(
             [
@@ -571,19 +579,17 @@ class MemmapTensordictWriter(ResultsWriter):
 
         return False
 
-    @TX.override
     def flush(self):
         """
         Write the results to disk.
         """
-        if self._is_closed:
+        if self.is_closed:
             msg = f"{self.__class__.__name__} is closed"
             raise RuntimeError(msg)
         concurrent.futures.wait(self._futures)
         self.close()
 
-    @TX.override
-    def add(self, data: TensorDictBase):
+    def add(self, data: TensorDictBase, executor: concurrent.futures.Executor):
         """
         Add an item to the results list, and write to disk if the buffer is full.
 
@@ -592,8 +598,9 @@ class MemmapTensordictWriter(ResultsWriter):
         data : TensorDictBase
             The data to add.
         """
-        if self._is_closed:
-            raise RuntimeError(f"{self.__class__.__name__} is closed")
+        if self.is_closed:
+            msg = f"{self.__class__.__name__} is closed"
+            raise RuntimeError(msg)
 
         assert (
             data.batch_dims == 1
@@ -606,247 +613,27 @@ class MemmapTensordictWriter(ResultsWriter):
                 inplace=True,
                 like=False,
                 futures=futures,
-                executor=self._pool,
+                executor=executor,
                 copy_existing=False,
             )
+
             self._futures.extend(futures)
             self._td_cursor += 1
 
         self._futures = _wait_until_futures_below_limit(self._futures)
 
-    @TX.override
     def close(self):
-        if self._is_closed:
+        if self.is_closed:
             return
-        self._is_closed = True
-        self._pool.shutdown(wait=True)
+        self.is_closed = True
 
-    @property
-    @TX.override
-    def tensordict(self) -> TensorDictBase:
-        if not self._is_closed:
-            raise RuntimeError("ResultsWriter is not closed")
-        if self._td is None:
-            self._td = LazyStackedMemmapTensorDict(self._path, (0, self._size))
-            # self._td = LazyStackedTensorDict._load_memmap(self.path, {"stack_dim": 0})
-            # assert self._td.batch_size[0] == len(
-            #    self
-            # ), f"Expected batch size {len(self)}, got {self._td.batch_size[0]}"
-        return self._td
-
-
-class PersistentTensordictWriterProcess(M.Process):
-    def __init__(
-        self,
-        path: Pathable,
-        size: int,
-        compression: T.Literal["lzf", "gzip"] | None,
-        compression_opts: T.Any,
-        queue: M.Queue,
-    ):
-        super().__init__()
-        self.path = file_io.Path(path)
-        self.size = size
-        self.compression = compression
-        self.compression_opts = compression_opts
-        self.queue = queue
-        self.cursor = 0
-
-    @TX.override
-    def run(self):
-        _logger.debug("Starting H5 results writer process!")
-
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        writer = PersistentTensorDict(
-            filename=self.path,
-            batch_size=[self.size],
-            mode="w",
-            compression=self.compression,
-            compression_opts=self.compression_opts,
-        )
-
-        try:
-            while True:
-                data = self.queue.get()
-                if data is None:
-                    _logger.debug("Received None, closing writer")
-                    break
-                writer[self.cursor : self.cursor + len(data)] = data
-                self.cursor += len(data)
-        finally:
-            writer.close()
-
-
-class PersistentTensordictWriter(ResultsWriter):
-    """
-    Writes results to a H5 file using PersistentTensorDict from multiple processes,
-    uses a buffer to reduce the number of writes.
-    The main process spawns a writing process, to which all processes will send
-    each added item.
-    On flush, all processes wait until the writer process has completed writing.
-    """
-
-    def __init__(
-        self,
-        path: Pathable,
-        size: int,
-        buffer_size: int = -1,
-        compression: T.Literal["lzf", "gzip"] | None = "lzf",
-        compression_opts: T.Any = None,
-    ):
-        """
-        Parameters
-        ----------
-        path : str
-            The path to the H5 file.
-        size : int
-            The size of the first dimension of the results.
-        buffer_size : int, optional
-            The size of the buffer, by default -1, which means no buffering.
-        """
-        self._size: T.Final = size
-        self._is_closed = False
-        self._path = file_io.Path(path)
-        if self._path.is_dir():
-            self._path = self._path / "results.h5"
-        elif self._path.suffix not in (".h5", ".hdf5"):
-            self._path = self._path.with_suffix(".h5")
-
-        if check_main_process():
-            self._queue = M.Queue(
-                buffer_size if buffer_size > 0 else cpus_available() * 2
-            )
-            self._writer = PersistentTensordictWriterProcess(
-                path, size, compression, compression_opts, queue=self._queue
-            )
-            self._writer.start()
-        else:
-            self._queue = None
-            self._writer = None
-
-        self._td: PersistentTensorDict | None = None
-        self._td_factory = functools.partial(
-            PersistentTensorDict,
-            batch_size=[len(self)],
-            mode="r",
-            compression=compression,
-            compression_opts=compression_opts,
-        )
-
-    def __del__(self):
-        if not self._is_closed:
-            _logger.warning("ResultsWriter was not closed, closing now", stacklevel=2)
-        self.close()
-
-    def __len__(self) -> int:
-        return self._size
-
-    @on_main_process()
-    def _append(self, data: TensorDictBase) -> None:
-        if self._queue is None:
-            raise RuntimeError("ResultsWriter queue is None")
-        self._queue.put(data.cpu())
-
-    @TX.override
-    def flush(self):
-        """
-        Write the results to disk.
-        """
-        if self._is_closed:
-            raise RuntimeError(f"{self.__class__.__name__} is closed")
-
-        if check_main_process():
-            assert self._queue is not None and self._writer is not None
-            _logger.debug("Sending close signal to H5 writer")
-            self._queue.put(None)
-            _logger.debug("Waiting for H5 writer to finish")
-            self._writer.join()
-            self._writer.close()
-            self._writer = None
-        barrier()
-
-        self.close()
-
-    @TX.override
-    def add(self, data: TensorDictBase):
-        """
-        Add an item to the results list, and write to disk if the buffer is full.
-
-        Parameters
-        ----------
-        data : TensorDictBase
-            The data to add.
-        """
-        if self._is_closed:
-            raise RuntimeError(f"{self.__class__.__name__} is closed")
-
-        assert (
-            data.batch_dims == 1
-        ), f"ResultsWriter only supports 1D batches. Got {data.batch_dims}."
-
-        data = gather_tensordict(data)
-        self._append(data)
-
-    @TX.override
-    def close(self):
-        self._is_closed = True
-
-        if check_main_process():
-            if self._queue is not None:
-                self._queue.close()
-                self._queue = None
-            if self._writer is not None:
-                self._writer.terminate()
-                self._writer.close()
-                self._writer = None
-
-        if self._td is not None:
-            self._td.close()
-            self._td = None
-
-    @property
-    @TX.override
-    def tensordict(self) -> TensorDictBase:
-        if not self._is_closed:
-            raise RuntimeError("ResultsWriter is not closed")
-        if self._td is None:
-            self._td = self._td_factory(filename=self._path)
-        return self._td
-
-
-class MemoryTensordictWriter(ResultsWriter):
-    """
-    Writer that stores results in a large list of TensorDicts, which is not memory
-    efficient but very fast to write to and read from.
-    When flushed, the results are synchronized to the main process.
-    The resulting tensordict is a LazyStackedTensorDict of the list of TensorDicts.
-    """
-
-    def __init__(self):
-        self._results: list[TensorDictBase] = []
-
-    @TX.override
-    def add(self, data: TensorDictBase) -> None:
-        self._results.append(data.cpu())
-
-    @TX.override
-    def flush(self) -> None:
-        if self._is_closed:
-            msg = f"{self.__class__.__name__} is closed"
+    def read(self, executor: concurrent.futures.Executor) -> TensorDictBase:
+        if not self.is_closed:
+            msg = "ResultsWriter is not closed"
             raise RuntimeError(msg)
-        # TODO synchronization
-        raise NotImplementedError()
-
-    @TX.override
-    def close(self) -> None:
-        self._is_closed = True
-
-    @property
-    @TX.override
-    def tensordict(self) -> TensorDictBase:
-        if not self._is_closed:
-            raise RuntimeError("ResultsWriter is not closed")
-        return LazyStackedTensorDict(self._results)
+        return LazyStackedMemmapTensorDict(
+            str(self.path), executor=executor, index=list(range(len(self)))
+        )
 
 
 @functools.cache

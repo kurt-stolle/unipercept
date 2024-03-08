@@ -600,6 +600,13 @@ class PerceptionDataset(
     _data_cache: T.ClassVar[dict[str, unipercept.model.InputData]] = {}
 
     @classmethod
+    def _sequence_to_long(cls, sequence: str) -> torch.Tensor:
+        """
+        Convert the sequence string to a long tensor.
+        """
+        return torch.tensor(hash(sequence), dtype=torch.long)
+
+    @classmethod
     @TX.override
     def _load_data(
         cls, key: str, item: QueueItem, info: Metadata
@@ -634,13 +641,15 @@ class PerceptionDataset(
                 principal_points=[item_camera["principal_point"]],
                 orthographic=False,
             ),
-            image_size=torch.as_tensor(item_camera["image_size"]),
+            image_size=torch.tensor(item_camera["image_size"]),
             pose=torch.eye(4),
             batch_size=[],
         )
 
         # IDs: (sequence, frame)
-        ids = torch.tensor([hash(item["sequence"]), item["frame"]], dtype=torch.long)
+        ids = torch.tensor(
+            [cls._sequence_to_long(item["sequence"]), item["frame"]], dtype=torch.long
+        )
 
         input_data = InputData(
             ids=ids,

@@ -4,6 +4,7 @@ The `Engine` class is the main class to handle training and evaluation of any ki
 
 from __future__ import annotations
 
+import concurrent.futures
 import enum as E
 import functools
 import gc
@@ -44,11 +45,12 @@ from unipercept.engine.accelerate import Accelerator, find_executable_batch_size
 from unipercept.engine.callbacks import CallbackType, Delegate, Event, Signal, State
 from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
-from unipercept.engine.writer import MemmapTensordictWriter, PersistentTensordictWriter
+from unipercept.engine.writer import MemmapTensordictWriter
 from unipercept.log import create_table, get_logger
 from unipercept.state import (
     barrier,
     check_main_process,
+    cpus_available,
     gather,
     get_process_count,
     get_process_index,
@@ -547,7 +549,7 @@ class Engine:
     @torch.no_grad()
     def run_evaluation(
         self,
-        model_factory: ModelFactory,
+        model_factory: ModelFactory | None,
         trial: Trial | None = None,
         *,
         suites: T.Collection[str] | None = None,
@@ -584,10 +586,13 @@ class Engine:
             # Memory metrics - must set up as early as possible
             self._mem_tracker.start("eval")
 
-            if trial is not None:
-                model = model_factory(overrides=trial.config, weights=trial.weights)
+            if model_factory is not None:
+                if trial is not None:
+                    model = model_factory(overrides=trial.config, weights=trial.weights)
+                else:
+                    model = model_factory()
             else:
-                model = model_factory()
+                model = None
 
             loader = suite.loader(suite.batch_size, use_distributed=True)
 
@@ -994,7 +999,7 @@ class Engine:
     @torch.inference_mode()
     def run_inference_loop(
         self,
-        model: nn.Module,
+        model: nn.Module | None,
         dataloader: torch.utils.data.DataLoader,
         prefix: str,
         handlers: T.Sequence[Evaluator],
@@ -1031,20 +1036,27 @@ class Engine:
         )
 
         # Prepare model
-        if weights is not None:
-            model = self._load_weights(weights, model)
+        if model is not None:
+            if weights is not None:
+                model = self._load_weights(weights, model)
 
-        # TODO: The FP32 wrapper added by prepare breaks our model
-        if self.xlr.unwrap_model(model) is model:
-            _logger.info(f"Preparing model for evaluation: {model.__class__.__name__}")
-            model = self.xlr.prepare_model(model, evaluation_mode=True)
+            # TODO: The FP32 wrapper added by prepare breaks our model
+            if self.xlr.unwrap_model(model) is model:
+                _logger.debug(
+                    "Inference loop: preparing model (%s)", model.__class__.__name__
+                )
+                model = self.xlr.prepare_model(model, evaluation_mode=True)
+            else:
+                _logger.debug(
+                    "Inference loop: model already prepared (%s)",
+                    model.__class__.__name__,
+                )
+
+            model = self.xlr.unwrap_model(model, keep_fp32_wrapper=False).eval()
         else:
-            _logger.info(
-                f"Model is already prepared for evaluation: {model.__class__.__name__}"
+            _logger.debug(
+                "Inference loop: no model provided - pre-existing evaluation files required"
             )
-
-        model = self.xlr.unwrap_model(model, keep_fp32_wrapper=False)
-        model.eval()
 
         # Output memory
         if path is None:
@@ -1061,54 +1073,59 @@ class Engine:
                 samples_total,
                 write_offset=batch_offsets[get_process_index()] * batch_size,
             )
+            results_recovered = results_mem.recover()
 
             t_start_all = time.time()  # global start time
             samples_processed = 0
-            results_recovered = results_mem.recover()
             if not results_recovered:
+                if model is None:
+                    msg = f"No model provided and no pre-existing evaluation files exist at the provided path {str(path)}"
+                    raise RuntimeError(msg)
                 _logger.info(
                     "Inference loop: running on %d processes", get_process_count()
                 )
                 self._edge(Event.ON_INFERENCE_BEGIN, loader=dataloader)
-                timings = ProfileAccumulator()
-                for inputs in dataloader:
-                    with profile(timings, "copy"):
-                        inputs = inputs.to(self.xlr.device, non_blocking=True)
-                    with profile(timings, "model"):
-                        outputs = self.run_inference_step(model, inputs)
-                    with profile(timings, "update"):
-                        samples_in_batch = inputs.batch_size[0]
-                        results_merged = TensorDict(
-                            {
-                                "valid": torch.ones(
-                                    samples_in_batch,
-                                    dtype=torch.bool,
-                                    device=self.xlr.device,
-                                )
-                            },
-                            [samples_in_batch],
-                            self.xlr.device,
-                        )
-                        for evaluator in handlers:
-                            evaluator.update(
-                                results_merged, inputs=inputs, outputs=outputs
+
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    timings = ProfileAccumulator()
+                    for inputs in dataloader:
+                        with profile(timings, "copy"):
+                            inputs = inputs.to(self.xlr.device, non_blocking=True)
+                        with profile(timings, "model"):
+                            outputs = self.run_inference_step(model, inputs)
+                        with profile(timings, "update"):
+                            samples_in_batch = inputs.batch_size[0]
+                            results_merged = TensorDict(
+                                {
+                                    "valid": torch.ones(
+                                        samples_in_batch,
+                                        dtype=torch.bool,
+                                        device=self.xlr.device,
+                                    )
+                                },
+                                [samples_in_batch],
+                                self.xlr.device,
                             )
-                    with profile(timings, "write"):
-                        results_mem.add(results_merged)
-                        samples_processed += samples_in_batch
-                    with profile(timings, "event"):
-                        self._edge(
-                            Event.ON_INFERENCE_STEP,
-                            loader=dataloader,
-                            inputs=inputs,
-                            outputs=outputs,
-                        )
+                            for evaluator in handlers:
+                                evaluator.update(
+                                    results_merged, inputs=inputs, outputs=outputs
+                                )
+                        with profile(timings, "write"):
+                            results_mem.add(results_merged, executor)
+                            samples_processed += samples_in_batch
+                        with profile(timings, "event"):
+                            self._edge(
+                                Event.ON_INFERENCE_STEP,
+                                loader=dataloader,
+                                inputs=inputs,
+                                outputs=outputs,
+                            )
 
                 _logger.info(
                     "Inference loop: timing report:\n%s",
                     create_table(timings.to_summary()),
                 )
-                # Sleep for 1 second appears to help with memory consistency
+                # HACK: Sleep for 1 second appears to help with memory consistency
                 time.sleep(1)
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -1143,14 +1160,16 @@ class Engine:
                         )
                     )
                 visuals: dict[str, pil_image.Image] = {}
-                for evaluator in handlers or []:
-                    _logger.debug("Inference loop: evaluating %s", repr(evaluator))
-                    metrics.update(
-                        evaluator.compute(
-                            results_mem.tensordict, device=self.xlr.device, path=path
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    storage = results_mem.read(executor)
+                    for evaluator in handlers or []:
+                        _logger.debug("Inference loop: evaluating %s", repr(evaluator))
+                        metrics.update(
+                            evaluator.compute(
+                                storage, device=self.xlr.device, path=path
+                            )
                         )
-                    )
-                    visuals.update(evaluator.plot(results_mem.tensordict))
+                        visuals.update(evaluator.plot(storage))
                 self._store_visualizations(visuals, prefix=prefix)
 
             barrier()

@@ -17,12 +17,15 @@ from tensordict import TensorDictBase
 from tqdm import tqdm
 from typing_extensions import override
 
+from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available
 
 from ._base import Evaluator, PlotMode
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
+
+_logger = get_logger(__name__)
 
 __all__ = [
     "DepthEvaluator",
@@ -80,10 +83,12 @@ class DepthWriter(Evaluator):
             return
 
         pred = outputs.get(self.pred_key, None)
+        assert pred.dtype == torch.float32
         if pred is None:
             raise RuntimeError(f"Missing key {self.pred_key} in {outputs=}")
 
         true = inputs.get(self.true_key, None)
+        assert true.dtype == torch.float32
         if true is None:  # Generate dummy values for robust evaluation downstream
             true = torch.full_like(pred, 0, dtype=torch.float32)
         else:
@@ -130,6 +135,8 @@ _KEY_VALID_PX = "valid"
 @D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
     show_progress: bool = True
+
+    show_summary: bool = True
 
     @classmethod
     @override
@@ -183,6 +190,9 @@ class DepthEvaluator(DepthWriter):
             else:
                 assert isinstance(v, float)
                 v /= metrics[_KEY_VALID_PX]
+
+        if self.show_summary:
+            _logger.info("Depth summary:\n%s", create_table(metrics), format="wide")
 
         # Add metrics from parent class
         metrics.update(super().compute(storage, device=device))

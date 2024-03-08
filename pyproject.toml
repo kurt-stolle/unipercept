@@ -190,7 +190,7 @@ extend-select = [
     "YTT",  # flake8-2020
     "EXE",  # flake8-executable
     "NPY",  # NumPy specific rules
-    "PD",   # pandas-vet
+    #"PD",   # pandas-vet (disabled: recognizes all methods as pandas methods)
     "FURB", # refurb
     "PYI",  # flake8-pyi
 ]

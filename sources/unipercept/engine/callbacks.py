@@ -142,7 +142,6 @@ class State:
         self.log_history = []
 
 
-
 @D.dataclass
 class Signal:
     """

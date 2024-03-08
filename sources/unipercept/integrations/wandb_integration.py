@@ -368,9 +368,7 @@ def artifact_historic_delete(artifact: wandb.Artifact, keep: int) -> None:
 
     api = wandb.Api()
 
-    vs = api.artifacts(
-        type_name=artifact.type, name=name
-    )
+    vs = api.artifacts(type_name=artifact.type, name=name)
     if len(vs) <= keep:
         _logger.info(f"Keeping all {name} artifacts")
         return

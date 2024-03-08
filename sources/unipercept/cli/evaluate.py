@@ -31,6 +31,11 @@ def evaluate(p: argparse.ArgumentParser):
         help="optimizes the configuration for model debugging",
     )
     p.add_argument(
+        "--no-model",
+        action="store_true",
+        help="do not load a model - outputs must already be present in the path",
+    )
+    p.add_argument(
         "--weights",
         "-w",
         type=str,
@@ -72,7 +77,10 @@ def _step(args) -> config_t:
 def _main(args):
     config = _step(args)
     engine = up.create_engine(config)
-    model_factory = up.create_model_factory(config, weights=args.weights or None)
+    if args.no_model:
+        model_factory = None
+    else:
+        model_factory = up.create_model_factory(config, weights=args.weights or None)
     suites = args.suite if args.suite is not None and len(args.suite) > 0 else None
     try:
         results = engine.run_evaluation(

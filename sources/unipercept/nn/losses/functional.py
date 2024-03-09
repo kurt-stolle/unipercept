@@ -25,7 +25,8 @@ def split_into_patches(
     """
 
     if strides is None:
-        strides = (sizes[0], sizes[1])
+        #strides = (sizes[0], sizes[1])
+        strides = (1,1)
 
     batch_size, channels, _, _ = x.shape
 
@@ -88,7 +89,7 @@ def depth_guided_segmentation_loss(
     eps: float,
     tau: int,
     patch_size: int,
-):
+) -> T.Tuple[torch.Tensor, torch.Tensor]:
     seg_patch = split_into_patches(seg_feat, (patch_size, patch_size))
     dep_patch = split_into_patches(dep_true, (patch_size, patch_size))
     dep_valid = dep_patch > eps
@@ -103,8 +104,9 @@ def depth_guided_segmentation_loss(
         depth_center.unsqueeze_(-1).unsqueeze_(-1)
 
     # Compute loss for all patches and centers
-    dep_diff = torch.abs(depth_center - dep_patch).clamp_(min=eps)
-    sem_diff = torch.norm(sem_center - seg_patch, dim=1).clamp(min=eps)
+    # TODO: Stability of the loss function
+    dep_diff = torch.abs(depth_center - dep_patch)#.clamp_(min=eps)
+    sem_diff = torch.norm(sem_center - seg_patch, dim=1)#.clamp(min=eps)
     loss = torch.exp(-dep_diff / tau) * torch.exp(-(sem_diff**2))
 
     # Compute the mask for which the loss function is valid
@@ -122,12 +124,11 @@ def segmentation_guided_triplet_loss(
     threshold: int,
     patch_height: int,
     patch_width: int,
-):
+) -> T.Tuple[torch.Tensor, torch.Tensor]:
     # if seg_true.ndim != dep_feat.ndim:
     #     seg_true.unsqueeze_(1)
 
     with torch.no_grad():
-        # seg_true = seg_true.float()
         seg_true = nn.functional.interpolate(
             seg_true[:, None, ...].float(),
             size=dep_feat.shape[-2:],
@@ -137,10 +138,10 @@ def segmentation_guided_triplet_loss(
     # Split both depth estimated output and panoptic label into NxN patches
     # P ~= (H * W) / (5 * 5)
     seg_patch = split_into_patches(
-        seg_true, (patch_height, patch_width), (patch_height, patch_width)
+        seg_true, (patch_height, patch_width)#, (patch_height, patch_width)
     )  # N x 1 x P x 5 x 5
     dep_patch = split_into_patches(
-        dep_feat, (patch_height, patch_width), (patch_height, patch_width)
+        dep_feat, (patch_height, patch_width)#, (patch_height, patch_width)
     )  # N x C x P x 5 x 5
 
     # Discard patches that have a panoptic value below 0 (ignore) or that all have the same class (no panoptic contours)

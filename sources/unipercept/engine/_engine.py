@@ -511,7 +511,7 @@ class Engine:
 
             _logger.info(
                 "Training start: running %.1f epochs (%d steps)",
-                float(train_epochs),
+                train_epochs,
                 int(train_epochs * steps_per_epoch),
             )
 

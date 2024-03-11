@@ -144,6 +144,12 @@ class Dataset(
         """
         ...
 
+    def _check_manifest(self, manifest: _T_MFST) -> bool:
+        """
+        Checks that the manifest is valid.
+        """
+        return True
+
     _manifest: _T_MFST | None = D.field(
         default=None, hash=False, repr=False, compare=False, init=False
     )
@@ -155,6 +161,7 @@ class Dataset(
         a list of what files are in the dataset, and where they are located.
         """
         from unipercept.data.pipes import LazyPickleCache  # TODO: nasty dependency
+        from unipercept.state import barrier, check_main_process
 
         if self._manifest is None:
             if self.use_manifest_cache:
@@ -166,15 +173,17 @@ class Dataset(
                 path = file_io.get_local_path(f"//cache/manifest/{file_name}.pth")
 
                 # Load the manifest from cache
-                cache = LazyPickleCache(path)
+                cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
 
                 # Generate the manifest if it is not cached
-                if not file_io.isfile(path) and is_main_process():
-                    # TODO: Add check to see if version has changed
-                    cache.data = self._build_manifest()
+                if is_main_process():
+                    if not file_io.exists(path):
+                        cache.data = self._build_manifest()
+                    elif not self._check_manifest(cache.data):
+                        cache.data = self._build_manifest()
 
                 # Wait while the manifest is being generated
-                wait_for_sync()
+                barrier()
 
                 # Load from cache (also if main process)
                 try:
@@ -185,13 +194,13 @@ class Dataset(
 
                 mfst = self._manifest = cache.data  # type: ignore
             else:
-                if is_main_process():
+                if check_main_process():
                     mfst = self._build_manifest()
                 else:
                     mfst = None
 
                 # Wait while the manifest is being generated
-                wait_for_sync()
+                barrier()
 
                 # Send the manifest to all processes
                 mfst = self._manifest = torch.distributed.broadcast(mfst, 0)

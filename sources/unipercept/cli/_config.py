@@ -62,8 +62,11 @@ class ConfigLoad(argparse.Action):
 
         cfg = up.read_config(name)
         cfg = self.apply_overrides(cfg, overrides)
-        cfg["_CLI"] = name
+        cfg["CLI"] = name
+        cfg["CLI_OVERRIDES"] = " ".join(overrides)
 
+        setattr(namespace, self.dest + "_path", name)
+        setattr(namespace, self.dest + "_overrides", overrides)
         setattr(namespace, self.dest, cfg)
 
     def interactive(self) -> list[str]:

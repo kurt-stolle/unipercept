@@ -88,11 +88,11 @@ def _main(args):
         if session_id_recovered is None:
             msg = "Training configuration does not support resumption"
             raise ValueError(msg)
-
-        if not args.config_path.endswith(".yaml"):
+        config_path = up.file_io.Path(args.config_path)
+        if not config_path.suffix.endswith(".yaml"):
             msg = "Cannot resume training without a YAML config file"
             raise ValueError(msg)
-        resume_dir = args.config_path.parent
+        resume_dir = config_path.parent
         if not (resume_dir / "outputs").exists():
             msg = "Cannot resume training from a directory without outputs"
             raise ValueError(msg)

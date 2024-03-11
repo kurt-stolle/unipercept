@@ -783,17 +783,9 @@ class Engine:
 
         steps_per_epoch = len(loader)
         start_epoch = math.floor(self._state.epoch)
-        steps_trained_in_current_epoch = (
-            self.xlr.step
-        )  # int((self._state.epoch - start_epoch) * steps_per_epoch)
-
-        assert steps_trained_in_current_epoch == int(
+        steps_trained_in_current_epoch = int(
             (self._state.epoch - start_epoch) * steps_per_epoch
-        ), (
-            f"Expected {steps_trained_in_current_epoch} to be equal to "
-            f"int(({self._state.epoch} - {start_epoch}) * {steps_per_epoch})"
         )
-
         train_epochs = math.ceil(self._state.train_steps / steps_per_epoch)
 
         # Check if the loader requires an epochs state
@@ -811,7 +803,7 @@ class Engine:
             steps_skipped = 0
             if steps_trained_in_current_epoch > 0:
                 _logger.debug(
-                    "Skipping the first %d steps in the current epoch",
+                    "Train loop: skipping the first %d steps",
                     steps_trained_in_current_epoch,
                 )
 
@@ -1461,8 +1453,11 @@ class Engine:
                 msg = "No engine state path given and no automatic checkpoints found."
                 raise FileNotFoundError(msg)
             path = _find_recent_generated_item(self.states_dir)
-        _logger.info("Loading state from %s", path)
         self.xlr.load_state(str(path))
+
+        _logger.info(
+            "Loaded state: %s\n%s", path, create_table(self._state.state_dict())
+        )
 
     def _save_state(self, path: T.Optional[Pathable]) -> str:
         """

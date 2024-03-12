@@ -161,7 +161,7 @@ class Dataset(
         a list of what files are in the dataset, and where they are located.
         """
         from unipercept.data.pipes import LazyPickleCache  # TODO: nasty dependency
-        from unipercept.state import barrier, check_main_process
+        from unipercept.state import barrier, check_main_process, main_process_first
 
         if self._manifest is None:
             if self.use_manifest_cache:
@@ -169,18 +169,19 @@ class Dataset(
                 # file_name = base64.b64encode(
                 #    repr(self).encode(), "+-".encode()
                 # ).decode()
-                file_name = hashlib.sha512(repr(self).encode("utf-8")).hexdigest()
+                file_name = hashlib.sha256(repr(self).encode("utf-8")).hexdigest()
                 path = file_io.get_local_path(f"//cache/manifest/{file_name}.pth")
 
                 # Load the manifest from cache
-                cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
+                with main_process_first(local=True):
+                    cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
 
-                # Generate the manifest if it is not cached
-                if is_main_process():
-                    if not file_io.exists(path):
-                        cache.data = self._build_manifest()
-                    elif not self._check_manifest(cache.data):
-                        cache.data = self._build_manifest()
+                    # Generate the manifest if it is not cached
+                    if check_main_process(local=True):
+                        if not file_io.exists(path):
+                            cache.data = self._build_manifest()
+                        elif not self._check_manifest(cache.data):
+                            cache.data = self._build_manifest()
 
                 # Wait while the manifest is being generated
                 barrier()

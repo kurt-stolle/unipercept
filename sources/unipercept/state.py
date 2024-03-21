@@ -89,11 +89,13 @@ def check_debug_enabled():
 def barrier(msg: str | None = None):
     return _state_backend.wait_for_everyone()
 
+
 def main_process_first(local: bool = False):
     if local:
         return _state_backend.local_main_process_first()
     else:
         return _state_backend.main_process_first()
+
 
 print = _state_backend.print
 

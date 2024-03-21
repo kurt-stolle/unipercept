@@ -21,6 +21,7 @@ import torch.utils.data
 from typing_extensions import override
 
 from unipercept import file_io
+from unipercept.log import get_logger
 from unipercept.utils.distributed import is_main_process, wait_for_sync
 from unipercept.utils.frozendict import frozendict
 
@@ -31,6 +32,8 @@ _T_QITEM = T.TypeVar("_T_QITEM")  # Item in queue
 _T_DITEM = T.TypeVar("_T_DITEM")  # Item in datapipe
 _T_DINFO = T.TypeVar("_T_DINFO")  # Meta info about the dataset
 _KEY_CREATE_INFO = "_create_info"
+
+_logger = get_logger(__name__)
 
 
 @T.dataclass_transform(field_specifiers=(D.Field, D.field), kw_only_default=True)
@@ -166,22 +169,25 @@ class Dataset(
         if self._manifest is None:
             if self.use_manifest_cache:
                 # The manifest should be stored until the cache path provided by the environment
-                # file_name = base64.b64encode(
-                #    repr(self).encode(), "+-".encode()
-                # ).decode()
                 file_name = hashlib.sha256(repr(self).encode("utf-8")).hexdigest()
-                path = file_io.get_local_path(f"//cache/manifest/{file_name}.pth")
+                path = f"//cache/manifest/{file_name}.pth"
+
+                print(file_name)
+                _logger.info("Manifest: digest %s", file_name)
+
+                cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
 
                 # Load the manifest from cache
                 with main_process_first(local=True):
-                    cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
-
-                    # Generate the manifest if it is not cached
                     if check_main_process(local=True):
-                        if not file_io.exists(path):
+                        if not file_io.isfile(path):
+                            _logger.info(f"Manifest: not found - building cache")
                             cache.data = self._build_manifest()
                         elif not self._check_manifest(cache.data):
+                            _logger.info(f"Manifest: invalid, rebuilding cache")
                             cache.data = self._build_manifest()
+                        else:
+                            _logger.info(f"Manifest: valid")
 
                 # Wait while the manifest is being generated
                 barrier()

@@ -125,13 +125,11 @@ if T.TYPE_CHECKING:
         "_N", bound=torch.Tensor | dict[T.Any, torch.Tensor] | T.Sequence[torch.Tensor]
     )
 
-    def gather(tensor: _N) -> _N:
-        ...
+    def gather(tensor: _N) -> _N: ...
 
     def pad_across_processes(
         tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0
-    ) -> _N:
-        ...
+    ) -> _N: ...
 
 else:
     gather = accelerate.utils.gather

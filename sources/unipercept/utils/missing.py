@@ -19,9 +19,9 @@ class MissingValue:
 
     """
 
-    __sentinel_types__: T.ClassVar[
-        WeakValueDictionary[str, T.Self]
-    ] = WeakValueDictionary()
+    __sentinel_types__: T.ClassVar[WeakValueDictionary[str, T.Self]] = (
+        WeakValueDictionary()
+    )
 
     def __class_getitem__(cls, name: str) -> types.GenericAlias:
         return types.GenericAlias(cls, (name.upper()))

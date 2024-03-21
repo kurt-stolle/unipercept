@@ -24,57 +24,48 @@ if T.TYPE_CHECKING:
     @T.overload
     def get_dataset(
         query: T.Literal["cityscapes"],  # noqa: U100
-    ) -> type[unisets.cityscapes.CityscapesDataset]:
-        ...
+    ) -> type[unisets.cityscapes.CityscapesDataset]: ...
 
     @T.overload
     def get_dataset(
         query: T.Literal["cityscapes-vps"],  # noqa: U100
-    ) -> type[unisets.cityscapes.CityscapesVPSDataset]:
-        ...
+    ) -> type[unisets.cityscapes.CityscapesVPSDataset]: ...
 
     @T.overload
     def get_dataset(
         query: T.Literal["kitti-360"],  # noqa: U100
-    ) -> type[unisets.kitti_360.KITTI360Dataset]:
-        ...
+    ) -> type[unisets.kitti_360.KITTI360Dataset]: ...
 
     @T.overload
     def get_dataset(
         query: T.Literal["kitti-step"],  # noqa: U100
-    ) -> type[unisets.kitti_step.KITTISTEPDataset]:
-        ...
+    ) -> type[unisets.kitti_step.KITTISTEPDataset]: ...
 
     @T.overload
     def get_dataset(
         query: T.Literal["kitti-sem"],  # noqa: U100
-    ) -> type[unisets.kitti_sem.SemKITTIDataset]:
-        ...
+    ) -> type[unisets.kitti_sem.SemKITTIDataset]: ...
 
     @T.overload
     def get_dataset(
         query: T.Literal["vistas"],  # noqa: U100
-    ) -> type[unisets.vistas.VistasDataset]:
-        ...
+    ) -> type[unisets.vistas.VistasDataset]: ...
 
     @T.overload
     def get_dataset(
         query: T.Literal["wilddash"],  # noqa: U100
-    ) -> type[unisets.wilddash.WildDashDataset]:
-        ...
+    ) -> type[unisets.wilddash.WildDashDataset]: ...
 
     @T.overload
     def get_dataset(
         query: str,  # noqa: U100
-    ) -> type[unisets.PerceptionDataset]:
-        ...
+    ) -> type[unisets.PerceptionDataset]: ...
 
     @T.overload
     def get_dataset(
         query: None,  # noqa: U100
         **kwargs: T.Any,  # noqa: U100
-    ) -> type[unisets.PerceptionDataset]:
-        ...
+    ) -> type[unisets.PerceptionDataset]: ...
 
 
 def get_dataset(

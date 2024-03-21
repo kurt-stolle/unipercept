@@ -169,28 +169,30 @@ class Dataset(
         if self._manifest is None:
             if self.use_manifest_cache:
                 # The manifest should be stored until the cache path provided by the environment
-                file_name = hashlib.sha256(repr(self).encode("utf-8")).hexdigest()
+                ds_repr = repr(self)
+                file_name = hashlib.md5(
+                    ds_repr.encode(), usedforsecurity=False
+                ).hexdigest()
                 path = f"//cache/manifest/{file_name}.pth"
 
-                print(file_name)
-                _logger.info("Manifest: digest %s", file_name)
-
-                cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
+                _logger.info("Manifest: digest %s\n%s", file_name, ds_repr)
 
                 # Load the manifest from cache
-                with main_process_first(local=True):
+                with main_process_first():
+                    cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
                     if check_main_process(local=True):
                         if not file_io.isfile(path):
-                            _logger.info(f"Manifest: not found - building cache")
+                            _logger.info("Manifest: not found - building cache")
                             cache.data = self._build_manifest()
                         elif not self._check_manifest(cache.data):
-                            _logger.info(f"Manifest: invalid, rebuilding cache")
+                            _logger.info("Manifest: invalid, rebuilding cache")
                             cache.data = self._build_manifest()
                         else:
-                            _logger.info(f"Manifest: valid")
+                            _logger.info("Manifest: valid")
+                    assert file_io.isfile(path), f"Manifest cache not found: {path}"
 
                 # Wait while the manifest is being generated
-                barrier()
+                # barrier()
 
                 # Load from cache (also if main process)
                 try:

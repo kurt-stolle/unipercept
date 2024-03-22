@@ -8,7 +8,6 @@ import argparse
 import pprint
 
 import wandb
-
 from unipercept.integrations.wandb_integration import artifact_historic_delete
 
 if __name__ == "__main__":

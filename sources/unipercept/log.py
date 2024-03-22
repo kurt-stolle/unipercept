@@ -132,7 +132,7 @@ def create_table(
             pad_to = max(col_lens)
         else:
             pad_to = 1
-            
+
         for v in data:
             v.extend([""] * (pad_to - len(v)))
         # Transpose the data to make it wide

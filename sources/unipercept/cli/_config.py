@@ -63,7 +63,7 @@ class ConfigLoad(argparse.Action):
         cfg = up.read_config(name)
         cfg = self.apply_overrides(cfg, overrides)
         cfg["CLI"] = name
-        cfg["CLI_OVERRIDES"] = " ".join(overrides)
+        cfg["CLI_OVERRIDES"] = list(overrides)
 
         setattr(namespace, self.dest + "_path", name)
         setattr(namespace, self.dest + "_overrides", overrides)

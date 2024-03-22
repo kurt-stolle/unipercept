@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+import typing as T
 import warnings
 from typing import Generic, Iterable, Iterator, Mapping, TypeVar
-import typing as T
+
 import torch
 
 from unipercept import file_io
@@ -15,12 +16,10 @@ _M = T.TypeVar("_M", bound=dict)
 
 class LazyPickleCache(Generic[_M]):
     def __init__(self, path: str | os.PathLike):
-        self.path = path
+        self.path = str(file_io.Path(path))
 
     @staticmethod
-    def store(
-        path: str | os.PathLike, items: _M
-    ) -> None:
+    def store(path: str | os.PathLike, items: _M) -> None:
         items = dict(items)  # type: ignore
 
         path = file_io.Path(path)

@@ -104,7 +104,9 @@ class State:
         """Called when a training step has been performed"""
         self.step += n
         self.step_experiment += n
-        self.epoch = float(epoch) + float(step + n + steps_skipped) / float(steps_in_epoch)
+        self.epoch = float(epoch) + float(step + n + steps_skipped) / float(
+            steps_in_epoch
+        )
 
     def register_logs(self, logs: dict[str, T.Any], *, max_history: int) -> None:
         """Called when logs are being pushed"""
@@ -375,8 +377,7 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None:
-        ...
+    ) -> Signal | None: ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]

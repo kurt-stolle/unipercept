@@ -25,8 +25,8 @@ def split_into_patches(
     """
 
     if strides is None:
-        #strides = (sizes[0], sizes[1])
-        strides = (1,1)
+        # strides = (sizes[0], sizes[1])
+        strides = (1, 1)
 
     batch_size, channels, _, _ = x.shape
 
@@ -105,8 +105,8 @@ def depth_guided_segmentation_loss(
 
     # Compute loss for all patches and centers
     # TODO: Stability of the loss function
-    dep_diff = torch.abs(depth_center - dep_patch)#.clamp_(min=eps)
-    sem_diff = torch.norm(sem_center - seg_patch, dim=1)#.clamp(min=eps)
+    dep_diff = torch.abs(depth_center - dep_patch)  # .clamp_(min=eps)
+    sem_diff = torch.norm(sem_center - seg_patch, dim=1)  # .clamp(min=eps)
     loss = torch.exp(-dep_diff / tau) * torch.exp(-(sem_diff**2))
 
     # Compute the mask for which the loss function is valid

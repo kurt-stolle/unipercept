@@ -89,11 +89,13 @@ def check_debug_enabled():
 def barrier(msg: str | None = None):
     return _state_backend.wait_for_everyone()
 
+
 def main_process_first(local: bool = False):
     if local:
         return _state_backend.local_main_process_first()
     else:
         return _state_backend.main_process_first()
+
 
 print = _state_backend.print
 
@@ -123,13 +125,11 @@ if T.TYPE_CHECKING:
         "_N", bound=torch.Tensor | dict[T.Any, torch.Tensor] | T.Sequence[torch.Tensor]
     )
 
-    def gather(tensor: _N) -> _N:
-        ...
+    def gather(tensor: _N) -> _N: ...
 
     def pad_across_processes(
         tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0
-    ) -> _N:
-        ...
+    ) -> _N: ...
 
 else:
     gather = accelerate.utils.gather

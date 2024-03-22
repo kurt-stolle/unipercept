@@ -139,10 +139,10 @@ def segmentation_guided_triplet_loss(
     # P ~= (H * W) / (5 * 5)
     seg_patch = split_into_patches(
         seg_true, (patch_height, patch_width)#, (patch_height, patch_width)
-    )  # N x 1 x P x 5 x 5
+    )  # B x 1 x P x 5 x 5
     dep_patch = split_into_patches(
         dep_feat, (patch_height, patch_width)#, (patch_height, patch_width)
-    )  # N x C x P x 5 x 5
+    )  # B x C x P x 5 x 5
 
     # Discard patches that have a panoptic value below 0 (ignore) or that all have the same class (no panoptic contours)
     # patch_min = reduce(seg_patch, "n c p h w -> n c p () ()", "min")

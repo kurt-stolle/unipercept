@@ -39,6 +39,7 @@ __all__ = [
     "as_list",
     "as_set",
     "as_tuple",
+    "ref",
     "bind",
     "call",
     "ConfigList",
@@ -606,6 +607,17 @@ def call(func: T.Callable[_P, _L], /) -> T.Callable[_P, _L]:
     deferred until the returned object is called.
     """
     return _LazyCall(func)  # type: ignore
+
+
+_R = T.TypeVar("_R", contravariant=True)
+
+
+def ref(target: str) -> _R:
+    """
+    Reference to another variable in the configuration using an OmegaConf interpolation
+    string.
+    """
+    return target
 
 
 _INST_SEQ_TYPEMAP: dict[type, type] = {

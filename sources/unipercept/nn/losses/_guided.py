@@ -74,7 +74,7 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
 
         self.patch_width, self.patch_height = patch_size
         self.margin = margin
-        self.threshold = min(self.patch_width, self.patch_height) - 1
+        self.threshold = min(self.patch_width, self.patch_height) // 2
 
     @override
     def forward(self, dep_feat: torch.Tensor, seg_true: torch.Tensor):

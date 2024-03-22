@@ -35,7 +35,6 @@ class GroupAdjacentTime:
         self,
         num_frames: int,
         *,
-        use_typecheck=False,
         required_capture_sources: (
             set[KnownCaptureSources | str]
             | T.Sequence[set[KnownCaptureSources | str]]
@@ -43,7 +42,6 @@ class GroupAdjacentTime:
         ) = None,
         verbose: bool = False,
         step_size: T.Collection[int] | None = None,
-        max_distance: int = 2,
     ):
         if num_frames <= 0:
             raise ValueError(f"Length must be positive definite, got {num_frames}!")

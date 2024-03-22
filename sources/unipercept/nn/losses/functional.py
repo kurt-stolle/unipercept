@@ -37,6 +37,47 @@ def split_into_patches(
     return x  # B x C x P x H x W
 
 
+def depth_to_normals(depth: torch.Tensor, fx: float, fy: float) -> torch.Tensor:
+    r"""
+    Compute surface normals from depth map.
+    """
+    # Compute gradients in x and y directions
+    depth_dx = torch.nn.functional.conv2d(
+        depth, torch.tensor([[[[0, 0, 0], [-1, 0, 1], [0, 0, 0]]]]).to(depth.device)
+    )
+    depth_dy = torch.nn.functional.conv2d(
+        depth, torch.tensor([[[[0, -1, 0], [0, 0, 0], [0, 1, 0]]]]).to(depth.device)
+    )
+
+    # Compute surface normals
+    normals = torch.stack(
+        [
+            -depth_dx * fx,
+            -depth_dy * fy,
+            torch.ones_like(depth),
+        ],
+        dim=-1,
+    )
+
+    # Normalize normals
+    normals = torch.nn.functional.normalize(normals, p=2, dim=-1)
+
+    return normals
+
+
+def depth_to_disp(
+    depth: torch.Tensor,
+    depth_min: float,
+    depth_max: float,
+    fx: float = 1.0,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    r"""
+    Convert depth map to disparity map.
+    """
+    return torch.where(depth > eps, fx / depth, torch.zeros_like(depth))
+
+
 ##############################
 # Depth related loss metrics #
 ##############################
@@ -138,10 +179,10 @@ def segmentation_guided_triplet_loss(
     # Split both depth estimated output and panoptic label into NxN patches
     # P ~= (H * W) / (5 * 5)
     seg_patch = split_into_patches(
-        seg_true, (patch_height, patch_width)#, (patch_height, patch_width)
+        seg_true, (patch_height, patch_width)  # , (patch_height, patch_width)
     )  # B x 1 x P x 5 x 5
     dep_patch = split_into_patches(
-        dep_feat, (patch_height, patch_width)#, (patch_height, patch_width)
+        dep_feat, (patch_height, patch_width)  # , (patch_height, patch_width)
     )  # B x C x P x 5 x 5
 
     # Discard patches that have a panoptic value below 0 (ignore) or that all have the same class (no panoptic contours)

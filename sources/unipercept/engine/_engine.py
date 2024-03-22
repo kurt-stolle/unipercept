@@ -28,6 +28,7 @@ import torch.nn as nn
 import torch.optim
 import torch.types
 import torch.utils.data
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tabulate import tabulate
@@ -36,7 +37,6 @@ from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch.utils.data import Dataset
 from typing_extensions import override
 
-import wandb
 from unipercept import file_io
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EvaluationSuite, TrainingStage
@@ -634,7 +634,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]:
+        ...
 
     @T.overload
     def build_training_dataloader(
@@ -642,7 +643,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]:
+        ...
 
     def build_training_dataloader(
         self,
@@ -1503,7 +1505,7 @@ class Engine:
             wandb_run = self.xlr.get_tracker("wandb")
             if wandb_run is not None:
                 wandb_run.log(
-                    {f"{prefix}/{key}": wandb.Image(img)}, step=self._state.step
+                    {f"{prefix}/{key}": wandb.Image(img)}  # , step=self._state.step
                 )
 
     def _default_setup(self):

@@ -1505,7 +1505,8 @@ class Engine:
             wandb_run = self.xlr.get_tracker("wandb")
             if wandb_run is not None:
                 wandb_run.log(
-                    {f"{prefix}/{key}": wandb.Image(img)}  # , step=self._state.step
+                    {f"{prefix}/{key}": wandb.Image(img)},  # , step=self._state.step
+                    commit=False,
                 )
 
     def _default_setup(self):

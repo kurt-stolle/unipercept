@@ -48,7 +48,7 @@ def _export_onnx(args, model):
     dataloader, info = up.create_dataset(args.config, return_loader=False)
     inputs = next(dataloader)
 
-    inputs = inputs.cuda()
+    inputs = tuple(model.select_inputs(inputs, torch.device("cuda")))
     model = model.cuda()
 
     adapter = up.model.ModelAdapter(model, inputs)
@@ -63,14 +63,14 @@ def _export_native(args, model):
     dataloader, info = up.create_dataset(args.config, return_loader=False)
     inputs = next(dataloader)
 
-    inputs = inputs.cuda()
+    inputs = tuple(model.select_inputs(inputs, torch.device("cuda")))
     model = model.cuda()
 
     try:
-        exp = torch.export.export(model, (inputs,))
+        exp = torch.export.export(model, inputs)
     except Exception as e:
         print(e)
-        exp = torch.export.export(model, (inputs,), strict=False)
+        exp = torch.export.export(model, inputs, strict=False)
 
     print(exp)
 

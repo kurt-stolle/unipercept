@@ -163,7 +163,7 @@ class Dataset(
         Manifest attribute: represents the results of discovering a dataset's files on the filesystem, e.g.
         a list of what files are in the dataset, and where they are located.
         """
-        from unipercept.data.pipes import LazyPickleCache  # TODO: nasty dependency
+        from unipercept.data.pipes import LazyYAMLCache  # TODO: nasty dependency
         from unipercept.state import barrier, check_main_process, main_process_first
 
         if self._manifest is None:
@@ -173,13 +173,13 @@ class Dataset(
                 file_name = hashlib.md5(
                     ds_repr.encode(), usedforsecurity=False
                 ).hexdigest()
-                path = f"//cache/manifest/{file_name}.pth"
+                path = f"//cache/manifest/{file_name}.yaml"
 
                 _logger.info("Manifest: digest %s\n%s", file_name, ds_repr)
 
                 # Load the manifest from cache
                 with main_process_first():
-                    cache: LazyPickleCache[_T_MFST] = LazyPickleCache(path)
+                    cache: LazyYAMLCache[_T_MFST] = LazyYAMLCache(path)
                     if check_main_process(local=True):
                         if not file_io.isfile(path):
                             _logger.info("Manifest: not found - building cache")
@@ -189,12 +189,6 @@ class Dataset(
                             cache.data = self._build_manifest()
                         else:
                             _logger.info("Manifest: valid")
-                    assert file_io.isfile(path), f"Manifest cache not found: {path}"
-
-                # Wait while the manifest is being generated
-                # barrier()
-
-                # Load from cache (also if main process)
                 try:
                     mfst = cache.data  # type: ignore
                 except Exception as e:

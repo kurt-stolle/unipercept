@@ -24,19 +24,19 @@ from uuid import uuid4
 import torch
 import torch._dynamo
 import torch._dynamo.config
-from torch import Tensor, nn
 import torch.optim
 import torch.types
 import torch.utils.data
-import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tabulate import tabulate
 from tensordict import TensorDict, TensorDictBase
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
+from torch import Tensor, nn
 from torch.utils.data import Dataset
 from typing_extensions import override
 
+import wandb
 from unipercept import file_io
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EvaluationSuite, TrainingStage
@@ -47,6 +47,7 @@ from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import MemmapTensordictWriter
 from unipercept.log import create_table, get_logger
+from unipercept.model import ModelBase
 from unipercept.state import (
     barrier,
     check_main_process,
@@ -341,7 +342,7 @@ class Engine:
         """
 
         if model is not None:
-            self.xlr.prepare_model(model, evaluation_mode=True)
+            self.xlr.prepare_model(model, evaluation_mode=True).to(self.xlr.device)
 
         if checkpoint is not None:
             self._recover_path = str(checkpoint)
@@ -706,12 +707,14 @@ class Engine:
 
         return dl, steps_per_epoch, updates_per_epoch
 
-    def run_training_step(self, model: nn.Module, inputs: InputType) -> TensorDict:
+    def run_training_step(self, model: ModelBase, inputs: InputType) -> TensorDict:
         """
         A single training step (forward + backward + update).
         """
         model.train()
-        output: TensorDict = model(inputs)
+
+        inputs = model.select_inputs(inputs, self.xlr.device)
+        output: TensorDict = model(*inputs)
 
         if "losses" in output.keys():
             losses: TensorDict = output["losses"]
@@ -747,7 +750,7 @@ class Engine:
         # Sync backnorm
         if self._params.convert_sync_batchnorm:
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model = self.xlr.prepare_model(model)
+        model = self.xlr.prepare_model(model).to(self.xlr.device)
         loader, scheduler, optimizer = self.xlr.prepare(loader, scheduler, optimizer)
 
         # First load the initial weights, then the state
@@ -977,8 +980,10 @@ class Engine:
         """
         Perform an evaluation step on `model` using `inputs`.
         """
+        model.eval()
 
-        outputs: TensorDictBase = model(inputs)
+        inputs = model.select_inputs(inputs, self.xlr.device)
+        outputs: TensorDictBase = model(*inputs)
         if "predictions" in outputs.keys():
             predictions = outputs["predictions"]
         else:
@@ -1045,7 +1050,9 @@ class Engine:
                 _logger.debug(
                     "Inference loop: preparing model (%s)", model.__class__.__name__
                 )
-                model = self.xlr.prepare_model(model, evaluation_mode=True)
+                model = self.xlr.prepare_model(model, evaluation_mode=True).to(
+                    self.xlr.device
+                )
             else:
                 _logger.debug(
                     "Inference loop: model already prepared (%s)",

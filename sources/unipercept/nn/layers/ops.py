@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import torch.fx
 
 
 # @torch.autocast("cuda", dtype=torch.float16)
@@ -30,14 +31,4 @@ def dynamic_conv2d(features: torch.Tensor, kernels: torch.Tensor) -> torch.Tenso
     return result
 
 
-def dynamic_conv2d_16(features: torch.Tensor, kernels: torch.Tensor) -> torch.Tensor:
-    """
-    Uses half precision for the dynamic convolution.
-    Currently only supports CUDA tensors. The reason for this is that the
-    `torch.bmm` operation is not implemented for half precision on CPU.
-    """
-
-    if features.is_cuda:
-        return dynamic_conv2d(features.half(), kernels.half()).type_as(features)
-    else:
-        return dynamic_conv2d(features, kernels)
+torch.fx.wrap("dynamic_conv2d")

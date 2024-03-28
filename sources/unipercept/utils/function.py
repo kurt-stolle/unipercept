@@ -2,10 +2,10 @@
 Various functional utilities
 """
 from __future__ import annotations
-from torch import Tensor
+
 import collections.abc
-import typing as T
 import inspect
+import typing as T
 from functools import partial, wraps
 from itertools import repeat
 from typing import (
@@ -21,6 +21,7 @@ from typing import (
 )
 
 import torch
+from torch import Tensor
 from torch._dynamo import allow_in_graph
 from typing_extensions import TypeVarTuple
 

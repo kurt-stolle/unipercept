@@ -5,11 +5,15 @@ Trace command. This command is used to profile a model using FX tracing.
 from __future__ import annotations
 
 import argparse
+import os
 
 import torch.fx
 
 import unipercept as up
 from unipercept.cli._command import command, logger
+
+os.environ["TORCH_LOGS"] = "+dynamo"
+os.environ["TORCHDYNAMO_VERBOSE"] = "1"
 
 
 @command(help="analyse a model using FX tracing", description=__doc__)
@@ -20,9 +24,13 @@ def export(subparser: argparse.ArgumentParser):
     mode.add_argument(
         "--inference", "-I", action="store_true", help="export inference", default=True
     )
-    subparser.add_argument(
-        "--symbolic", action="store_true", help="use symbolic tracing", default=False
+
+    exporter = subparser.add_mutually_exclusive_group()
+    exporter.add_argument("--fx", action="store_true", help="use FX symbolic tracing")
+    exporter.add_argument(
+        "--onnx", action="store_true", help="use ONNX with JIT tracing"
     )
+
     subparser.add_argument(
         "path", type=str, nargs="*", help="path to submodule to profile"
     )
@@ -36,7 +44,7 @@ def _export_symbolic(args, model):
     gm.graph.print_tabular()
 
 
-def _export_trace(args, model):
+def _export_onnx(args, model):
     dataloader, info = up.create_dataset(args.config, return_loader=False)
     inputs = next(dataloader)
 
@@ -44,8 +52,25 @@ def _export_trace(args, model):
     model = model.cuda()
 
     adapter = up.model.ModelAdapter(model, inputs)
+    exp = torch.onnx.export(
+        adapter, adapter.flattened_inputs, "model.onnx", verbose=True
+    )
 
-    exp = torch.onnx.export(adapter, (inputs,))
+    print(exp)
+
+
+def _export_native(args, model):
+    dataloader, info = up.create_dataset(args.config, return_loader=False)
+    inputs = next(dataloader)
+
+    inputs = inputs.cuda()
+    model = model.cuda()
+
+    try:
+        exp = torch.export.export(model, (inputs,))
+    except Exception as e:
+        print(e)
+        exp = torch.export.export(model, (inputs,), strict=False)
 
     print(exp)
 
@@ -77,10 +102,12 @@ def _main(args):
 
     logger.info("Running symbolic tracing on ", submodule)
 
-    if args.symbolic:
+    if args.fx:
         _export_symbolic(args, submodule)
+    elif args.onnx:
+        _export_onnx(args, submodule)
     else:
-        _export_trace(args, submodule)
+        _export_native(args, submodule)
 
 
 if __name__ == "__main__":

@@ -71,7 +71,7 @@ class Accelerator(accelerate.Accelerator):
             dispatch_batches=False,
             gradient_accumulation_steps=1,
             split_batches=False,
-            device_placement=True,
+            device_placement=False,
             # mixed_precision=None,
             # dynamo_backend=None,
         )

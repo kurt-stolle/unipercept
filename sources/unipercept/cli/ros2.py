@@ -1,10 +1,14 @@
 """
 Run UniPercept in training/inference as a ROS2 node. Not for production use.
 """
-import unipercept as up
+from __future__ import annotations
+
+import argparse
 
 import rclpy
-import argparse
+
+import unipercept as up
+
 from ._command import command
 from ._config import add_config_args
 

@@ -6,10 +6,11 @@ import warnings
 from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 
 import torch
+import yaml
 
 from unipercept import file_io
 
-__all__ = ["LazyPickleCache"]
+__all__ = ["LazyPickleCache", "LazyYAMLCache"]
 
 _M = T.TypeVar("_M", bound=dict)
 
@@ -17,6 +18,8 @@ _M = T.TypeVar("_M", bound=dict)
 class LazyPickleCache(Generic[_M]):
     def __init__(self, path: str | os.PathLike):
         self.path = str(file_io.Path(path))
+
+        assert self.path.endswith(".pth"), self.path
 
     @staticmethod
     def store(path: str | os.PathLike, items: _M) -> None:
@@ -33,6 +36,39 @@ class LazyPickleCache(Generic[_M]):
         path = file_io.Path(self.path, force=True)
         with path.open("rb") as fh:
             items = torch.load(fh)  # type: ignore
+
+        assert isinstance(items, dict), type(items)
+        return T.cast(_M, items)
+
+    @data.setter
+    def data(self, items: _M) -> None:
+        self.store(self.path, items)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+
+class LazyYAMLCache(Generic[_M]):
+    def __init__(self, path: str | os.PathLike):
+        self.path = str(file_io.Path(path))
+
+        assert self.path.endswith(".yaml"), self.path
+
+    @staticmethod
+    def store(path: str | os.PathLike, items: _M) -> None:
+        items = dict(items)  # type: ignore
+
+        path = file_io.Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as fh:
+            yaml.dump(items, fh)  # type: ignore
+
+    @property
+    # @functools.cached_property
+    def data(self) -> _M:
+        path = file_io.Path(self.path, force=True)
+        with path.open("r") as fh:
+            items = yaml.safe_load(fh)  # type: ignore
 
         assert isinstance(items, dict), type(items)
         return T.cast(_M, items)

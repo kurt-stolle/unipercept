@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import enum
-import typing as T
 import os
+import typing as T
+
 import torch
 from bullet import Bullet
 from omegaconf import DictConfig

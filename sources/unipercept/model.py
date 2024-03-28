@@ -304,15 +304,22 @@ class ModelBase(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    @abc.abstractmethod
+    def select_inputs(
+        self, data: ModelInput, device: torch.device
+    ) -> T.Tuple[T.Any, ...]:
+        msg = f"Method `select_inputs` must be implemented for {cls.__name__}"
+        raise NotImplementedError(msg)
+
     if T.TYPE_CHECKING:
 
         @abc.abstractmethod
         @TX.override
-        def forward(self, inputs: ModelInput) -> ModelOutput:
+        def forward(self, *args) -> ModelOutput:
             ...
 
         @TX.override
-        def __call__(self, inputs: ModelInput) -> ModelOutput:
+        def __call__(self, *agrs) -> ModelOutput:
             ...
 
 
@@ -450,7 +457,7 @@ class ModelAdapter(nn.Module):
                 inputs_spec = None
             else:
                 for input in inputs_flat:
-                    if isinstance(input, torch.Tensor):
+                    if isinstance(input, torch.Tensor) or input is None:
                         continue
                     raise ValueError(
                         "Inputs for tracing must only contain tensors. "

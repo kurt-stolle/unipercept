@@ -1,6 +1,10 @@
+"""
+Various functional utilities
+"""
 from __future__ import annotations
-
+from torch import Tensor
 import collections.abc
+import typing as T
 import inspect
 from functools import partial, wraps
 from itertools import repeat
@@ -155,6 +159,26 @@ def multi_apply(
     res_lon = map(pfunc, *args)
     res_zip = zip(*res_lon)
     return tuple(map(list, res_zip))  # type: ignore
+
+
+def multi_merge(dicts: Sequence[T.Dict[str, Tensor]], dim: int):
+    """
+    Merge a list of dictionaries with tensors along a given dimension.
+    All items in the list must have the same keys.
+
+    Parameters
+    ----------
+    dicts : Sequence[Dict[str, Tensor]]
+        List of dictionaries to merge.
+
+    Returns
+    -------
+    Dict[str, Tensor]
+        Merged dictionary.
+    """
+    keys = dicts[0].keys()
+
+    return {k: torch.cat([d[k] for d in dicts], dim=dim) for k in keys}
 
 
 _Pt = ParamSpec("_Pt")

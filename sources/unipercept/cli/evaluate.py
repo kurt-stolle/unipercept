@@ -26,11 +26,6 @@ KEY_SESSION_ID = "session_id"
 def evaluate(p: argparse.ArgumentParser):
     p.add_argument("--no-jit", action="store_true", help="disable JIT compilation")
     p.add_argument(
-        "--debug",
-        action="store_true",
-        help="optimizes the configuration for model debugging",
-    )
-    p.add_argument(
         "--no-model",
         action="store_true",
         help="do not load a model - outputs must already be present in the path",
@@ -57,18 +52,10 @@ def evaluate(p: argparse.ArgumentParser):
     return _main
 
 
-def _apply_debug_mode(lazy_config: config_t) -> None:
-    os.environ["WANDB_OFFLINE"] = "true"
-    torch.autograd.set_detect_anomaly(True)
-    lazy_config.ENGINE.params.full_determinism = True
-
-
 def _step(args) -> config_t:
     if args.no_jit:
         _logger.info("Disabling JIT compilation")
         os.environ["PYTORCH_JIT"] = "0"
-    if args.debug:
-        _apply_debug_mode(args.config)
 
     up.state.barrier()  # Ensure the config file is not created before all processes validate its existence
     return args.config

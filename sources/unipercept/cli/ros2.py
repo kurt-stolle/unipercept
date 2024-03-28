@@ -9,7 +9,7 @@ from ._command import command
 from ._config import add_config_args
 
 
-@command(help="trian a model", description=__doc__)
+@command(help="run as a ros2 node", description=__doc__)
 @command.with_config
 def ros2(p: argparse.ArgumentParser):
     p.add_argument(
@@ -21,12 +21,12 @@ def ros2(p: argparse.ArgumentParser):
         type=str,
         help="path to load model weights from (overrides any state recovered by the config)",
     )
-    
+
     return main
 
 
 def main(args):
-    model = up.create_model(args.config, weights=args.weights)    
+    model = up.create_model(args.config, weights=args.weights)
     pass
 
 

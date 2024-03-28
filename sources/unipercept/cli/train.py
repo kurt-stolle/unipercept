@@ -5,11 +5,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import typing as T
 
 import torch
-from omegaconf import DictConfig
-from tabulate import tabulate
 
 import unipercept as up
 from unipercept.cli._command import command
@@ -34,11 +31,6 @@ def train(p: argparse.ArgumentParser):
     )
     p.add_argument("--weights", "-w", type=str, help="path to load model weights from")
     p.add_argument(
-        "--debug",
-        action="store_true",
-        help="optimizes the configuration for model debugging",
-    )
-    p.add_argument(
         "--resume",
         "-R",
         action="store_true",
@@ -60,19 +52,10 @@ def train(p: argparse.ArgumentParser):
     return _main
 
 
-def _apply_debug_mode(lazy_config: config_t) -> None:
-    os.environ["WANDB_OFFLINE"] = "true"
-    torch.autograd.set_detect_anomaly(True)
-    lazy_config.ENGINE.params.full_determinism = True
-
-
 def _step(args) -> config_t:
     if args.no_jit:
         _logger.info("Disabling JIT compilation")
         os.environ["PYTORCH_JIT"] = "0"
-    if args.debug:
-        _apply_debug_mode(args.config)
-
     return args.config
 
 

@@ -49,7 +49,13 @@ def topk_score(scores, *, K: int, score_shape: torch.Size):
     -------
         Tensors of the Top-K (scores, indices, classes, y, x)
     """
-    batch, channel, height, width = score_shape
+    match len(score_shape):
+        case 4:
+            batch, channel, height, width = score_shape
+        case 3:
+            batch, channel, height, width = 1, *score_shape
+        case _:
+            raise ValueError("Expected 3 or 4D tensor")
 
     # get topk score and its index in every H x W(channel dim) feature map
     topk_scores, topk_inds = torch.topk(scores.reshape(batch, channel, -1), K)

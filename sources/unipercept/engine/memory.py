@@ -67,7 +67,6 @@ class MemoryTracker:
     def start(self, stage: str):
         if not self.enabled:
             return
-
         # deal with nested calls of eval during train - simply ignore those
         if self.cur_stage is not None and self.cur_stage != stage:
             return
@@ -76,10 +75,18 @@ class MemoryTracker:
 
         gc.collect()
 
-        torch.cuda.reset_peak_memory_stats()
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.empty_cache()
 
-        self.gpu_mem_used_at_start = torch.cuda.memory_allocated()
+            gpu_mem = torch.cuda.memory_allocated()
+        elif torch.xpu.is_available():
+            torch.xpu.reset_peak_memory_stats()
+            torch.xpu.empty_cache()
+
+            gpu_mem = torch.xpu.memory_allocated()
+
+        self.gpu_mem_used_at_start = gpu_mem
         self.cpu_mem_used_at_start = self.cpu_mem_used()
         self.peak_monitoring = True
         peak_monitor_event = threading.Event()
@@ -94,7 +101,6 @@ class MemoryTracker:
         """
         Stop tracking and update the metrics.
         """
-
         # deal with nested calls of eval during train - simply ignore those
         if self.cur_stage is not None and self.cur_stage != stage:
             return
@@ -105,11 +111,10 @@ class MemoryTracker:
         # first ensure all objects get collected and their memory is freed
         gc.collect()
 
-        if torch is not None:
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            elif is_torch_xpu_available():
-                torch.xpu.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif torch.xpu.is_available():
+            torch.xpu.empty_cache()
 
         # concepts:
         # - alloc_delta:  the difference of allocated memory between the end and the start

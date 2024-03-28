@@ -24,7 +24,7 @@ from uuid import uuid4
 import torch
 import torch._dynamo
 import torch._dynamo.config
-import torch.nn as nn
+from torch import Tensor, nn
 import torch.optim
 import torch.types
 import torch.utils.data
@@ -772,6 +772,7 @@ class Engine:
 
         # Create a loss tensor to avoid synchronization of TPUs through .item()
         tr_loss: TensorDict | None = None
+        tr_norm: Tensor | None = None
 
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
@@ -844,12 +845,16 @@ class Engine:
                     # If this is the first step in the current session, the tensordict keys have not yet been
                     # initialized.
                     assert tr_loss is None
+                    assert tr_norm is None
                     tr_loss = TensorDict(
-                        {k: torch.tensor(0.0, device=v.device) for k, v in tr_loss_step.items()},  # type: ignore
+                        {k: torch.tensor(0.0, device=self.xlr.device) for k in tr_loss_step.keys()},  # type: ignore
                         batch_size=[],
+                        device=self.xlr.device,
                     )
+                    tr_norm = torch.tensor(0.0, device=self.xlr.device)
                 else:
                     assert tr_loss is not None
+                    assert tr_norm is not None
 
                 for k, tr_loss_value in tr_loss.items():
                     tr_loss_step_value = tr_loss_step.get(
@@ -877,7 +882,7 @@ class Engine:
                     # last step in epoch but step is always smaller than gradient_accumulation
                     is_last_step_and_steps_less_than_grad_acc
                 ):
-                    self._train_clip_gradients(model)
+                    tr_norm += self._train_clip_gradients(model)
                     optimizer.step()
                     if not self.xlr.optimizer_step_was_skipped:
                         scheduler.step_update(self._state.step, metric=None)
@@ -893,8 +898,11 @@ class Engine:
                     self._edge(
                         Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer
                     )
-                    self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
+                    self._train_handle_signals(
+                        tr_loss, tr_norm, model, optimizer, **kwargs
+                    )
                 else:
+                    tr_norm += tr_norm / (1 + self._state.step - self._step_last_logged)
                     self._edge(Event.ON_TRAIN_SUBSTEP_END)
 
                 total_session_steps += 1
@@ -915,7 +923,7 @@ class Engine:
             scheduler.step(round(self._state.epoch), metric=None)
 
             self._edge(Event.ON_TRAIN_EPOCH_END)
-            self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
+            self._train_handle_signals(tr_loss, tr_norm, model, optimizer, **kwargs)
 
             epochs_trained += 1
 
@@ -926,7 +934,7 @@ class Engine:
 
         self._signal.should_save = True
         self._signal.should_evaluate = True
-        self._train_handle_signals(None, model, optimizer, **kwargs)
+        self._train_handle_signals(None, None, model, optimizer, **kwargs)
 
         # Compute flops
         self._state.total_flops += self._flops
@@ -954,12 +962,12 @@ class Engine:
 
         return model
 
-    def _train_clip_gradients(self, model: nn.Module):
+    def _train_clip_gradients(self, model: nn.Module) -> Tensor:
         if not self.xlr.sync_gradients or self._params.max_grad_norm is None:
-            return
+            return torch.tensor(torch.nan, device=self.xlr.device)
         max_norm = self._params.max_grad_norm
         self.xlr.unscale_gradients()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm, norm_type=2)
+        return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm, norm_type=2)
 
     def run_inference_step(
         self,
@@ -1301,6 +1309,7 @@ class Engine:
     def _train_handle_signals(
         self,
         tr_loss: TensorDict | None,
+        tr_norm: Tensor | None,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
         *,
@@ -1313,13 +1322,16 @@ class Engine:
 
         # SIGNAL: logging
         if self._signal.should_log and not self._logged_in_last_step:
-            # Remove the FINDING_BATCH_SIZE flag from the status
+            assert tr_loss is not None
+            assert tr_norm is not None
+
             self.status &= ~EngineStatus.FINDING_BATCH_SIZE
 
-            # Accumulate loss tracker
-            assert tr_loss is not None
+            steps_passed = self._state.step - self._step_last_logged
+
             logs: dict[str, float] = {}
             logs["optimizer/lr"] = _get_learning_rate(optimizer)
+            logs["optimizer/total_norm"] = tr_norm.item() / steps_passed
 
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {
@@ -1329,11 +1341,10 @@ class Engine:
 
             # reset tr_loss to zero
             tr_loss.apply_(lambda _l: _l - _l)
+            tr_norm -= tr_norm
 
             for k, v in tr_loss_scalar.items():
-                logs["losses/" + k] = round(
-                    v / (self._state.step - self._step_last_logged), 4
-                )
+                logs["losses/" + k] = round(v / steps_passed, 4)
 
             self._step_last_logged = self._state.step
             # self.store_flops()

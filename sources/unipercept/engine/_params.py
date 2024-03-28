@@ -387,15 +387,11 @@ class EngineParams:
         for k, v in state_dict.items():
             super().__setattr__(k, v)
 
-    @override
-    def __repr__(self):
-        return f"Config({self.project_name=}, {self.config_name=})"
-
-    @override
-    def __str__(self):
-        state_dict = self.state_dict()
-        state_str = ", ".join(f"{k!r}={v!r}" for k, v in state_dict.items())
-        return f"Config({state_str})"
+    # @override
+    # def __str__(self):
+    #     state_dict = self.state_dict()
+    #     state_str = ", ".join(f"{k!r}={v!r}" for k, v in state_dict.items())
+    #     return f"Config({state_str})"
 
     @property
     def should_log(self):

@@ -12,9 +12,20 @@ def dynamic_conv2d(features: torch.Tensor, kernels: torch.Tensor) -> torch.Tenso
         f ~ (batch dims h w)
         => dc(k,f) ~ (batch num h w)
     """
-    # result = torch.vmap(torch.mm, in_dims=(0, 0))(kernels, features.flatten(2))
-    result = torch.bmm(kernels, features.flatten(2))
-    result = result.unflatten(2, (features.shape[-2], features.shape[-1]))
+    hw = (features.shape[-2], features.shape[-1])
+
+    if kernels.ndim == 3:
+        # Batched version
+        result = torch.bmm(kernels, features.flatten(2))
+        result = result.unflatten(2, hw)
+
+    elif kernels.ndim == 2:
+        # Unbatched version
+        result = torch.mm(kernels, features.flatten(1))
+        result = result.unflatten(1, hw)
+    else:
+        msg = f"Unsupported kernel shape: {kernels.shape}"
+        raise NotImplementedError(msg)
 
     return result
 

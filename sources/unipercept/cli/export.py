@@ -40,7 +40,12 @@ def _export_trace(args, model):
     dataloader, info = up.create_dataset(args.config, return_loader=False)
     inputs = next(dataloader)
 
-    exp = torch.export.export(model, (inputs,), strict=False)
+    inputs = inputs.cuda()
+    model = model.cuda()
+
+    adapter = up.model.ModelAdapter(model, inputs)
+
+    exp = torch.onnx.export(adapter, (inputs,))
 
     print(exp)
 

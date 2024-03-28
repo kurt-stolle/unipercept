@@ -234,10 +234,10 @@ class Tensorclass(metaclass=_TensorclassMeta):
         def sorted_keys(self) -> list[NestedKey]:
             ...
 
-        def flatten(self, start_dim=0, end_dim=-1):
+        def flatten(self, start_dim=0, end_dim=-1) -> T.Self:
             ...
 
-        def unflatten(self, dim, unflattened_size):
+        def unflatten(self, dim, unflattened_size) -> T.Self:
             ...
 
         def exclude(self, *keys: str, inplace: bool = False) -> T.Self:

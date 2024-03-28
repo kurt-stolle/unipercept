@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import enum
 import typing as T
-
+import os
+import torch
 from bullet import Bullet
 from omegaconf import DictConfig
 from typing_extensions import override
@@ -178,6 +179,26 @@ class ConfigLoad(argparse.Action):
         return cfg
 
 
+class ConfigDebugMode(argparse.Action):
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, type=None, nargs=0, **kwargs)
+
+        self.key = kwargs.pop("key", "config")
+
+    @override
+    def __call__(self, parser, namespace, values, option_string=None):
+        cfg = getattr(namespace, self.key)
+
+        if cfg is None:
+            msg = "Cannot apply debug mode when configuration is not loaded!"
+            raise RuntimeError(msg)
+
+        os.environ["WANDB_OFFLINE"] = "true"
+        torch.autograd.set_detect_anomaly(True)
+        cfg.ENGINE.params.full_determinism = True
+        cfg.ENGINE.params.debug = up.engine.debug.DebugMode.UNDERFLOW_OVERFLOW
+
+
 def add_config_args(
     parser: argparse.ArgumentParser,
     *,
@@ -194,6 +215,7 @@ def add_config_args(
     group_config.add_argument(
         *flags,
         action=ConfigLoad,
+        dest="config",
         metavar=("FILE.py", "K=V"),
         nargs=nargs,
         required=required,
@@ -202,4 +224,11 @@ def add_config_args(
             "notation, e.g. `--config a.b=c`)"
         ),
         **kwargs_add_argument,
+    )
+
+    parser.add_argument(
+        "--debug",
+        action=ConfigDebugMode,
+        dest="debug",
+        help="optimizes the configuration for model debugging",
     )

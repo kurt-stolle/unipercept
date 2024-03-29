@@ -315,12 +315,10 @@ class ModelBase(nn.Module):
 
         @abc.abstractmethod
         @TX.override
-        def forward(self, *args) -> ModelOutput:
-            ...
+        def forward(self, *args) -> ModelOutput: ...
 
         @TX.override
-        def __call__(self, *agrs) -> ModelOutput:
-            ...
+        def __call__(self, *agrs) -> ModelOutput: ...
 
 
 class ModelFactory:

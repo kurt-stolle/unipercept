@@ -1,6 +1,7 @@
 """
 Run UniPercept in training/inference as a ROS2 node. Not for production use.
 """
+
 from __future__ import annotations
 
 import argparse

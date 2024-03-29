@@ -1,6 +1,7 @@
 """
 Various functional utilities
 """
+
 from __future__ import annotations
 
 import collections.abc
@@ -56,8 +57,7 @@ def multi_apply(
     list[_R6],
     list[_R7],
     list[_R8],
-]:
-    ...
+]: ...
 
 
 @overload
@@ -65,8 +65,9 @@ def multi_apply(
     func: Callable[_Ps, tuple[_R1, _R2, _R3, _R4, _R5, _R6, _R7]],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4], list[_R5], list[_R6], list[_R7]]:
-    ...
+) -> tuple[
+    list[_R1], list[_R2], list[_R3], list[_R4], list[_R5], list[_R6], list[_R7]
+]: ...
 
 
 @overload
@@ -74,8 +75,7 @@ def multi_apply(
     func: Callable[_Ps, tuple[_R1, _R2, _R3, _R4, _R5, _R6]],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4], list[_R5], list[_R6]]:
-    ...
+) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4], list[_R5], list[_R6]]: ...
 
 
 @overload
@@ -83,8 +83,7 @@ def multi_apply(
     func: Callable[_Ps, tuple[_R1, _R2, _R3, _R4, _R5]],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4], list[_R5]]:
-    ...
+) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4], list[_R5]]: ...
 
 
 @overload
@@ -92,8 +91,7 @@ def multi_apply(
     func: Callable[_Ps, tuple[_R1, _R2, _R3, _R4]],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4]]:
-    ...
+) -> tuple[list[_R1], list[_R2], list[_R3], list[_R4]]: ...
 
 
 @overload
@@ -101,8 +99,7 @@ def multi_apply(
     func: Callable[_Ps, tuple[_R1, _R2, _R3]],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1], list[_R2], list[_R3]]:
-    ...
+) -> tuple[list[_R1], list[_R2], list[_R3]]: ...
 
 
 @overload
@@ -110,8 +107,7 @@ def multi_apply(
     func: Callable[_Ps, tuple[_R1, _R2]],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1], list[_R2]]:
-    ...
+) -> tuple[list[_R1], list[_R2]]: ...
 
 
 @overload
@@ -119,8 +115,7 @@ def multi_apply(
     func: Callable[_Ps, _R1],
     *args: Iterable[Any],
     **kwargs: Any,
-) -> tuple[list[_R1]]:
-    ...
+) -> tuple[list[_R1]]: ...
 
 
 # @overload
@@ -200,25 +195,21 @@ _T = TypeVar("_T", int, float, str, torch.Tensor, bool)
 
 
 @overload
-def to_ntuple(n: Literal[1]) -> Callable[[_T | Iterable[_T]], tuple[_T]]:
-    ...
+def to_ntuple(n: Literal[1]) -> Callable[[_T | Iterable[_T]], tuple[_T]]: ...
 
 
 @overload
-def to_ntuple(n: Literal[2]) -> Callable[[_T | Iterable[_T]], tuple[_T, _T]]:
-    ...
+def to_ntuple(n: Literal[2]) -> Callable[[_T | Iterable[_T]], tuple[_T, _T]]: ...
 
 
 @overload
-def to_ntuple(n: Literal[3]) -> Callable[[_T | Iterable[_T]], tuple[_T, _T, _T]]:
-    ...
+def to_ntuple(n: Literal[3]) -> Callable[[_T | Iterable[_T]], tuple[_T, _T, _T]]: ...
 
 
 @overload
 def to_ntuple(
     n: Literal[4],
-) -> Callable[[_T | Iterable[_T]], tuple[_T, _T, _T, _T]]:
-    ...
+) -> Callable[[_T | Iterable[_T]], tuple[_T, _T, _T, _T]]: ...
 
 
 def to_ntuple(n: int) -> Callable[[_T | Iterable[_T]], tuple[_T, ...]]:

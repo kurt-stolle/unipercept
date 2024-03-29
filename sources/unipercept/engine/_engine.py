@@ -29,10 +29,12 @@ import torch.types
 import torch.utils.data
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
+from sklearn import tree
 from tabulate import tabulate
 from tensordict import TensorDict, TensorDictBase
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch import Tensor, nn
+from torch.utils._pytree import tree_flatten
 from torch.utils.data import Dataset
 from typing_extensions import override
 
@@ -47,7 +49,7 @@ from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import MemmapTensordictWriter
 from unipercept.log import create_table, get_logger
-from unipercept.model import ModelBase
+from unipercept.model import InputData, ModelBase
 from unipercept.state import (
     barrier,
     check_main_process,
@@ -231,6 +233,31 @@ class Engine:
         self._xlr = xlr
 
         return xlr
+
+    def select_inputs(self, model: nn.Module, inputs: T.Any) -> T.Tuple[T.Any]:
+        """
+        Run the `select_inputs` method on the unwrapped model (if it exists) and
+        return the result.
+
+        Parameters
+        ----------
+        model
+            Model, potentialy wrapped by an adapter or accelerator.
+        inputs
+            Input data object.
+
+        Returns
+        -------
+            Tuple to be passed as *args to the model
+        """
+        model = self.xlr.unwrap_model(model)
+
+        if hasattr(model, "select_inputs"):
+            args = model.select_inputs(inputs, self.xlr.device)
+        else:
+            args, _ = tree_flatten(inputs)
+
+        return tuple(args)
 
     @property
     def session_dir(self) -> file_io.Path:
@@ -635,8 +662,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
 
     @T.overload
     def build_training_dataloader(
@@ -644,8 +670,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
 
     def build_training_dataloader(
         self,
@@ -713,7 +738,7 @@ class Engine:
         """
         model.train()
 
-        inputs = model.select_inputs(inputs, self.xlr.device)
+        inputs = self.select_inputs(model, inputs)
         output: TensorDict = model(*inputs)
 
         if "losses" in output.keys():
@@ -982,8 +1007,8 @@ class Engine:
         """
         model.eval()
 
-        inputs = model.select_inputs(inputs, self.xlr.device)
-        outputs: TensorDictBase = model(*inputs)
+        args = self.select_inputs(model, inputs)
+        outputs: TensorDictBase = model(*args)
         if "predictions" in outputs.keys():
             predictions = outputs["predictions"]
         else:

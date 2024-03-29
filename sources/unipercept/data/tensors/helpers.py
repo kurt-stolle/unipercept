@@ -89,8 +89,7 @@ def multi_read(
     key: Any,
     *,
     no_entries: Literal[NoEntriesAction.ERROR] | Literal["error"],
-) -> Callable[Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn]:
-    ...
+) -> Callable[Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn]: ...
 
 
 @overload
@@ -101,8 +100,7 @@ def multi_read(
     no_entries: Literal[NoEntriesAction.NONE] | Literal["none"] = NoEntriesAction.NONE,
 ) -> Callable[
     Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn | None
-]:
-    ...
+]: ...
 
 
 def multi_read(

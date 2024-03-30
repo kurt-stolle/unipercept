@@ -9,17 +9,13 @@ import enum as E
 import functools
 import gc
 import math
-import multiprocessing
 import operator
-import os
 import re
 import shutil
 import sys
 import time
 import typing as T
-import uuid
 from datetime import datetime
-from uuid import uuid4
 
 import torch
 import torch._dynamo
@@ -31,7 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from sklearn import tree
 from tabulate import tabulate
-from tensordict import TensorDict, TensorDictBase
+from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch import Tensor, nn
 from torch.utils._pytree import tree_flatten
@@ -234,7 +230,7 @@ class Engine:
 
         return xlr
 
-    def select_inputs(self, model: nn.Module, inputs: T.Any) -> T.Tuple[T.Any]:
+    def select_inputs(self, model: nn.Module, inputs: InputType) -> T.Tuple[T.Any]:
         """
         Run the `select_inputs` method on the unwrapped model (if it exists) and
         return the result.
@@ -738,23 +734,23 @@ class Engine:
         """
         model.train()
 
-        inputs = self.select_inputs(model, inputs)
-        output: TensorDict = model(*inputs)
+        args = self.select_inputs(model, inputs)
+        outputs = model(*args)
+        losses = outputs["losses"]
 
-        if "losses" in output.keys():
-            losses: TensorDict = output["losses"]
-        else:
-            losses = output
-
-        loss_tensor = torch.stack([loss for loss in losses.values()])  # type: ignore
+        loss_tensor = torch.stack(list(losses.values()))
 
         if self._params.train_sum_losses:
             self.xlr.backward(loss_tensor.sum())
         else:
             self.xlr.backward(loss_tensor, gradient=torch.ones_like(loss_tensor))
 
-        losses.detach_()
-        return losses.apply(lambda _l: _l / self._state.gradient_accumulation)
+        loss_logs = {
+            k: v.detach() / self._state.gradient_accumulation for k, v in losses.items()
+        }
+        loss_logs["total"] = torch.stack(list(loss_logs.values())).sum()
+
+        return loss_logs
 
     def run_training_loop(
         self,
@@ -799,7 +795,7 @@ class Engine:
         steps_trained_progress_bar = None
 
         # Create a loss tensor to avoid synchronization of TPUs through .item()
-        tr_loss: TensorDict | None = None
+        tr_loss: T.Dict[str, Tensor] | None = None
         tr_norm: Tensor | None = None
 
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
@@ -874,11 +870,7 @@ class Engine:
                     # initialized.
                     assert tr_loss is None
                     assert tr_norm is None
-                    tr_loss = TensorDict(
-                        {k: torch.tensor(0.0, device=self.xlr.device) for k in tr_loss_step.keys()},  # type: ignore
-                        batch_size=[],
-                        device=self.xlr.device,
-                    )
+                    tr_loss = {k: torch.tensor(0.0, device=self.xlr.device) for k in tr_loss_step.keys()}  # type: ignore
                     tr_norm = torch.tensor(0.0, device=self.xlr.device)
                 else:
                     assert tr_loss is not None
@@ -886,7 +878,7 @@ class Engine:
 
                 for k, tr_loss_value in tr_loss.items():
                     tr_loss_step_value = tr_loss_step.get(
-                        k, torch.tensor(torch.nan, device=tr_loss_step.device)
+                        k, torch.tensor(torch.nan, device=tr_loss_value.device)
                     )
                     if self._params.logging_nan_inf_filter and (
                         torch.isnan(tr_loss_step_value)
@@ -944,7 +936,7 @@ class Engine:
             if tr_loss is None:
                 _logger.warning("Epoch was ended without running any steps.")
                 self._signal.should_training_stop = True
-                tr_loss = TensorDict.from_dict({})
+                tr_loss = {}
             else:
                 assert tr_loss is not None
 
@@ -1008,9 +1000,11 @@ class Engine:
         model.eval()
 
         args = self.select_inputs(model, inputs)
-        outputs: TensorDictBase = model(*args)
-        if "predictions" in outputs.keys():
-            predictions = outputs["predictions"]
+        outputs: T.List[T.Dict[str, TensorDictBase]] | TensorDictBase = model(*args)[
+            "predictions"
+        ]
+        if isinstance(outputs, T.List):
+            predictions = LazyStackedTensorDict(*outputs)
         else:
             predictions = outputs
 
@@ -1340,7 +1334,7 @@ class Engine:
 
     def _train_handle_signals(
         self,
-        tr_loss: TensorDict | None,
+        tr_loss: T.Dict[str, Tensor] | None,
         tr_norm: Tensor | None,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
@@ -1372,8 +1366,8 @@ class Engine:
             }
 
             # reset tr_loss to zero
-            tr_loss.apply_(lambda _l: _l - _l)
-            tr_norm -= tr_norm
+            tr_loss = {k: torch.zeros_like(v) for k, v in tr_loss.items()}
+            tr_norm = torch.zeros_like(tr_norm)
 
             for k, v in tr_loss_scalar.items():
                 logs["losses/" + k] = round(v / steps_passed, 4)

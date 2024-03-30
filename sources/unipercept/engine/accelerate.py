@@ -43,7 +43,11 @@ class Accelerator(accelerate.Accelerator):
             The accelerator object.
         """
         from accelerate.accelerator import ProjectConfiguration
-        from accelerate.utils import DistributedDataParallelKwargs, TorchDynamoPlugin
+        from accelerate.utils import (
+            DistributedDataParallelKwargs,
+            DynamoBackend,
+            TorchDynamoPlugin,
+        )
 
         project_dir = root / "outputs"
         logging_dir = root / "logs"
@@ -76,7 +80,8 @@ class Accelerator(accelerate.Accelerator):
             # dynamo_backend=None,
         )
         acc.state.dynamo_plugin = TorchDynamoPlugin(
-            # backend=DynamoBackend.INDUCTOR,
+            backend=DynamoBackend.EAGER,
+            # backend=DynamoBackend.CUDAGRAPHS
         )
         return acc
 

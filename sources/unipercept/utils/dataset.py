@@ -174,28 +174,14 @@ class Dataset(
                     ds_repr.encode(), usedforsecurity=False
                 ).hexdigest()
                 path = f"//cache/manifest/{file_name}.yaml"
-
+                cache: LazyYAMLCache[_T_MFST] = LazyYAMLCache(path)
                 _logger.info("Manifest: digest %s\n%s", file_name, ds_repr)
+                if check_main_process() and not cache.exists():
+                    cache.store(self._build_manifest())
 
-                # Load the manifest from cache
-                with main_process_first():
-                    cache: LazyYAMLCache[_T_MFST] = LazyYAMLCache(path)
-                    if check_main_process(local=True):
-                        if not file_io.isfile(path):
-                            _logger.info("Manifest: not found - building cache")
-                            cache.data = self._build_manifest()
-                        elif not self._check_manifest(cache.data):
-                            _logger.info("Manifest: invalid, rebuilding cache")
-                            cache.data = self._build_manifest()
-                        else:
-                            _logger.info("Manifest: valid")
-                try:
-                    mfst = cache.data  # type: ignore
-                except Exception as e:
-                    msg = f"Failed to load manifest from cache file: {path}"
-                    raise RuntimeError(msg) from e
+                barrier()
 
-                mfst = self._manifest = cache.data  # type: ignore
+                self._manifest = cache.read()
             else:
                 if check_main_process():
                     mfst = self._build_manifest()
@@ -206,10 +192,8 @@ class Dataset(
                 barrier()
 
                 # Send the manifest to all processes
-                mfst = self._manifest = torch.distributed.broadcast(mfst, 0)
-        else:
-            mfst = self._manifest
-        return T.cast(_T_MFST, mfst)
+                self._manifest = torch.distributed.broadcast(mfst, 0)
+        return T.cast(_T_MFST, self._manifest)
 
     # ----- #
     # QUEUE #

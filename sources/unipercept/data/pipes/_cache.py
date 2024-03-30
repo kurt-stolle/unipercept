@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+import pickle
 import typing as T
 import warnings
 from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 
-import torch
+import typing_extensions as TX
 import yaml
 
 from unipercept import file_io
@@ -16,66 +17,53 @@ _M = T.TypeVar("_M", bound=dict)
 
 
 class LazyPickleCache(Generic[_M]):
-    def __init__(self, path: str | os.PathLike):
-        self.path = str(file_io.Path(path))
+    """
+    A cache that reads and writes pickle files.
+    """
 
-        assert self.path.endswith(".pth"), self.path
+    def _read_file(self, fh: T.IO) -> _M:
+        return pickle.load(fh)
 
-    @staticmethod
-    def store(path: str | os.PathLike, items: _M) -> None:
+    def _write_file(self, items: _M, fh: T.IO) -> None:
+        pickle.dump(items, fh)
+
+    is_binary: T.ClassVar = True
+    file_ext: T.ClassVar = ".pkl"
+
+    def __init__(self, path: str):
+        self.path = path
+        assert self.path.endswith(self.file_ext), self.path
+
+    def exists(self) -> bool:
+        return file_io.isfile(self.path)
+
+    def store(self, items: _M) -> None:
         items = dict(items)  # type: ignore
-
-        path = file_io.Path(path)
+        path = file_io.Path(self.path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("wb") as fh:
-            torch.save(items, fh)  # type: ignore
+        with path.open("wb" if self.is_binary else "w") as fh:
+            self._write_file(items, fh)  # type: ignore
 
-    @property
-    # @functools.cached_property
-    def data(self) -> _M:
-        path = file_io.Path(self.path, force=True)
-        with path.open("rb") as fh:
-            items = torch.load(fh)  # type: ignore
+    def read(self) -> _M:
+        path = file_io.get_local_path(self.path, force=True)
+        with open(path, "rb" if self.is_binary else "r") as fh:
+            items = self._read_file(fh)  # type: ignore
 
         assert isinstance(items, dict), type(items)
         return T.cast(_M, items)
 
-    @data.setter
-    def data(self, items: _M) -> None:
-        self.store(self.path, items)
 
-    def __len__(self) -> int:
-        return len(self.data)
+class LazyYAMLCache(LazyPickleCache, Generic[_M]):
+    """
+    A cache that reads and writes YAML files.
+    """
 
+    def _read_file(self, fh: T.IO) -> _M:
+        return yaml.safe_load(fh)
 
-class LazyYAMLCache(Generic[_M]):
-    def __init__(self, path: str | os.PathLike):
-        self.path = str(file_io.Path(path))
+    def _write_file(self, items: _M, fh: T.IO) -> None:
+        yaml.dump(items, fh)
 
-        assert self.path.endswith(".yaml"), self.path
-
-    @staticmethod
-    def store(path: str | os.PathLike, items: _M) -> None:
-        items = dict(items)  # type: ignore
-
-        path = file_io.Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w") as fh:
-            yaml.dump(items, fh)  # type: ignore
-
-    @property
-    # @functools.cached_property
-    def data(self) -> _M:
-        path = file_io.Path(self.path, force=True)
-        with path.open("r") as fh:
-            items = yaml.safe_load(fh)  # type: ignore
-
-        assert isinstance(items, dict), type(items)
-        return T.cast(_M, items)
-
-    @data.setter
-    def data(self, items: _M) -> None:
-        self.store(self.path, items)
-
-    def __len__(self) -> int:
-        return len(self.data)
+    write_fn = yaml.dump
+    is_binary = False
+    file_ext = ".yaml"

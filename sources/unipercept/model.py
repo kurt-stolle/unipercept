@@ -10,10 +10,10 @@ import typing as T
 from dataclasses import field
 
 import torch
-import torch.nn as nn
 import typing_extensions as TX
 from tabulate import tabulate
 from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
+from torch import Tensor, nn
 from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
 
 from unipercept.data.tensors import DepthMap, Image, OpticalFlow, PanopticMap
@@ -33,7 +33,7 @@ __all__ = []
 class CaptureData(Tensorclass):
     """A capture describes a single frame of data, including images, label maps, depth maps, and camera parameters."""
 
-    times: torch.Tensor
+    times: Tensor
     images: Image
     segmentations: PanopticMap | None = field(
         default=None, metadata={"help": "Panoptic segmentation maps for the capture."}
@@ -135,16 +135,16 @@ class CameraModel(Tensorclass):
     See: https://kornia.readthedocs.io/en/latest/geometry.camera.pinhole.html
     """
 
-    image_size: torch.Tensor  # shape: ..., 2 (height, width)
-    matrix: torch.Tensor  # shape: (... x 4 x 4) K
-    pose: torch.Tensor  # shape: (... x 4 x 4) Rt
+    image_size: Tensor  # shape: ..., 2 (height, width)
+    matrix: Tensor  # shape: (... x 4 x 4) K
+    pose: Tensor  # shape: (... x 4 x 4) Rt
 
     @property
-    def height(self) -> torch.Tensor:
+    def height(self) -> Tensor:
         return self.image_size[..., 0]
 
     @property
-    def width(self) -> torch.Tensor:
+    def width(self) -> Tensor:
         return self.image_size[..., 1]
 
     @TX.override
@@ -161,7 +161,7 @@ class MotionData(Tensorclass):
     """Data describing motion between time steps."""
 
     optical_flow: OpticalFlow | None
-    transform: torch.Tensor
+    transform: Tensor
 
     def __post_init__(self):
         if self.optical_flow is not None and (
@@ -179,7 +179,7 @@ class MotionData(Tensorclass):
 class InputData(Tensorclass):
     """Describes the input data to any model in the UniPercept framework."""
 
-    ids: torch.Tensor = field(
+    ids: Tensor = field(
         metadata={
             "shape": ["B", 2],
             "help": (
@@ -214,7 +214,7 @@ class InputData(Tensorclass):
             "tensorclass": CameraModel,
         },
     )
-    content_boxes: torch.Tensor | None = field(
+    content_boxes: Tensor | None = field(
         default=None,
         metadata={
             "shape": ["B", 4],
@@ -283,8 +283,17 @@ class InputData(Tensorclass):
 # BASE CLASS FOR MODELS #
 #########################
 
-ModelInput = InputData | TensorDictBase | T.Dict[str, torch.Tensor]
-ModelOutput = TensorDictBase
+ModelInput = InputData | TensorDictBase | T.Dict[str, Tensor]
+
+
+class ModelOutput(T.TypedDict):
+    """
+    The output of a model. This is a dictionary that can contain any number of tensors, but must at least contain
+    a key "pred" that contains the model's prediction.
+    """
+
+    losses: T.Dict[str, Tensor]
+    predictions: T.List[TensorDictBase]
 
 
 class ModelBase(nn.Module):
@@ -315,10 +324,9 @@ class ModelBase(nn.Module):
 
         @abc.abstractmethod
         @TX.override
-        def forward(self, *args) -> ModelOutput: ...
+        def forward(self, *args: T.Any) -> ModelOutput: ...
 
-        @TX.override
-        def __call__(self, *agrs) -> ModelOutput: ...
+        __call__ = forward
 
 
 class ModelFactory:
@@ -398,7 +406,7 @@ class ModelAdapter(nn.Module):
     compatible with PyTree-based flattening.
     """
 
-    flattened_inputs: T.Tuple[torch.Tensor, ...]
+    flattened_inputs: T.Tuple[Tensor, ...]
     inputs_schema: TreeSpec | None
     outputs_schema: TreeSpec | None
 
@@ -449,13 +457,13 @@ class ModelAdapter(nn.Module):
         self.inference_func = inference_func
         inputs_flat, inputs_spec = tree_flatten(inputs)
 
-        if not all(isinstance(x, torch.Tensor) for x in inputs_flat):
+        if not all(isinstance(x, Tensor) for x in inputs_flat):
             if self.allow_non_tensor:
-                inputs_flat = [x for x in inputs_flat if isinstance(x, torch.Tensor)]
+                inputs_flat = [x for x in inputs_flat if isinstance(x, Tensor)]
                 inputs_spec = None
             else:
                 for input in inputs_flat:
-                    if isinstance(input, torch.Tensor) or input is None:
+                    if isinstance(input, Tensor) or input is None:
                         continue
                     raise ValueError(
                         "Inputs for tracing must only contain tensors. "
@@ -467,7 +475,7 @@ class ModelAdapter(nn.Module):
         self.outputs_schema = None
 
     @TX.override
-    def forward(self, *args: torch.Tensor):
+    def forward(self, *args: Tensor):
         with torch.no_grad():
             if self.inputs_schema is not None:
                 inputs_orig_format = tree_unflatten(list(args), self.inputs_schema)
@@ -485,7 +493,7 @@ class ModelAdapter(nn.Module):
             flattened_outputs, schema = tree_flatten(outputs)
 
             flattened_output_tensors = tuple(
-                [x for x in flattened_outputs if isinstance(x, torch.Tensor)]
+                [x for x in flattened_outputs if isinstance(x, Tensor)]
             )
             if len(flattened_output_tensors) < len(flattened_outputs):
                 if self.allow_non_tensor:

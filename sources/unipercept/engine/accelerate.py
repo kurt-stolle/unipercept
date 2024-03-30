@@ -80,7 +80,7 @@ class Accelerator(accelerate.Accelerator):
             # dynamo_backend=None,
         )
         acc.state.dynamo_plugin = TorchDynamoPlugin(
-            backend=DynamoBackend.EAGER,
+            # backend=DynamoBackend.EAGER,
             # backend=DynamoBackend.CUDAGRAPHS
         )
         return acc

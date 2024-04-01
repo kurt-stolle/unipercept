@@ -234,16 +234,16 @@ def mask_sigmoid(mask: Tensor, scale: float = 2.0) -> Tensor:
     Applies scaled sigmoid activation on mask. The default scale is set to 2 so that initial
     values when ``conv_mask`` is initialized with zeros is 1.
 
-    References:
-        https://github.com/msracver/Deformable-ConvNets/blob/master/DCNv2_op/example_symbol.py
-
-    Args:
-        mask (Tensor[batch_size, mask_groups * kernel_area, *out_shape]): modulation masks
-            to be multiplied with each output of convolution kernel.
-        scale (float): positive scaling of the activation output.
+    Parameters
+    ----------
+    mask: Tensor[batch_size, mask_groups * kernel_area, *out_shape]
+        Modulation masks to be multiplied with each output of convolution kernel.
+    scale: float
+        Positive scaling of the activation output.
     """
     if scale <= 0:
-        raise ValueError("scale must be positive. Got scale={}".format(scale))
+        msg = f"scale must be positive. Got scale={scale}"
+        raise ValueError(msg)
     return torch.sigmoid(mask) * scale
 
 
@@ -256,6 +256,7 @@ class MaskSigmoid(nn.Module):
         super().__init__()
         self.scale = float(scale)
 
+    @TX.override
     def forward(self, mask: Tensor) -> Tensor:
         return mask_sigmoid(mask, self.scale)
 
@@ -363,7 +364,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             groups=self.mask_groups,
             bias=mask_bias,
         )
-        self.mask_activation = nn.Sigmoid()  # MaskSoftmax2d(self.kernel_size)
+        self.mask_activation = MaskSigmoid()  # MaskSoftmax2d(self.kernel_size)
 
         self.reset_parameters()
 

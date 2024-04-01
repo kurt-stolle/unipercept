@@ -59,7 +59,7 @@ class LazyYAMLCache(LazyPickleCache, Generic[_M]):
     """
 
     def _read_file(self, fh: T.IO) -> _M:
-        return yaml.safe_load(fh)
+        return yaml.unsafe_load(fh)
 
     def _write_file(self, items: _M, fh: T.IO) -> None:
         yaml.dump(items, fh)

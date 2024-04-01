@@ -20,7 +20,7 @@ from torch.nn.modules.utils import _pair
 from torch.nn.parameter import Parameter
 from torchvision.ops import deform_conv2d
 from ..weight import init_xavier_fill_
-from ._extended import Conv2d
+from ._extended import Separable2d
 from .utils import to_2tuple
 from .utils import NormActivationMixin
 
@@ -329,9 +329,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
     def __init__(
         self,
         *args,
-        offset_groups: int = 1,
         offset_bias: bool = True,
-        mask_groups: int = 1,
         mask_bias: bool = True,
         **kwargs,
     ):
@@ -340,31 +338,27 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
 
         super().__init__(*args, **kwargs)
 
-        self.offset_groups = offset_groups
-        self.offset_generator = nn.Conv2d(
+        self.offset_generator = Separable2d(
             self.in_channels,
-            2 * self.kernel_size[0] * self.kernel_size[1] * self.offset_groups,
+            2 * self.kernel_size[0] * self.kernel_size[1] * self.groups,
             kernel_size=self.kernel_size,  # type: ignore[arg-type]
             stride=self.stride,  # type: ignore[arg-type]
             padding=self.padding,
             dilation=self.dilation,  # type: ignore[arg-type]
-            groups=self.offset_groups,
             bias=offset_bias,
         )
         self.offset_activation = None
 
-        self.mask_groups = mask_groups
-        self.mask_generator = nn.Conv2d(
+        self.mask_generator = Separable2d(
             self.in_channels,
-            self.kernel_size[0] * self.kernel_size[1] * self.mask_groups,
+            self.kernel_size[0] * self.kernel_size[1] * self.groups,
             kernel_size=self.kernel_size,  # type: ignore[arg-type]
             stride=self.stride,  # type: ignore[arg-type]
             padding=self.padding,
             dilation=self.dilation,  # type: ignore[arg-type]
-            groups=self.mask_groups,
             bias=mask_bias,
         )
-        self.mask_activation = MaskSigmoid()  # MaskSoftmax2d(self.kernel_size)
+        self.mask_activation = None
 
         self.reset_parameters()
 
@@ -373,13 +367,9 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
         super().reset_parameters()
 
         if self.offset_generator is not None:
-            init.zeros_(self.offset_generator.weight)
-            if self.offset_generator.bias is not None:
-                init.zeros_(self.offset_generator.bias)
+            self.offset_generator.zero_parameters()
         if self.mask_generator is not None:
-            init.zeros_(self.mask_generator.weight)
-            if self.mask_generator.bias is not None:
-                init.zeros_(self.mask_generator.bias)
+            self.mask_generator.zero_parameters()
 
     @TX.override
     def forward(self, input: Tensor) -> Tensor:

@@ -107,8 +107,6 @@ class Separable2d(NormActivationMixin, nn.Module):
             **kwargs,
         )
 
-        fvcore.nn.weight_init.c2_msra_fill(module=self.depthwise)
-
         # Pointwise (1x1xD) convolution
         self.pointwise = pointwise(
             mid_channels,
@@ -120,11 +118,35 @@ class Separable2d(NormActivationMixin, nn.Module):
             groups=1,
         )
 
-        fvcore.nn.weight_init.c2_msra_fill(self.pointwise)
-
-        # Store in_channels and out_channels for exporting
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.bias = self.pointwise.bias
+        self.kernel_size = self.depthwise.kernel_size
+        self.stride = self.depthwise.stride
+
+        self.reset_parameters()
+
+    def zero_parameters(self):
+        """
+        Zero-initialize the parameters of the depthwise and pointwise convolutions.
+        """
+
+        nn.init.zeros_(self.depthwise.weight)
+        nn.init.zeros_(self.pointwise.weight)
+
+        if self.depthwise.bias is not None:
+            nn.init.zeros_(self.depthwise.bias)
+
+        if self.pointwise.bias is not None:
+            nn.init.zeros_(self.pointwise.bias)
+
+    def reset_parameters(self):
+        """
+        Reset the parameters of the depthwise and pointwise convolutions.
+        """
+
+        fvcore.nn.weight_init.c2_msra_fill(self.pointwise)
+        fvcore.nn.weight_init.c2_msra_fill(self.pointwise)
 
     @TX.override
     def forward(self, x: torch.Tensor) -> torch.Tensor:

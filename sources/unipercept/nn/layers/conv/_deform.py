@@ -363,7 +363,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             groups=self.mask_groups,
             bias=mask_bias,
         )
-        self.mask_activation = MaskSoftmax2d(self.kernel_size)
+        self.mask_activation = nn.Sigmoid()  # MaskSoftmax2d(self.kernel_size)
 
         self.reset_parameters()
 

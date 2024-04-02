@@ -148,7 +148,7 @@ class EngineParams:
 
     full_determinism: bool = False
     seed: int = 42
-    max_grad_norm: float = D.field(default=5.0, metadata={"help": "Max gradient norm."})
+    max_grad_norm: float = D.field(default=15, metadata={"help": "Max gradient norm."})
 
     # Memory tracker
     memory_tracker: bool = D.field(

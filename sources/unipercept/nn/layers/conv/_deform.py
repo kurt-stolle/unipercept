@@ -339,7 +339,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             dilation=self.dilation,  # type: ignore[arg-type]
             bias=offset_bias,
         )
-        self.offset_generator.zero_parameters()
+        self.offset_generator.zero_fill_()
         self.offset_activation = None
 
         self.mask_generator = Separable2d(
@@ -351,7 +351,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             dilation=self.dilation,  # type: ignore[arg-type]
             bias=mask_bias,
         )
-        self.mask_generator.zero_parameters()
+        self.mask_generator.zero_fill_()
         self.mask_activation = None  # MaskSigmoid(2.0)
 
     @TX.override

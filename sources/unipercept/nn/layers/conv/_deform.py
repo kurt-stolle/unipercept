@@ -168,20 +168,15 @@ class DeformConv2d(nn.Module):
             )
         )
 
-        if bias:
-            self.bias = Parameter(torch.empty(out_channels))
-        else:
-            self.register_parameter("bias", None)
-
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
-        if self.bias is not None:
+        if bias:
+            self.bias = Parameter(torch.empty(out_channels))
             fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
             bound = 1 / math.sqrt(fan_in)
             init.uniform_(self.bias, -bound, bound)
+        else:
+            self.register_parameter("bias", None)
 
     def _conv_forward(self, input: Tensor, offset: Tensor, mask: Tensor | None):
         return deform_conv2d(
@@ -333,9 +328,6 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
         mask_bias: bool = False,
         **kwargs,
     ):
-        self.mask_generator = None
-        self.offset_generator = None
-
         super().__init__(*args, **kwargs)
 
         self.offset_generator = Separable2d(
@@ -347,6 +339,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             dilation=self.dilation,  # type: ignore[arg-type]
             bias=offset_bias,
         )
+        self.offset_generator.zero_parameters()
         self.offset_activation = None
 
         self.mask_generator = Separable2d(
@@ -358,18 +351,8 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             dilation=self.dilation,  # type: ignore[arg-type]
             bias=mask_bias,
         )
-        self.mask_activation = None # MaskSigmoid(2.0)
-
-        self.reset_parameters()
-
-    @TX.override
-    def reset_parameters(self) -> None:
-        super().reset_parameters()
-
-        if self.offset_generator is not None:
-            self.offset_generator.zero_parameters()
-        if self.mask_generator is not None:
-            self.mask_generator.zero_parameters()
+        self.mask_generator.zero_parameters()
+        self.mask_activation = None  # MaskSigmoid(2.0)
 
     @TX.override
     def forward(self, input: Tensor) -> Tensor:

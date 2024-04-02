@@ -658,7 +658,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]:
+        ...
 
     @T.overload
     def build_training_dataloader(
@@ -666,7 +667,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]:
+        ...
 
     def build_training_dataloader(
         self,
@@ -728,7 +730,9 @@ class Engine:
 
         return dl, steps_per_epoch, updates_per_epoch
 
-    def run_training_step(self, model: ModelBase, inputs: InputType) -> TensorDict:
+    def run_training_step(
+        self, model: ModelBase, inputs: InputType
+    ) -> T.Dict[str, Tensor]:
         """
         A single training step (forward + backward + update).
         """

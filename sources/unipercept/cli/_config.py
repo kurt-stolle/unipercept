@@ -176,6 +176,8 @@ class ConfigLoad(argparse.Action):
         for override in self.overrides_parser.parse_overrides(overrides):
             key = override.key_or_group
             value = override.value()
+            if value == "None":
+                value = None
             self.safe_update(cfg, key, value)
         return cfg
 

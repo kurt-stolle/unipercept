@@ -10,8 +10,8 @@ import math
 import typing as T
 from typing import Optional, Tuple
 
-import torch.fx
 import torch
+import torch.fx
 import torch.nn as nn
 import typing_extensions as TX
 from torch import Tensor, nn
@@ -19,10 +19,10 @@ from torch.nn import init
 from torch.nn.modules.utils import _pair
 from torch.nn.parameter import Parameter
 from torchvision.ops import deform_conv2d
+
 from ..weight import init_xavier_fill_
 from ._extended import Separable2d
-from .utils import to_2tuple
-from .utils import NormActivationMixin
+from .utils import NormActivationMixin, to_2tuple
 
 __all__ = ["ModDeform2d", "DeformConv2d"]
 
@@ -358,7 +358,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             dilation=self.dilation,  # type: ignore[arg-type]
             bias=mask_bias,
         )
-        self.mask_activation = None
+        self.mask_activation = MaskSigmoid(2.0)
 
         self.reset_parameters()
 

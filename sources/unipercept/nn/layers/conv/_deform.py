@@ -329,8 +329,8 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
     def __init__(
         self,
         *args,
-        offset_bias: bool = True,
-        mask_bias: bool = True,
+        offset_bias: bool = False,
+        mask_bias: bool = False,
         **kwargs,
     ):
         self.mask_generator = None
@@ -358,7 +358,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             dilation=self.dilation,  # type: ignore[arg-type]
             bias=mask_bias,
         )
-        self.mask_activation = MaskSigmoid(2.0)
+        self.mask_activation = None # MaskSigmoid(2.0)
 
         self.reset_parameters()
 

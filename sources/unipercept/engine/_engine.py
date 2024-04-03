@@ -253,13 +253,9 @@ class Engine:
             Tuple to be passed as *args to the model
         """
         model = self.xlr.unwrap_model(model)
-
         if hasattr(model, "select_inputs"):
-            args = model.select_inputs(inputs, self.xlr.device)
-        else:
-            args, _ = tree_flatten(inputs)
-
-        return tuple(args)
+            return tuple(model.select_inputs(inputs, self.xlr.device))
+        return (inputs,)
 
     @property
     def session_dir(self) -> file_io.Path:
@@ -318,6 +314,9 @@ class Engine:
 
         lazy_obj = OmegaConf.to_container(lazy, resolve=False)
         assert isinstance(lazy_obj, dict)
+
+        self._config = lazy_obj
+        
         return T.cast(dict[str, T.Any], lazy_obj)
 
     @config.setter

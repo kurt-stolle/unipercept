@@ -67,7 +67,7 @@ class GroupAdjacentTime:
 
         self._num_frames = num_frames
         self._verbose = verbose
-        self._step_size = set(step_size) if step_size is not None else {1, 2, 3, 4}
+        self._step_size = set(step_size) if step_size is not None else {1}
 
         _logger.debug(
             f"Using adjacent collector ({num_frames} frames) with required sources {self._required_capture_sources}"

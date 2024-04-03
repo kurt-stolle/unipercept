@@ -1370,8 +1370,9 @@ class Engine:
             }
 
             # reset tr_loss to zero
-            tr_loss = {k: torch.zeros_like(v) for k, v in tr_loss.items()}
-            tr_norm = torch.zeros_like(tr_norm)
+            for k in tr_loss.keys():
+                tr_loss[k].zero_()
+            tr_norm.zero_()
 
             for k, v in tr_loss_scalar.items():
                 logs["losses/" + k] = round(v / steps_passed, 4)

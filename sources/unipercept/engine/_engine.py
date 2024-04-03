@@ -45,7 +45,7 @@ from unipercept.engine.debug import DebugMode, DebugUnderflowOverflow
 from unipercept.engine.memory import MemoryTracker
 from unipercept.engine.writer import MemmapTensordictWriter
 from unipercept.log import create_table, get_logger
-from unipercept.model import InputData, ModelBase
+from unipercept.model import InputData, ModelBase, ModelOutput
 from unipercept.state import (
     barrier,
     check_main_process,
@@ -745,10 +745,10 @@ class Engine:
         model.train()
 
         args = self.select_inputs(model, inputs)
-        outputs = model(*args)
-        losses = outputs["losses"]
+        outputs: ModelOutput = model(*args)
+        assert outputs.losses is not None
 
-        loss_tensor = torch.stack(list(losses.values()))
+        loss_tensor = torch.stack([v for v in outputs.losses.values()])
 
         if self._params.train_sum_losses:
             self.xlr.backward(loss_tensor.sum())
@@ -756,7 +756,8 @@ class Engine:
             self.xlr.backward(loss_tensor, gradient=torch.ones_like(loss_tensor))
 
         loss_logs = {
-            k: v.detach() / self._state.gradient_accumulation for k, v in losses.items()
+            k: v.detach() / self._state.gradient_accumulation
+            for k, v in outputs.losses.items()
         }
         loss_logs["total"] = torch.stack(list(loss_logs.values())).sum()
 
@@ -1035,15 +1036,15 @@ class Engine:
         model.eval()
 
         args = self.select_inputs(model, inputs)
-        outputs: T.List[T.Dict[str, TensorDictBase]] | TensorDictBase = model(*args)[
-            "predictions"
-        ]
-        if isinstance(outputs, T.List):
-            predictions = LazyStackedTensorDict(*outputs)
-        else:
-            predictions = outputs
+        outputs: ModelOutput = model(*args)
+        assert outputs.predictions is not None
 
-        return predictions
+        if isinstance(outputs.predictions, T.List):
+            predictions = LazyStackedTensorDict(*outputs.predictions)
+        else:
+            predictions = outputs.predictions
+
+        return T.cast(TensorDictBase, predictions)
 
     @status.assert_status(
         ~(EngineStatus.IS_TRAINING_RUN | EngineStatus.IS_EVALUATION_RUN)
@@ -1563,6 +1564,9 @@ class Engine:
         Store visualizations that are provided as a mapping of (key) -> (PIL image).
         """
 
+        from wandb.sdk.wandb_run import Run
+        import wandb
+
         _logger.info(
             f"Storing visualizations ({len(visuals)} total): {list(visuals.keys())}"
         )
@@ -1578,9 +1582,8 @@ class Engine:
                 img_path.parent.mkdir(parents=True, exist_ok=True)
                 img.save(img_path)
 
-            wandb_run = self.xlr.get_tracker("wandb")
-            if wandb_run is not None:
-                wandb_run.log(
+            if wandb.run is not None:
+                wandb.log(
                     {f"{prefix}/{key}": wandb.Image(img)},  # , step=self._state.step
                     commit=False,
                 )

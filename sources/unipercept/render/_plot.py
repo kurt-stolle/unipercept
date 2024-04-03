@@ -53,12 +53,9 @@ def plot_input_data(
 
     import matplotlib.pyplot as plt
 
-    if len(data.batch_size) > 0:
-        warnings.warn(
-            "Received batched input data, plotting only the first element!",
-            stacklevel=2,
-        )
-        data = data[0]
+    if data.batch_dims > 0:
+        msg = "Expected a single batch of data, got multiple batches!"
+        raise ValueError(msg)
 
     caps = data.captures
     nrows = caps.batch_size[0]
@@ -77,7 +74,7 @@ def plot_input_data(
     for i, lbl in enumerate(("Image", "Segmentation", "Depth")):
         axs[-1, i].set_xlabel(lbl)
 
-    for i, cap in enumerate(caps):
+    for i, cap in enumerate(caps.unbind(0)):
         axs[i, 0].set_ylabel(f"Frame {i+1}")
 
         if image_options is None:
@@ -180,7 +177,7 @@ def draw_image(
     Shows the given images.
     """
 
-    if img.ndim > 3:
+    while img.ndim > 3 and img.shape[0] == 1:
         img = img.squeeze(0)
 
     assert len(img.shape) == 3, f"Expected image with CHW dimensions, got {img.shape}!"
@@ -213,8 +210,8 @@ def draw_image_segmentation(
 
     from ._visualizer import Visualizer
 
-    pan = pan.squeeze(0)
-
+    while pan.ndim > 2 and pan.shape[0] == 1:
+        pan = pan.squeeze(0)
     assert len(pan.shape) == 2, f"Expected image with HW dimensions, got {pan.shape}!"
 
     pan = pan.detach().as_subclass(PanopticMap)

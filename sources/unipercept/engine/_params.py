@@ -146,6 +146,12 @@ class EngineParams:
     tags: T.Sequence[str] = D.field(
         default_factory=list, metadata={"help": "Tags to use for the experiment."}
     )
+    static_graph: bool = D.field(
+        default=False,
+        metadata={
+            "help": "Whether the training graph is static. Relevant when using DDP for training. See: https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html"
+        },
+    )
 
     full_determinism: bool = False
     seed: int = 42

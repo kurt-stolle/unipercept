@@ -47,6 +47,7 @@ class Accelerator(accelerate.Accelerator):
             DistributedDataParallelKwargs,
             DynamoBackend,
             TorchDynamoPlugin,
+            DataLoaderConfiguration,
         )
 
         project_dir = root / "outputs"
@@ -67,14 +68,15 @@ class Accelerator(accelerate.Accelerator):
                     find_unused_parameters=params.find_unused_parameters,
                     broadcast_buffers=True,  # False,
                     gradient_as_bucket_view=True,
-                    static_graph=True,
+                    static_graph=params.static_graph,
                 ),
             ],
             step_scheduler_with_optimizer=False,
             log_with=list(params.trackers),
-            dispatch_batches=False,
+            dataloader_config=DataLoaderConfiguration(
+                dispatch_batches=None, split_batches=False
+            ),
             gradient_accumulation_steps=1,
-            split_batches=False,
             device_placement=True,
             # mixed_precision=None,
             # dynamo_backend=None,
@@ -107,20 +109,23 @@ if T.TYPE_CHECKING:
         function: _Fin[_P, _R],
         *,
         starting_batch_size: int = 128,
-    ) -> _Fout[_P, _R]: ...
+    ) -> _Fout[_P, _R]:
+        ...
 
     @T.overload
     def find_executable_batch_size(
         function: None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]:
+        ...
 
     def find_executable_batch_size(
         function: _Fin | None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]:
+        ...
 
 else:
     find_executable_batch_size = accelerate.utils.find_executable_batch_size

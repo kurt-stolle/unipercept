@@ -286,14 +286,14 @@ class InputData(Tensorclass):
 ModelInput = InputData | TensorDictBase | T.Dict[str, Tensor]
 
 
-class ModelOutput(T.TypedDict):
+class ModelOutput(T.NamedTuple):
     """
     The output of a model. This is a dictionary that can contain any number of tensors, but must at least contain
     a key "pred" that contains the model's prediction.
     """
 
-    losses: T.Dict[str, Tensor]
-    predictions: T.List[TensorDictBase]
+    losses: T.Dict[str, Tensor] | None
+    predictions: T.List[TensorDictBase] | LazyStackedTensorDict | TensorDictBase | None
 
 
 class ModelBase(nn.Module):
@@ -324,7 +324,8 @@ class ModelBase(nn.Module):
 
         @abc.abstractmethod
         @TX.override
-        def forward(self, *args: T.Any) -> ModelOutput: ...
+        def forward(self, *args: T.Any) -> ModelOutput:
+            ...
 
         __call__ = forward
 

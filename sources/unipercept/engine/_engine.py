@@ -68,6 +68,7 @@ if T.TYPE_CHECKING:
     import unipercept as up
     from unipercept.evaluators import Evaluator as Evaluator
     from unipercept.model import ModelFactory
+    from unipercept.nn.smooth import SmoothingObserverModule
 
 MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
 
@@ -120,6 +121,7 @@ class Engine:
         "_config",
         "_dataloaders",
         "_stages",
+        "_grad_norm_smoother",
         "__dict__",
     )
 
@@ -134,6 +136,7 @@ class Engine:
         ) = None,
         log_events: bool = False,
         dry_run: bool = False,
+        grad_norm_smoother: SmoothingObserverModule | None = None,
     ):
         self._default_setup()
 
@@ -152,6 +155,7 @@ class Engine:
         self._xlr = None
         self._root = None
         self._config = None
+        self._grad_norm_smoother = grad_norm_smoother
 
         self._stages = list(stages) if stages is not None else []
         self._evaluators: T.Final[dict[str, EvaluationSuite]] = (
@@ -225,6 +229,8 @@ class Engine:
 
         xlr = Accelerator.from_engine_params(self._params, self.session_dir)
         xlr.register_for_checkpointing(self._state)
+        if self._grad_norm_smoother is not None:
+            xlr.register_for_checkpointing(self._grad_norm_smoother)
 
         self._xlr = xlr
 
@@ -987,11 +993,36 @@ class Engine:
         return model
 
     def _train_clip_gradients(self, model: nn.Module) -> Tensor:
-        if not self.xlr.sync_gradients or self._params.max_grad_norm is None:
+        max_norm: float
+
+        # Read the max norm value (from smoother or directly from params)
+        if self._grad_norm_smoother is not None:
+            assert self._params.max_grad_norm is not None
+
+            max_norm_obs = self._grad_norm_smoother.observe()
+            if torch.isnan(max_norm_obs):
+                max_norm = self._params.max_grad_norm
+            else:
+                max_norm = max_norm_obs.item()
+                max_norm = min(max_norm, self._params.max_grad_norm)
+        else:
+            max_norm = self._params.max_grad_norm
+
+        # Skip gradient clipping if max_norm is None or when sync_gradients is disabled
+        if not self.xlr.sync_gradients or max_norm is None:
             return torch.tensor(torch.nan, device=self.xlr.device)
-        max_norm = self._params.max_grad_norm
+
+        # Apply gradient clipping
         self.xlr.unscale_gradients()
-        return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm, norm_type=2)
+        total_norm = torch.nn.utils.clip_grad_norm_(
+            model.parameters(), max_norm, norm_type=2
+        )
+
+        # Smooth the gradient norm
+        if self._grad_norm_smoother is not None:
+            self._grad_norm_smoother(total_norm)
+
+        return total_norm
 
     def run_inference_step(
         self,
@@ -1361,8 +1392,11 @@ class Engine:
 
             logs: dict[str, float] = {}
             logs["optimizer/lr"] = _get_learning_rate(optimizer)
-            logs["optimizer/total_norm"] = tr_norm.item() / steps_passed
-
+            if tr_norm is not None:
+                logs["optimizer/total_norm"] = tr_norm.item() / steps_passed
+            if self._grad_norm_smoother is not None:
+                smooth_norm = self._grad_norm_smoother.observe().item()
+                logs["optimizer/smooth_norm"] = smooth_norm
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {
                 loss_key: gather(loss_item).mean().item()

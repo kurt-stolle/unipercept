@@ -176,6 +176,9 @@ class Dataset(
                 path = f"//cache/manifest/{file_name}.yaml"
                 cache: LazyYAMLCache[_T_MFST] = LazyYAMLCache(path)
                 _logger.info("Manifest: digest %s\n%s", file_name, ds_repr)
+
+                barrier()
+
                 if check_main_process() and not cache.exists():
                     cache.store(self._build_manifest())
 

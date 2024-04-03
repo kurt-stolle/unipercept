@@ -326,6 +326,7 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
         *args,
         offset_bias: bool = False,
         mask_bias: bool = False,
+        mask_activation: nn.Module | T.Literal["sigmoid", "softmax"] | None = "sigmoid",
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -352,7 +353,12 @@ class ModDeform2d(NormActivationMixin, DeformConv2d):
             bias=mask_bias,
         )
         self.mask_generator.zero_fill_()
-        self.mask_activation = None  # MaskSigmoid(2.0)
+        if mask_activation == "sigmoid":
+            self.mask_activation = MaskSigmoid(2.0)
+        elif mask_activation == "softmax":
+            self.mask_activation = MaskSoftmax2d(self.kernel_size)
+        else:
+            self.mask_activation = mask_activation
 
     @TX.override
     def forward(self, input: Tensor) -> Tensor:

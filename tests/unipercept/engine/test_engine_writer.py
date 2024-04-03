@@ -9,14 +9,12 @@ import torch
 import typing_extensions as TX
 from tensordict import TensorDict
 
-from unipercept.engine.writer import MemmapTensordictWriter, PersistentTensordictWriter
+from unipercept.engine.writer import MemmapTensordictWriter
 
 NUM_SAMPLES = 32
 
 
-def _run_write_read_benchmark(
-    writer: T.Union[MemmapTensordictWriter, PersistentTensordictWriter]
-):
+def _run_write_read_benchmark(writer: T.Union[MemmapTensordictWriter]):
     for _ in range(NUM_SAMPLES):
         writer.add(
             TensorDict(
@@ -39,15 +37,5 @@ def test_memmap_writer(benchmark, tmp_path: Path):
     def write_then_read():
         path = tmp_path / "memmap_writer"
         writer = MemmapTensordictWriter(path, NUM_SAMPLES, write_offset=0)
-        _run_write_read_benchmark(writer)
-        shutil.rmtree(path)
-
-
-@pytest.mark.parametrize("buffer_size", [-1, NUM_SAMPLES // 4])
-def test_persistent_writer(benchmark, buffer_size, tmp_path: Path):
-    @benchmark
-    def write_then_read():
-        path = tmp_path / "persistent_writer"
-        writer = PersistentTensordictWriter(path, NUM_SAMPLES, buffer_size=buffer_size)
         _run_write_read_benchmark(writer)
         shutil.rmtree(path)

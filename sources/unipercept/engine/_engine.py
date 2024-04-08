@@ -19,6 +19,7 @@ from datetime import datetime
 
 import torch
 import torch._dynamo
+
 import torch._dynamo.config
 import torch.optim
 import torch.types
@@ -27,7 +28,7 @@ from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from sklearn import tree
 from tabulate import tabulate
-from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
+from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase, pad_sequence
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch import Tensor, nn
 from torch.utils._pytree import tree_flatten
@@ -316,7 +317,7 @@ class Engine:
         assert isinstance(lazy_obj, dict)
 
         self._config = lazy_obj
-        
+
         return T.cast(dict[str, T.Any], lazy_obj)
 
     @config.setter
@@ -574,6 +575,16 @@ class Engine:
 
         return self._save_weights(None, result)
 
+    def list_evaluation_suites(self) -> T.List[str]:
+        return [k for k, v in self._evaluators.items() if v.enabled]
+
+    def get_evaluation_suite(self, key: str) -> EvaluationSuite:
+        try:
+            return self._evaluators[key]
+        except KeyError:
+            msg = f"Evaluation suite {key} not found. Available suites: {list(self._evaluators.keys())}"
+            raise KeyError(msg)
+
     @status(EngineStatus.IS_EVALUATION_RUN)
     @torch.no_grad()
     def run_evaluation(
@@ -593,7 +604,7 @@ class Engine:
         metrics_overall = {}
 
         if suites is None:
-            suites = [k for k, v in self._evaluators.items() if v.enabled]
+            suites = self.list_evaluation_suites()
         else:
             for k in suites:
                 if k not in self._evaluators:
@@ -1039,7 +1050,7 @@ class Engine:
         assert outputs.predictions is not None
 
         if isinstance(outputs.predictions, T.List):
-            predictions = LazyStackedTensorDict(*outputs.predictions)
+            predictions = pad_sequence(outputs.predictions, return_mask=True)
         else:
             predictions = outputs.predictions
 

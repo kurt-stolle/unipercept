@@ -2,12 +2,15 @@
 Impelements modules that smooth a value.
 """
 
-import torch
-import torch.nn as nn
-import torch.distributions
-from torch import Tensor
+from __future__ import annotations
+
 import typing as T
+
+import torch
+import torch.distributions
+import torch.nn as nn
 import typing_extensions as TX
+from torch import Tensor
 
 
 class SmoothingObserverModule(T.Protocol):

@@ -16,7 +16,8 @@ import torch.nn.functional as F
 import typing_extensions as TX
 
 from unipercept.nn.backbones._base import Backbone
-from unipercept.nn.layers import SqueezeExcite2d, conv
+from unipercept.nn.layers import conv
+from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
 
@@ -221,7 +222,8 @@ class LastLevelP6P7(ExtraFPNBlock):
 
     if T.TYPE_CHECKING:
         # Backwards compatability
-        def __init__(self, channels: int): ...
+        def __init__(self, channels: int):
+            ...
 
     else:
 

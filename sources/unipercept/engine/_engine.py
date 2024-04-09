@@ -19,11 +19,11 @@ from datetime import datetime
 
 import torch
 import torch._dynamo
-
 import torch._dynamo.config
 import torch.optim
 import torch.types
 import torch.utils.data
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from sklearn import tree
@@ -35,7 +35,6 @@ from torch.utils._pytree import tree_flatten
 from torch.utils.data import Dataset
 from typing_extensions import override
 
-import wandb
 from unipercept import file_io
 from unipercept.data import DataLoaderFactory
 from unipercept.engine._params import EngineParams, EvaluationSuite, TrainingStage
@@ -1043,9 +1042,10 @@ class Engine:
         """
         Perform an evaluation step on `model` using `inputs`.
         """
+        model = model.to(self.xlr.device)
         model.eval()
 
-        args = self.select_inputs(model, inputs)
+        args = self.select_inputs(model, inputs.to(self.xlr.device))
         outputs: ModelOutput = model(*args)
         assert outputs.predictions is not None
 
@@ -1574,8 +1574,8 @@ class Engine:
         Store visualizations that are provided as a mapping of (key) -> (PIL image).
         """
 
-        from wandb.sdk.wandb_run import Run
         import wandb
+        from wandb.sdk.wandb_run import Run
 
         _logger.info(
             f"Storing visualizations ({len(visuals)} total): {list(visuals.keys())}"

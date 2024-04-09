@@ -9,10 +9,11 @@ from torch import Tensor, nn
 from typing_extensions import override
 
 import unipercept.nn.layers.conv as convolution
-from unipercept.nn.backbones import BackboneFeatureInfo
-from unipercept.nn.layers import SqueezeExcite2d
 from unipercept.nn.layers.norm import GroupNorm32, NormSpec
+from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
 
+if T.TYPE_CHECKING:
+    from unipercept.nn.backbones import BackboneFeatureInfo
 __all__ = ["SemanticMerge"]
 
 

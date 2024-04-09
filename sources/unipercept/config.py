@@ -119,7 +119,8 @@ class EnvFilter(enum.StrEnum):
 @T.overload
 def get_env(
     __type: type[_R], /, *keys: str, default: _R, filter: EnvFilter = EnvFilter.TRUTHY
-) -> _R: ...
+) -> _R:
+    ...
 
 
 @T.overload
@@ -129,7 +130,8 @@ def get_env(
     *keys: str,
     default: _R | None = None,
     filter: EnvFilter = EnvFilter.TRUTHY,
-) -> _R | None: ...
+) -> _R | None:
+    ...
 
 
 @functools.cache
@@ -533,10 +535,12 @@ def apply_overrides(cfg, overrides: List[str]):
 if T.TYPE_CHECKING:
 
     class LazyObject(T.Generic[_L]):
-        def __getattr__(self, name: str) -> T.Any: ...
+        def __getattr__(self, name: str) -> T.Any:
+            ...
 
         @override
-        def __setattr__(self, __name: str, __value: Any) -> None: ...
+        def __setattr__(self, __name: str, __value: Any) -> None:
+            ...
 
 else:
     import types
@@ -636,15 +640,18 @@ def migrate_target(v: T.Any) -> T.Any:
 
 
 @T.overload
-def instantiate(cfg: T.Sequence[LazyObject[_L]], /) -> T.Sequence[_L]: ...
+def instantiate(cfg: T.Sequence[LazyObject[_L]], /) -> T.Sequence[_L]:
+    ...
 
 
 @T.overload
-def instantiate(cfg: LazyObject[_L], /) -> _L: ...
+def instantiate(cfg: LazyObject[_L], /) -> _L:
+    ...
 
 
 @T.overload
-def instantiate(cfg: T.Mapping[T.Any, LazyObject[_L]], /) -> T.Mapping[T.Any, _L]: ...
+def instantiate(cfg: T.Mapping[T.Any, LazyObject[_L]], /) -> T.Mapping[T.Any, _L]:
+    ...
 
 
 def instantiate(cfg: T.Any, /) -> T.Any:

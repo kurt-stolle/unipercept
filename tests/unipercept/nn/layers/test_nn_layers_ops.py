@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 
 from unipercept.nn.layers.ops import dynamic_conv2d

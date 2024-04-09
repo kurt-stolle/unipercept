@@ -33,7 +33,6 @@ dependencies = [
     "opencv-python",
     "omegaconf",
     "hydra-core",
-    "unitrack",
     "iopath",
     "torchdata",
     "fvcore",

@@ -44,10 +44,10 @@ class Accelerator(accelerate.Accelerator):
         """
         from accelerate.accelerator import ProjectConfiguration
         from accelerate.utils import (
+            DataLoaderConfiguration,
             DistributedDataParallelKwargs,
             DynamoBackend,
             TorchDynamoPlugin,
-            DataLoaderConfiguration,
         )
 
         project_dir = root / "outputs"

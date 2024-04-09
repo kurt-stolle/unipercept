@@ -5,11 +5,11 @@ import enum as E
 import logging
 import typing as T
 
+import torch.nn as nn
 from typing_extensions import override
 
 from unipercept.config import get_env
 from unipercept.data import DataLoaderFactory
-import torch.nn as nn
 from unipercept.engine._optimizer import OptimizerFactory
 from unipercept.engine._scheduler import SchedulerFactory
 from unipercept.engine.debug import DebugMode

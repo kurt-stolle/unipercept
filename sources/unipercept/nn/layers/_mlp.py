@@ -80,6 +80,14 @@ class MapMLP(nn.Module):
         self.fc2 = nn.Linear(hidden_channels, out_channels, bias=bias)
         self.drop2 = nn.Dropout(dropout, inplace=True)
 
+        nn.init.trunc_normal_(self.fc1.weight)
+        if self.fc1.bias is not None:
+            nn.init.zeros_(self.fc1.bias)
+
+        nn.init.trunc_normal_(self.fc2.weight, mean=0.0, std=0.01, a=-0.1, b=0.1)
+        if self.fc2.bias is not None:
+            nn.init.zeros_(self.fc2.bias)
+
     def _forward_mlp(self, x: torch.Tensor) -> torch.Tensor:
         y = self.fc1(x)
         y = self.act(y)

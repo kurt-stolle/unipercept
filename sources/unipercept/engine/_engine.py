@@ -794,6 +794,10 @@ class Engine:
         model = self.xlr.prepare_model(model).to(self.xlr.device)
         loader, scheduler, optimizer = self.xlr.prepare(loader, scheduler, optimizer)
 
+        # Reset grad norm smoother before loading state
+        if self._grad_norm_smoother is not None:
+            self._grad_norm_smoother.reset()
+
         # First load the initial weights, then the state
         try:
             self._load_state(None)  # type: ignore
@@ -820,7 +824,6 @@ class Engine:
 
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
-
         self._edge(Event.ON_TRAIN_BEGIN, model=model)
 
         total_session_samples = 0

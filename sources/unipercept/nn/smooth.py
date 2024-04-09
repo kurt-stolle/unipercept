@@ -18,6 +18,9 @@ class SmoothingObserverModule(T.Protocol):
     Protocol for modules that can be observed.
     """
 
+    def reset(self) -> None:
+        ...
+
     def observe(self, default: Tensor | None = None) -> Tensor:
         ...
 
@@ -50,6 +53,12 @@ class EMA(nn.Module):
         super().__init__(**kwargs)
         self.alpha = alpha
         self.register_buffer("ema", torch.tensor(torch.nan))
+
+    def reset(self):
+        """
+        Reset the EMA to NaN.
+        """
+        self.ema.fill_(torch.nan)
 
     @TX.override
     def forward(self, new_value: Tensor) -> Tensor:
@@ -129,6 +138,12 @@ class GMA(nn.Module):
         # Register buffer for the weights and the data window
         self.register_buffer("weights", weights)
         self.register_buffer("data_window", torch.full((window_size,), torch.nan))
+
+    def reset(self):
+        """
+        Reset the data window to NaN.
+        """
+        self.data_window.fill_(torch.nan)
 
     @TX.override
     def forward(self, new_value: Tensor) -> Tensor:

@@ -645,8 +645,8 @@ class Visualizer:
             font_size = self._default_font_size
 
         # since the text background is dark, we don't want the text to be dark
-        color = np.maximum(list(mplc.to_rgb(color)), 0.2)
-        color[np.argmax(color)] = max(0.7, np.max(color))
+        color = np.maximum(list(mplc.to_rgb(color)), 0.33)
+        color[np.argmax(color)] = max(0.8, np.max(color))
 
         x, y = position
         self.output.ax.text(
@@ -658,8 +658,8 @@ class Visualizer:
             fontweight="bold",
             bbox={
                 "facecolor": "black",
-                "alpha": 0.9 * alpha,
-                "boxstyle": "round,pad=0.2",
+                "alpha": 0.99 * alpha,
+                "boxstyle": "round,pad=0.1",
                 "edgecolor": "none",
             },
             verticalalignment="center",

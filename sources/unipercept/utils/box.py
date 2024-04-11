@@ -2,13 +2,462 @@ from __future__ import annotations
 
 import torch
 
+import enum as E
+import typing as T
 
-@torch.jit.script_if_tracing
-def boxes_to_areas(boxes: torch.Tensor) -> torch.Tensor:
-    if boxes.numel() == 0:
-        return torch.zeros(boxes.shape[:-1], device=boxes.device, dtype=boxes.dtype)
+from torchvision.tv_tensors import BoundingBoxFormat as _TVBBoxFormat
 
-    w = boxes[..., 2] - boxes[..., 0]
-    h = boxes[..., 3] - boxes[..., 1]
+
+class BBoxFormat(E.StrEnum):
+    """
+    Coordinate format of a bounding box.
+    """
+
+    LTBR = E.auto()  # (left        , top       , right         , bottom)
+    LTWH = E.auto()  # (left        , top       , width         , height)
+    CCWH = E.auto()  # (center x    , center y  , width         , height)
+    CCAH = E.auto()  # (center x    , center y  , aspect ratio  , height)
+
+
+def translate_bbox_format_to_torchvision(src: BBoxFormat) -> _TVBBoxFormat:
+    """
+    Convert a :class:`BBoxFormat` to a :class:`torchvision.tv_tensors.BoundingBoxFormat`.
+
+    Parameters
+    ----------
+    src : BBoxFormat
+        The format to convert.
+    Returns
+    -------
+    torchvision.tv_tensors.BoundingBoxFormat
+        The converted format.
+
+    Notes
+    -----
+    This method was added for completeness after torchvision introduced their own
+    bounding box format. Users are encoraged to stick with the `BBoxFormat` wherever
+    possible to avoid unnecessary conversions.
+    """
+    match src:
+        case BBoxFormat.LTBR:
+            dst = _TVBBoxFormat.XYXY
+        case BBoxFormat.LTWH:
+            dst = _TVBBoxFormat.XYWH
+        case BBoxFormat.CCWH:
+            dst = _TVBBoxFormat.CXCYWH
+        case _:
+            msg = f"Format {src!r} cannot be converted to a torchvision format"
+            raise ValueError(msg)
+    return dst  # noqa: R504
+
+
+def translate_bbox_format_from_torchvision(
+    src: _TVBBoxFormat,
+) -> BBoxFormat:
+    """
+    Convert a :class:`torchvision.tv_tensors.BoundingBoxFormat` to a :class:`BBoxFormat`.
+
+    Parameters
+    ----------
+    src : torchvision.tv_tensors.BoundingBoxFormat
+        The format to convert.
+    Returns
+    -------
+    BBoxFormat
+        The converted format.
+
+    Notes
+    -----
+    This method was added for completeness after torchvision introduced their own
+    bounding box format. Users are encoraged to stick with the `BBoxFormat` wherever
+    possible to avoid unnecessary conversions.
+    """
+    match src:
+        case _TVBBoxFormat.XYXY:
+            dst = BBoxFormat.LTBR
+        case _TVBBoxFormat.XYWH:
+            dst = BBoxFormat.LTWH
+        case _TVBBoxFormat.CXCYWH:
+            dst = BBoxFormat.CCWH
+        case _:
+            msg = f"Format {src!r} cannot be converted to a BBoxFormat"
+            raise ValueError(msg)
+    return dst  # noqa: R504
+
+
+def convert_boxes(
+    boxes: torch.Tensor,
+    src: BBoxFormat | _TVBBoxFormat,
+    dst: BBoxFormat | _TVBBoxFormat,
+) -> torch.Tensor:
+    """
+    Convert a set of bounding boxes from one format to another.
+
+    Parameters
+    ----------
+    boxes : torch.Tensor
+        The boxes to convert.
+    src : BBoxFormat
+        The source (current) format of :attr:`boxes`.
+    dst : BBoxFormat
+        The destination (target) format of the converted boxes.
+
+    Returns
+    -------
+    torch.Tensor
+        The converted boxes.
+    """
+    if isinstance(src, _TVBBoxFormat):
+        src = translate_bbox_format_from_torchvision(src)
+    if isinstance(dst, _TVBBoxFormat):
+        dst = translate_bbox_format_from_torchvision(dst)
+
+    if src == dst:
+        return boxes
+
+    # Convert to LTBR
+    match src:
+        case BBoxFormat.LTWH:
+            ltbr = ltwh_to_ltbr(boxes)
+        case BBoxFormat.CCWH:
+            ltbr = ccwh_to_ltbr(boxes)
+        case BBoxFormat.CCAH:
+            ltbr = ccah_to_ltbr(boxes)
+        case _:
+            msg = f"Unsupported conversion from {src!r}"
+            raise NotImplementedError(msg)
+    match dst:
+        case BBoxFormat.LTBR:
+            boxes = ltbr
+        case BBoxFormat.LTWH:
+            boxes = ltbr_to_ltwh(ltbr)
+        case BBoxFormat.CCWH:
+            boxes = ltbr_to_ccwh(ltbr)
+        case BBoxFormat.CCAH:
+            boxes = ltbr_to_ccah(ltbr)
+        case _:
+            msg = f"Unsupported conversion to {dst!r}"
+            raise NotImplementedError(msg)
+
+    return boxes  # noqa: R504
+
+
+def boxes_to_areas(ltbr: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the areas of a set of boxes.
+    """
+    if ltbr.numel() == 0:
+        return torch.zeros(ltbr.shape[:-1], device=ltbr.device, dtype=ltbr.dtype)
+
+    w = ltbr[..., 2] - ltbr[..., 0]
+    h = ltbr[..., 3] - ltbr[..., 1]
 
     return w * h
+
+
+def scale_boxes(
+    ltbr: torch.Tensor,
+    scale: torch.Tensor | torch.Size | int | float | T.Iterable[int | float],
+) -> torch.Tensor:
+    """
+    Scale a set of boxes by a fixed ratio.
+
+    Parameters
+    ----------
+    ltbr : torch.Tensor
+        The boxes to scale, in [x1, y1, x2, y2] format.
+    scale : Union[torch.Tensor, torch.Size, float, Sequence[float]]
+        The scale factor(s) to apply to the boxes, when a single value is provided, it is
+        used for both dimensions.
+    Returns
+    -------
+    torch.Tensor
+        The scaled boxes.
+    """
+    if ltbr.numel() == 0:
+        return ltbr
+
+    if isinstance(scale, (torch.Tensor)):
+        sw, sh = map(float, scale.tolist())
+    elif not isinstance(scale, T.Iterable):
+        sw = sh = float(scale)
+    else:
+        sw, sh = map(float, scale)
+
+    return torch.stack(
+        [
+            ltbr[..., 0] * sw,
+            ltbr[..., 1] * sh,
+            ltbr[..., 2] * sw,
+            ltbr[..., 3] * sh,
+        ],
+        dim=-1,
+    ).to(ltbr.dtype)
+
+
+def reposition_boxes_in_crop(
+    boxes_ltbr: torch.Tensor, crop_ltbr: torch.Tensor, clamp: bool = False
+) -> torch.Tensor:
+    """
+    Reposition a set of boxes that have been defined relative to some image size to be
+    relative to a crop of that image.
+
+    Parameters
+    ----------
+    boxes_ltbr : torch.Tensor
+        The boxes to reposition, in [x1, y1, x2, y2] format.
+    crop_ltbr : torch.Tensor
+        The crop to reposition the boxes into, in [x1, y1, x2, y2] format.
+    clamp : bool
+        Whether to clamp the boxes to the crop boundaries.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+
+    if boxes_ltbr.numel() == 0:
+        return boxes_ltbr
+
+    boxes_x1 = boxes_ltbr[..., 0]
+    boxes_y1 = boxes_ltbr[..., 1]
+    boxes_x2 = boxes_ltbr[..., 2]
+    boxes_y2 = boxes_ltbr[..., 3]
+
+    crop_x1 = crop_ltbr[..., 0]
+    crop_y1 = crop_ltbr[..., 1]
+    crop_x2 = crop_ltbr[..., 2]
+    crop_y2 = crop_ltbr[..., 3]
+
+    if clamp:
+        boxes_x1 = torch.clamp(boxes_x1, min=crop_x1)
+        boxes_y1 = torch.clamp(boxes_y1, min=crop_y1)
+        boxes_x2 = torch.clamp(boxes_x2, max=crop_x2)
+        boxes_y2 = torch.clamp(boxes_y2, max=crop_y2)
+
+    boxes_x1 -= crop_x1
+    boxes_y1 -= crop_y1
+    boxes_x2 -= crop_x1
+    boxes_y2 -= crop_y1
+
+    return torch.stack([boxes_x1, boxes_y1, boxes_x2, boxes_y2], dim=-1)
+
+
+def expand_boxes_to_squares(ltbr: torch.Tensor) -> torch.Tensor:
+    """
+    Pad a set of boxes such that they are square.
+    """
+    if ltbr.numel() == 0:
+        return ltbr
+
+    w = ltbr[..., 2] - ltbr[..., 0]
+    h = ltbr[..., 3] - ltbr[..., 1]
+
+    max_size = torch.max(w, h)
+    half_diff = (max_size - torch.stack([w, h], dim=-1)) / 2
+
+    return torch.stack(
+        [
+            ltbr[..., 0] - half_diff[..., 0],
+            ltbr[..., 1] - half_diff[..., 1],
+            ltbr[..., 2] + half_diff[..., 0],
+            ltbr[..., 3] + half_diff[..., 1],
+        ],
+        dim=-1,
+    )
+
+
+def expand_boxes_by_pixels(ltbr: torch.Tensor, px: int) -> torch.Tensor:
+    """
+    Expand a set of boxes by a fixed number of pixels.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ltbr.numel() == 0:
+        return ltbr
+
+    return torch.stack(
+        [
+            ltbr[..., 0] - px,
+            ltbr[..., 1] - px,
+            ltbr[..., 2] + px,
+            ltbr[..., 3] + px,
+        ],
+        dim=-1,
+    )
+
+
+def expand_boxes_by_ratio(ltbr: torch.Tensor, ratio: float) -> torch.Tensor:
+    """
+    Expand a set of boxes by a fixed ratio.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ltbr.numel() == 0:
+        return ltbr
+
+    w = ltbr[..., 2] - ltbr[..., 0]
+    h = ltbr[..., 3] - ltbr[..., 1]
+
+    half_diff_w = (w * ratio) / 2
+    half_diff_h = (h * ratio) / 2
+
+    return torch.stack(
+        [
+            ltbr[..., 0] - half_diff_w,
+            ltbr[..., 1] - half_diff_h,
+            ltbr[..., 2] + half_diff_w,
+            ltbr[..., 3] + half_diff_h,
+        ],
+        dim=-1,
+    )
+
+
+def ltbr_to_ltwh(ltbr: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [x1, y1, x2, y2] to [x, y, w, h] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ltbr.numel() == 0:
+        return ltbr
+
+    w = ltbr[..., 2] - ltbr[..., 0]
+    h = ltbr[..., 3] - ltbr[..., 1]
+    x = ltbr[..., 0]
+    y = ltbr[..., 1]
+
+    return torch.stack([x, y, w, h], dim=-1)
+
+
+def ltwh_to_ltbr(ltwh: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [x, y, w, h] to [x1, y1, x2, y2] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ltwh.numel() == 0:
+        return ltwh
+
+    x1 = ltwh[..., 0]
+    y1 = ltwh[..., 1]
+    x2 = x1 + ltwh[..., 2]
+    y2 = y1 + ltwh[..., 3]
+
+    return torch.stack([x1, y1, x2, y2], dim=-1)
+
+
+def ltbr_to_ccwh(ltbr: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [x1, y1, x2, y2] to [cx, cy, w, h] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ltbr.numel() == 0:
+        return ltbr
+
+    cx = (ltbr[..., 0] + ltbr[..., 2]) / 2
+    cy = (ltbr[..., 1] + ltbr[..., 3]) / 2
+    w = ltbr[..., 2] - ltbr[..., 0]
+    h = ltbr[..., 3] - ltbr[..., 1]
+
+    return torch.stack([cx, cy, w, h], dim=-1)
+
+
+def ccwh_to_ltbr(ccwh: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [cx, cy, w, h] to [x1, y1, x2, y2] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ccwh.numel() == 0:
+        return ccwh
+
+    x1 = ccwh[..., 0] - ccwh[..., 2] / 2
+    y1 = ccwh[..., 1] - ccwh[..., 3] / 2
+    x2 = ccwh[..., 0] + ccwh[..., 2] / 2
+    y2 = ccwh[..., 1] + ccwh[..., 3] / 2
+
+    return torch.stack([x1, y1, x2, y2], dim=-1)
+
+
+def ltbr_to_ccah(ltbr: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [x1, y1, x2, y2] to [cx, cy, ar, h] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ltbr.numel() == 0:
+        return ltbr
+
+    cx = (ltbr[..., 0] + ltbr[..., 2]) / 2
+    cy = (ltbr[..., 1] + ltbr[..., 3]) / 2
+    ar = (ltbr[..., 2] - ltbr[..., 0]) / (ltbr[..., 3] - ltbr[..., 1])
+    h = ltbr[..., 3] - ltbr[..., 1]
+
+    return torch.stack([cx, cy, ar, h], dim=-1)
+
+
+def ccah_to_ltbr(ccah: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [cx, cy, ar, h] to [x1, y1, x2, y2] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ccah.numel() == 0:
+        return ccah
+
+    x1 = ccah[..., 0] - ccah[..., 2] / 2
+    y1 = ccah[..., 1] - ccah[..., 3] / 2
+    x2 = ccah[..., 0] + ccah[..., 2] / 2
+    y2 = ccah[..., 1] + ccah[..., 3] / 2
+
+    return torch.stack([x1, y1, x2, y2], dim=-1)
+
+
+def ccwh_to_ccah(ccwh: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [cx, cy, w, h] to [cx, cy, ar, h] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ccwh.numel() == 0:
+        return ccwh
+
+    ar = ccwh[..., 2] / ccwh[..., 3]
+
+    return torch.stack([ccwh[..., 0], ccwh[..., 1], ar, ccwh[..., 3]], dim=-1)
+
+
+def ccah_to_ccwh(ccah: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from [cx, cy, ar, h] to [cx, cy, w, h] format.
+
+    Notes
+    -----
+    This function was generated using GitHub Copilot.
+    """
+    if ccah.numel() == 0:
+        return ccah
+
+    w = ccah[..., 3] * ccah[..., 2]
+
+    return torch.stack([ccah[..., 0], ccah[..., 1], w, ccah[..., 3]], dim=-1)

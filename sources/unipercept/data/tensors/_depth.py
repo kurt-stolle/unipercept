@@ -8,6 +8,7 @@ import safetensors.torch as safetensors
 import torch
 from torch.types import Device
 from torchvision.tv_tensors import Mask
+from torchvision.transforms.v2 import functional as tvfn
 
 from unipercept.data.tensors.helpers import get_kwd, read_pixels
 from unipercept.data.tensors.registry import pixel_maps
@@ -150,39 +151,22 @@ class DepthMap(Mask):
         return cls(depth)
 
 
-# def transform_depth_map(
-#     depth_map: torch.Tensor,
-#     transform: T.Transform,
-#     augmentations: T.AugmentationList,
-#     clip=True,
-# ):
-#     map_tf = transform.apply_segmentation(depth_map)
+@tvfn.register_kernel(functional="resize", tv_tensor_cls=DepthMap)
+def resize_depthmap(
+    inpt: DepthMap,
+    size: T.List[int],
+    interpolation: T.Any = None,  # noqa: U100
+    max_size: int | None = None,
+    antialias: T.Any = True,  # noqa: U100
+) -> torch.Tensor:
+    d_min = inpt.min()
+    d_max = inpt.max()
 
-#     # Scale depth values to account for the new field of view caused by
-#     # resize transformations
-#     for aug in augmentations.augs:
-#         if not isinstance(aug, T.ResizeTransform):
-#             continue
+    res = tvfn.resize_mask(inpt, size, max_size)
 
-#         # Tranform properties are defined in a way that makes the
-#         # typechecker unable to access the attribute, hence why
-#         # there values have their type ignored
-#         scale_w = aug.w / aug.new_w  # type: ignore
-#         scale_h = aug.h / aug.new_h  # type: ignore
-#         scale = (scale_w + scale_h) / 2
+    h_i, w_i = inpt.shape[-2:]
+    h_o, w_o = res.shape[-2:]
 
-#         # Clip depth values to minimum and maximum of the original values
-#         if clip:
-#             map_tf = torch.clip(map_tf * scale, map_tf.min(), map_tf.max())
-#         else:
-#             map_tf = map_tf * scale
+    scale = (h_i / h_o + w_i / w_o) / 2
 
-#     if isinstance(map_tf, torch.ndarray):
-#         map_tf = torch.from_numpy(map_tf).to(device=depth_map.device, dtype=depth_map.dtype)
-
-#     return map_tf
-
-
-# def depth_map_to_image(depth_map: torch.Tensor) -> torch.NDArray[torch.uint16]:
-#     map_uint16 = (depth_map * 255).cpu().numpy().astype(torch.uint16)
-#     return map_uint16
+    return (res * scale).clamp(d_min, d_max)

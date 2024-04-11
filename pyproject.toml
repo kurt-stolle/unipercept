@@ -189,14 +189,13 @@ extend-select = [
     "YTT",  # flake8-2020
     "EXE",  # flake8-executable
     "NPY",  # NumPy specific rules
-    #"PD",   # pandas-vet (disabled: recognizes all methods as pandas methods)
     "FURB", # refurb
     "PYI",  # flake8-pyi
 ]
 per-file-ignores = """
     __init__.py: F401, F403
     __init__.pyi: F401, F403
-    tests/**/*.py: T20, D, PD, NPY
+    tests/**: T20
     tests/**/conftest.py: F401, F403, E402
 """
 extend-ignore = [

@@ -1013,7 +1013,7 @@ class Engine:
             assert self._params.max_grad_norm is not None
 
             max_norm_obs = self._grad_norm_smoother.observe()
-            if torch.isnan(max_norm_obs):
+            if not torch.isfinite(max_norm_obs):
                 max_norm = self._params.max_grad_norm
             else:
                 max_norm = max_norm_obs.item()
@@ -1032,7 +1032,7 @@ class Engine:
         )
 
         # Smooth the gradient norm
-        if self._grad_norm_smoother is not None:
+        if self._grad_norm_smoother is not None and torch.isfinite(total_norm):
             self._grad_norm_smoother(total_norm)
 
         return total_norm

@@ -42,7 +42,8 @@ def plot_input_data(
     data: InputData,
     /,
     info: Metadata,
-    height=4,
+    height: float = 4.0,
+    scale: float = 1.0,
     image_options: MissingValue["SKIP"] | T.Optional[dict[str, T.Any]] = None,
     segmentation_options: T.Optional[dict[str, T.Any]] = None,
     depth_options: T.Optional[dict[str, T.Any]] = None,
@@ -80,22 +81,28 @@ def plot_input_data(
         if image_options is None:
             image_options = {}
         if image_options not in SKIP:
-            draw_image(cap.images, ax=axs[i, 0], **image_options)
+            draw_image(cap.images, ax=axs[i, 0], scale=scale, **image_options)
 
         cap = cap.fillna(inplace=False)
 
         if segmentation_options is None:
             segmentation_options = {}
         if segmentation_options not in SKIP:
-            segmentation_options.setdefault("depth_map", cap.depths / cap.depths.max())
+            segmentation_options.setdefault("depth_map", cap.depths / info.depth_max)
             draw_image_segmentation(
-                cap.segmentations, info, ax=axs[i, 1], **segmentation_options
+                cap.segmentations,
+                info,
+                ax=axs[i, 1],
+                scale=scale,
+                **segmentation_options,
             )
 
         if depth_options is None:
             depth_options = {}
         if depth_options not in SKIP:
-            draw_image_depth(cap.depths, info, ax=axs[i, 2], **depth_options)
+            draw_image_depth(
+                cap.depths, info, ax=axs[i, 2], scale=scale, **depth_options
+            )
 
     fig.tight_layout(pad=0)
     return fig
@@ -106,7 +113,8 @@ def plot_predictions(
     predictions: TensorDictBase | ModelOutput,
     /,
     info: Metadata,
-    height=4,
+    height: float = 4.0,
+    scale: float = 1.0,
     image_options: MissingValue["SKIP"] | dict[str, T.Any] | None = None,
     segmentation_options: dict[str, T.Any] | MissingValue["SKIP"] | None = None,
     depth_options: dict[str, T.Any] | MissingValue["SKIP"] | None = None,
@@ -152,26 +160,28 @@ def plot_predictions(
         if image_options is None:
             image_options = {}
         if image_options not in SKIP:
-            draw_image(img[i], ax=axs[i, 0], **image_options)
+            draw_image(img[i], ax=axs[i, 0], scale=scale, **image_options)
 
         if segmentation_options is None:
             segmentation_options = {}
         if segmentation_options not in SKIP:
             if dep is not None:
-                segmentation_options.setdefault("depth_map", dep[i] / dep[i].max())
-            draw_image_segmentation(seg[i], info, ax=axs[i, 1], **segmentation_options)
+                segmentation_options.setdefault("depth_map", dep[i] / info.depth_max)
+            draw_image_segmentation(
+                seg[i], info, ax=axs[i, 1], scale=scale, **segmentation_options
+            )
 
         if depth_options is None:
             depth_options = {}
         if depth_options not in SKIP:
-            draw_image_depth(dep[i], info, ax=axs[i, 2], **depth_options)
+            draw_image_depth(dep[i], info, ax=axs[i, 2], scale=scale, **depth_options)
 
     fig.tight_layout(pad=0)
     return fig
 
 
 def draw_image(
-    img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None
+    img: torch.Tensor, /, ax: MatplotlibAxesObject | None = None, scale: float = 1.0
 ) -> PILImageObject:
     """
     Shows the given images.
@@ -186,21 +196,22 @@ def draw_image(
         3,
     ), f"Expected image with 1 or 3 channels, got {img.shape[0]}!"
 
-    img = F.to_pil_image(img.detach())
+    img_pil = F.to_pil_image(img.detach().cpu())
+    img_pil = scale_pil_image(img_pil, scale)
 
     if ax is not None:
-        ax.imshow(np.asarray(img))
+        ax.imshow(img_pil)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
 
-    return img
+    return img_pil
 
 
 def draw_image_segmentation(
     pan: PanopticMap | torch.Tensor,
-    /,
     info: Metadata,
+    *,
     ax: MatplotlibAxesObject | None = None,
-    scale=1,
+    scale: float = 1.0,
     **kwargs,
 ) -> PILImageObject:
     """
@@ -231,10 +242,11 @@ def draw_image_segmentation(
 
 def draw_layers(
     layers: torch.Tensor,
-    /,
+    *,
     palette: str = "viridis",
     ax: MatplotlibAxesObject | None = None,
     background: torch.Tensor | None = None,
+    scale: float = 1.0,
 ) -> PILImageObject:
     """
     Draw a layered tensor by rendering each layer as a colored heatmap.
@@ -282,24 +294,25 @@ def draw_layers(
         out_layer = cmap(one * ((i + 1) / layers.shape[0]), layer.numpy())
         # out_layer[3] *= layer.numpy()
 
-        out_list.append(pil_image.fromarray(_float_to_uint8(out_layer)))
+        out_list.append(pil_image.fromarray(floating_to_uint8(out_layer)))
 
     out = out_list.pop()
     for out_layer in out_list:
         out = pil_image.alpha_composite(out, out_layer)
-
+    out = scale_pil_image(out, scale)
     if ax is not None:
-        ax.imshow(np.frombuffer(out))
+        ax.imshow(out)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
-    return _rgba_to_rgb(out, background=background)
+    return rgba_to_rgb(out, background=background)
 
 
 def draw_map(
     map: torch.Tensor,
-    /,
+    *,
     palette: str = "viridis",
     ax: MatplotlibAxesObject | None = None,
     background: torch.Tensor | None = None,
+    scale: float = 1.0,
 ) -> PILImageObject:
     """
     Draws a map directly from a tensor, without using the Visualizer class.
@@ -321,20 +334,22 @@ def draw_map(
     # Convert to RGB
     cmap = sns.color_palette(palette, as_cmap=True)
     out = cmap(map.numpy())
+    out = floating_to_pil(out)
+    out = scale_pil_image(out, scale)
 
     if ax is not None:
         ax.imshow(out)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
-    out = pil_image.fromarray(_float_to_uint8(out))
-    return _rgba_to_rgb(out, background=background)
+    return rgba_to_rgb(out, background=background)
 
 
 def draw_image_depth(
     dep: torch.Tensor,
-    /,
     info: Metadata,
+    *,
     palette: str = "viridis",
     ax: MatplotlibAxesObject | None = None,
+    scale: float = 1.0,
 ) -> PILImageObject:
     """
     Draws the depth map as an RGB heatmap, normalized from 0 until 1 using the given ``'max_depth'`` in the ``info``
@@ -354,17 +369,18 @@ def draw_image_depth(
     dep.clamp_(0, 1)
 
     cmap = sns.color_palette(palette, as_cmap=True)
+
     out = cmap(dep.numpy())
+    out = floating_to_pil(out)
+    out = scale_pil_image(out, scale)
 
     if ax is not None:
         ax.imshow(out)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
-
-    out = pil_image.fromarray(_float_to_uint8(out))
-    return _rgba_to_rgb(out)
+    return rgba_to_rgb(out)
 
 
-def _rgba_to_rgb(
+def rgba_to_rgb(
     img: PILImageObject, background: PILImageObject | torch.Tensor | None = None
 ) -> PILImageObject:
     """
@@ -383,7 +399,7 @@ def _rgba_to_rgb(
     return out
 
 
-def _figure_to_pil(fig) -> PILImageObject:
+def pyplot_to_pil(fig) -> PILImageObject:
     """
     Convert a Matplotlib figure to a PIL Image
     """
@@ -392,12 +408,33 @@ def _figure_to_pil(fig) -> PILImageObject:
     )
 
 
-def _float_to_uint8(mat) -> np.ndarray:
+def floating_to_uint8(mat: np.ndarray) -> np.ndarray:
     """
     Convert a float matrix to uint8
     """
+
+    mat = np.asarray(mat)
+    assert mat.dtype == np.floating, f"Expected float matrix, got {mat.dtype}!"
 
     mat = mat * 255.999
     mat = np.clip(mat, 0, 255)
 
     return mat.astype(np.uint8)
+
+
+def floating_to_pil(mat: np.ndarray) -> pil_image.Image:
+    """
+    Convert a float matrix to a PIL image
+    """
+    try:
+        return F.to_pil_image(mat)
+    except Exception as e:  # noqa: PIE786
+        warnings.warn(f"Failed to convert to PIL image: {e}", stacklevel=2)
+        return pil_image.fromarray(floating_to_uint8(mat))
+
+
+def scale_pil_image(img: PILImageObject, scale: float) -> PILImageObject:
+    """
+    Scales a PIL image by the given factor.
+    """
+    return img.resize((round(img.width * scale), round(img.height * scale)))

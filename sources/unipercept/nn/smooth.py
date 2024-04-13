@@ -4,6 +4,7 @@ Impelements modules that smooth a value.
 
 from __future__ import annotations
 
+import enum as E
 import typing as T
 
 import torch
@@ -18,14 +19,26 @@ class SmoothingObserverModule(T.Protocol):
     Protocol for modules that can be observed.
     """
 
-    def reset(self) -> None: ...
+    def reset(self) -> None:
+        ...
 
-    def observe(self, default: Tensor | None = None) -> Tensor: ...
+    def observe(self, default: Tensor | None = None) -> Tensor:
+        ...
 
-    def forward(self, new_value: Tensor) -> Tensor: ...
+    def forward(self, new_value: Tensor) -> Tensor:
+        ...
 
     if T.TYPE_CHECKING:
         __call__ = forward
+
+
+class MissingValueHandling(E.StrEnum):
+    """
+    Enum for handling missing values.
+    """
+
+    ZERO = E.auto()
+    MEAN = E.auto()
 
 
 class EMA(nn.Module):
@@ -103,10 +116,17 @@ class GMA(nn.Module):
 
     window_size: T.Final[int]
     std_dev: T.Final[float]
+    missing_values: T.Final[MissingValueHandling]
     weights: Tensor
     data_window: Tensor
 
-    def __init__(self, window_size=5, std_dev=1.0, **kwargs):
+    def __init__(
+        self,
+        window_size=5,
+        std_dev=1.0,
+        missing_values: MissingValueHandling = MissingValueHandling.ZERO,
+        **kwargs,
+    ):
         """
         Initialize the GMA module.
 
@@ -120,21 +140,25 @@ class GMA(nn.Module):
         super().__init__(**kwargs)
         self.window_size = window_size
         self.std_dev = std_dev
+        self.missing_values = missing_values
 
         # Calculate Gaussian weights
-        interval = (2 * std_dev + 1.0) / window_size
-        x = torch.linspace(
-            -std_dev - interval / 2.0, std_dev + interval / 2.0, window_size + 1
-        )
-        kernel = torch.distributions.Normal(
-            torch.tensor([0.0]), torch.tensor([std_dev])
-        )
-        kern1d = torch.diff(kernel.cdf(x))
-        weights = kern1d / kern1d.sum()
+        with torch.no_grad():
+            interval = (2 * std_dev + 1.0) / window_size
+            x = torch.linspace(
+                -std_dev - interval / 2.0, std_dev + interval / 2.0, window_size + 1
+            )
+            kernel = torch.distributions.Normal(
+                torch.tensor([0.0]), torch.tensor([std_dev])
+            )
+            kern1d = torch.diff(kernel.cdf(x))
+            weights = kern1d / kern1d.sum()
 
         # Register buffer for the weights and the data window
         self.register_buffer("weights", weights)
-        self.register_buffer("data_window", torch.full((window_size,), torch.nan))
+        self.register_buffer(
+            "data_window", torch.full((window_size,), torch.nan, requires_grad=False)
+        )
 
     def reset(self):
         """
@@ -175,6 +199,19 @@ class GMA(nn.Module):
         """
         if torch.all(torch.isnan(self.data_window)) and default is not None:
             return default
+
+        match self.missing_values:
+            case MissingValueHandling.ZERO:
+                data_window = torch.nan_to_num(self.data_window)
+            case MissingValueHandling.MEAN:
+                data_window = torch.where(
+                    ~torch.isnan(self.data_window),
+                    self.data_window,
+                    torch.nanmean(self.data_window),
+                )
+            case _:
+                msg = f"Unsupported missing value handling: {self.missing_values}"
+                raise ValueError(msg)
 
         # Apply basic mean value imputation for NaN (initial) values
         data_window = torch.where(

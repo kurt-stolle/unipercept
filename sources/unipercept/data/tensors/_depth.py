@@ -7,8 +7,8 @@ import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
 from torch.types import Device
-from torchvision.tv_tensors import Mask
 from torchvision.transforms.v2 import functional as tvfn
+from torchvision.tv_tensors import Mask
 
 from unipercept.data.tensors.helpers import get_kwd, read_pixels
 from unipercept.data.tensors.registry import pixel_maps

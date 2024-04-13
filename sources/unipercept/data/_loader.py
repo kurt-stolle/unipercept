@@ -472,15 +472,18 @@ class BaseSampler(Sampler[_I], T.Generic[_I], metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def indices(self) -> T.Iterator[_I]: ...
+    def indices(self) -> T.Iterator[_I]:
+        ...
 
     @property
     @abc.abstractmethod
-    def sample_count(self) -> int: ...
+    def sample_count(self) -> int:
+        ...
 
     @property
     @abc.abstractmethod
-    def total_count(self) -> int: ...
+    def total_count(self) -> int:
+        ...
 
     @property
     def generator(self) -> torch.Generator:

@@ -6,13 +6,13 @@ import typing_extensions as TX
 
 from . import (
     abbreviate,
+    box,
     camera,
     conifg,
     dicttools,
     function,
     inspect,
     logutils,
-    box,
     mask,
     ox,
     seed,

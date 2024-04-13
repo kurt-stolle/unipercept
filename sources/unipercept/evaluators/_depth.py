@@ -383,9 +383,24 @@ def accumulate_partial_depth_metrics(
         device = torch.device(device)
 
     accuracy_keys = list(next(iter(metrics)).accuracy.keys())
+    metrics = [m for m in metrics if m.valid > 0]
 
-    # Allocate tensors for the accumulated metrics
     with device:
+        size1 = (1,)
+        if len(metrics) == 0:
+            return DepthMetrics(
+                valid=torch.zeros(size1, dtype=torch.int64),
+                abs_rel=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
+                sq_rel=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
+                rmse=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
+                rmse_log=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
+                accuracy={
+                    key: torch.full(size1, fill_value=torch.nan, dtype=_FLOAT_DTYPE)
+                    for key in next(iter(metrics)).accuracy.keys()
+                },
+            )
+
+        # Allocate tensors for the accumulated metrics
         valid = torch.zeros(1, dtype=torch.int64)
         abs_rel = torch.zeros(1, dtype=_FLOAT_DTYPE)
         sq_rel = torch.zeros(1, dtype=_FLOAT_DTYPE)

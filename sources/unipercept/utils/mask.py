@@ -1,13 +1,14 @@
 from __future__ import annotations
+
+import enum as E
 import math
 import typing as T
-import torch
-import enum as E
 
-from torch import Tensor
-import torch.signal
+import torch
 import torch.nn as nn
+import torch.signal
 import torchvision.transforms.v2.functional as tvfn
+from torch import Tensor
 
 __all__ = ["masks_to_centers", "masks_to_boxes"]
 

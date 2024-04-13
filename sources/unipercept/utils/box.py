@@ -4,11 +4,10 @@ Utilities for working with (boudning) boxes.
 
 from __future__ import annotations
 
-import torch
-
 import enum as E
 import typing as T
 
+import torch
 from torchvision.tv_tensors import BoundingBoxFormat as _TVBBoxFormat
 
 

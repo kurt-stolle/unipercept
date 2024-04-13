@@ -1,9 +1,14 @@
-import pytest
+from __future__ import annotations
+
 import itertools
-from hypothesis import given, strategies as st
-from unipercept.utils.box import convert_boxes, BBoxFormat
-from torchvision.tv_tensors import BoundingBoxFormat as TVBBoxFormat
+
+import pytest
 import torch
+from hypothesis import given
+from hypothesis import strategies as st
+from torchvision.tv_tensors import BoundingBoxFormat as TVBBoxFormat
+
+from unipercept.utils.box import BBoxFormat, convert_boxes
 
 # Define a strategy for generating boxes
 boxes_strategy = st.lists(

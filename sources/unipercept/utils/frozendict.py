@@ -62,16 +62,13 @@ class frozendict(dict, Mapping[_K, _V], Generic[_K, _V]):
         return cls(super().fromkeys(iterable, value))
 
     @overload
-    def __new__(cls, map_it=None, /) -> Self:
-        ...
+    def __new__(cls, map_it=None, /) -> Self: ...
 
     @overload
-    def __new__(cls, map_it: Iterable[tuple[_K, _V]] | dict[_K, _V], /) -> Self:
-        ...
+    def __new__(cls, map_it: Iterable[tuple[_K, _V]] | dict[_K, _V], /) -> Self: ...
 
     @overload
-    def __new__(cls, map_it: None, /, **kwargs: _V) -> frozendict[str, _V]:
-        ...
+    def __new__(cls, map_it: None, /, **kwargs: _V) -> frozendict[str, _V]: ...
 
     def __new__(
         cls, map_it: Iterable[tuple[_K, _V]] | dict[_K, _V] | None = None, /, **kwargs

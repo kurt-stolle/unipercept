@@ -390,8 +390,7 @@ def create_dataset(
     variant: T.Optional[str | re.Pattern],
     batch_size: int,
     return_loader: bool = True,
-) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
-    ...
+) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]: ...
 
 
 @T.overload
@@ -400,8 +399,7 @@ def create_dataset(
     variant: T.Optional[str | re.Pattern],
     batch_size: int,
     return_loader: bool = False,
-) -> tuple[T.Iterator[InputData], Metadata]:
-    ...
+) -> tuple[T.Iterator[InputData], Metadata]: ...
 
 
 def create_dataset(

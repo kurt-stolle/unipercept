@@ -14,6 +14,8 @@ import torch.multiprocessing as M
 import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
+from torch import Tensor
+from torch.utils._pytree import tree_map
 from tqdm import tqdm
 from typing_extensions import override
 
@@ -34,11 +36,15 @@ __all__ = [
     "PRED_DEPTH",
     "TRUE_DEPTH",
     "VALID_DEPTH",
+    "compute_depth_metrics",
 ]
 
 PRED_DEPTH: T.Final[str] = "pred_depth"
 TRUE_DEPTH: T.Final[str] = "true_depth"
 VALID_DEPTH: T.Final[str] = "valid_depth"
+
+_FLOAT_DTYPE: T.Final = torch.float64
+_FLOAT_EPS: T.Final = torch.finfo(_FLOAT_DTYPE).eps
 
 
 @D.dataclass(kw_only=True)
@@ -145,51 +151,25 @@ class DepthEvaluator(DepthWriter):
 
     @override
     def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs):
-        # device = torch.device("cpu")
         num_samples = storage.batch_size[0]
-        assert num_samples > 0
-        compute_at = functools.partial(_compute_at, storage=storage, device=device)
+        compute_at = functools.partial(self._compute_at, storage=storage, device=device)
         metrics_list: list[DepthMetrics] = []
+
         progress_bar = tqdm(
             total=num_samples,
             desc="Computing depth metrics",
             disable=not check_main_process(local=True) or not self.show_progress,
         )
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-            for metrics_sample in pool.map(compute_at, range(num_samples)):
-                progress_bar.update(1)
-                if metrics_sample is None:
-                    continue
-                metrics_list.append(metrics_sample)
+        for metrics_sample in map(compute_at, range(num_samples)):
+            progress_bar.update(1)
+            if metrics_sample is None:
+                continue
+            metrics_list.append(metrics_sample)
         progress_bar.close()
 
         # Compute the final metrics as the average of the samples weighted by the amount of valid pixels at each entry
-        metrics = {}
-        for m in metrics_list:  # accumulate metrics
-            valid_pixels = m[_KEY_VALID_PX]
-            metrics[_KEY_VALID_PX] = metrics.get(_KEY_VALID_PX, 0) + valid_pixels
-            for k, v in m.items():
-                if k == _KEY_VALID_PX:
-                    continue
-                elif k == "accuracy":
-                    assert isinstance(v, dict)
-                    metrics.setdefault(k, {th: 0.0 for th in v.keys()})
-                    for i in v.keys():
-                        metrics[k][i] += v[i] * valid_pixels
-                else:
-                    assert isinstance(v, float)
-                    metrics.setdefault(k, 0.0)
-                    metrics[k] += v * valid_pixels
-        for k, v in metrics.items():  # divide by total pixels
-            if k == _KEY_VALID_PX:
-                continue
-            elif k == "accuracy":
-                assert isinstance(v, dict)
-                for i in v.keys():
-                    v[i] /= metrics[_KEY_VALID_PX]
-            else:
-                assert isinstance(v, float)
-                v /= metrics[_KEY_VALID_PX]
+        metrics = accumulate_partial_depth_metrics(metrics_list)
+        metrics = tree_map(lambda x: x.item(), metrics._asdict())
 
         if self.show_summary:
             _logger.info("Depth summary:\n%s", create_table(metrics, format="wide"))
@@ -199,32 +179,32 @@ class DepthEvaluator(DepthWriter):
 
         return metrics
 
+    @staticmethod
+    def _compute_at(n, *, storage, device):
+        valid = storage.get_at(VALID_DEPTH, n).item()
+        if not valid:
+            return None
 
-def _compute_at(n, *, storage, device):
-    valid = storage.get_at(VALID_DEPTH, n).item()
-    if not valid:
-        return None
+        pred = storage.get_at(PRED_DEPTH, n, None).to(device=device)
+        true = storage.get_at(TRUE_DEPTH, n, None).to(device=device)
 
-    pred = storage.get_at(PRED_DEPTH, n, None).to(device=device)
-    true = storage.get_at(TRUE_DEPTH, n, None).to(device=device)
+        if pred is None or true is None:
+            return None
 
-    if pred is None or true is None:
-        return None
-
-    return _depth_metrics_single(pred=pred, true=true)
+        return compute_partial_depth_metrics(pred=pred, true=true)
 
 
-DepthMetrics = T.TypedDict(
-    "DepthMetrics",
-    {
-        "valid": int,
-        "abs_rel": float,
-        "sq_rel": float,
-        "rmse": float,
-        "log_rmse": float,
-        "accuracy": dict[str, float],
-    },
-)
+class DepthMetrics(T.NamedTuple):
+    """
+    Metrics for depth estimation tasks.
+    """
+
+    valid: Tensor
+    abs_rel: Tensor
+    sq_rel: Tensor
+    rmse: Tensor
+    rmse_log: Tensor
+    accuracy: dict[str, Tensor]
 
 
 _THRES_DEFAULT: T.Final[list[int]] = [1, 2, 3]
@@ -253,72 +233,182 @@ def _threshold_to_key(t_base: float, n: int) -> str:
     return f"{base}{exponent}"
 
 
-def _depth_metrics_single(
+def _get_valid_depths(
+    pred: Tensor, true: Tensor, threshold: float = 1.0
+) -> T.Tuple[Tensor, Tensor, Tensor]:
+    """
+    Returns a mask for valid pixels in the ground truth depth map.
+
+    Parameters
+    ----------
+    pred : Tensor
+        Predicted depth map.
+    true : Tensor
+        Ground truth depth map.
+    threshold : float, optional
+        Minimal value for valid pixels in the ground truth depth map, by default 1.0.
+
+    Returns
+    -------
+    Tensor
+        Mask for valid pixels in the ground truth depth map.
+    """
+
+    mask = true >= threshold
+    amount = mask.to(dtype=torch.int64).sum()
+
+    return pred[mask], true[mask], amount
+
+
+def _align_and_promote(pred: Tensor, true: Tensor):
+    r"""
+    Aligns and promotes the input tensors to accurate floating-point tensors.
+    """
+    if not torch.is_floating_point(pred):
+        msg = f"Expected floating-point tensor for prediction, got {pred_dtype=}"
+        raise TypeError(msg)
+    if not torch.is_floating_point(true):
+        msg = f"Expected floating-point tensor for ground truth, got {true_dtype=}"
+        raise TypeError(msg)
+    pred_dtype = pred.dtype
+    true_dtype = true.dtype
+    pred = pred.to(dtype=pred_dtype).to(dtype=_FLOAT_DTYPE)
+    true = true.to(dtype=true_dtype).to(dtype=_FLOAT_DTYPE)
+
+    return pred, true
+
+
+@torch.no_grad()
+def compute_depth_metrics(
     *,
-    pred: torch.Tensor,
-    true: torch.Tensor,
+    pred: Tensor,
+    true: Tensor,
     t_base: float = 1.25,
     t_n: T.Iterable[int] = _THRES_DEFAULT,
-    eps=1e-8,
-) -> DepthMetrics | None:
+) -> DepthMetrics:
     """
     Computation of error metrics between predicted and ground truth depths.
 
     Parameters
     ----------
-    pred : torch.Tensor
+    pred : Tensor
         Predicted depth map.
-    true : torch.Tensor
+    true : Tensor
         Ground truth depth map.
     t_base : float, optional
         Base value for the accuracy thresholds, by default 1.25.
     t_n : T.Iterable[int], optional
         Exponents for the accuracy thresholds, by default [1, 2, 3].
-    eps : float, optional
-        Epsilon value used to ensure numeric stability, by default 1e-8.
+
+    Returns
+    -------
+    DepthMetrics
+        The computed metrics.
+    """
+
+    pred, true = map(torch.flatten, (pred, true))
+    pred, true = _align_and_promote(pred, true)
+    pred, true, px_amt = _get_valid_depths(pred, true)
+
+    max_rel = torch.maximum((true / pred), (pred / true))
+
+    return DepthMetrics(
+        valid=px_amt,
+        abs_rel=((true - pred).abs_() / true).mean(),
+        sq_rel=((true - pred).square_() / true).mean(),
+        rmse=((true - pred) ** 2).mean().sqrt_(),
+        rmse_log=((torch.log1p(true) - torch.log1p(pred)) ** 2).mean().sqrt_(),
+        accuracy={
+            _threshold_to_key(t_base, n): (max_rel < (t_base**n)).double().mean()
+            for n in t_n
+        },
+    )
+
+
+@torch.no_grad()
+def compute_partial_depth_metrics(
+    *,
+    pred: Tensor,
+    true: Tensor,
+    t_base: float = 1.25,
+    t_n: T.Iterable[int] = _THRES_DEFAULT,
+) -> DepthMetrics:
+    """
+    Computation of error metrics between predicted and ground truth depths.
+
+    Parameters
+    ----------
+    pred : Tensor
+        Predicted depth map.
+    true : Tensor
+        Ground truth depth map.
+    t_base : float, optional
+        Base value for the accuracy thresholds, by default 1.25.
+    t_n : T.Iterable[int], optional
+        Exponents for the accuracy thresholds, by default [1, 2, 3].
 
     Returns
     -------
     DepthMetrics | None
-        Dictionary with the computed metrics or None if the truth contains no valid depths.
+        The partially computed metrics, which still need to be accumulated.
     """
 
-    pred = pred.flatten()
-    true = true.flatten()
-
-    # Mask out invalid pixels
-    valid_mask = true > eps
-    valid_amt = int(valid_mask.short().sum().item())
-
-    if valid_amt <= 0:
-        return None
-    pred = pred[valid_mask].double().clamp(min=eps)
-    true = true[valid_mask].double().clamp(min=eps)
-
-    # Compute thresholds
+    pred, true = map(torch.flatten, (pred, true))
+    pred, true = _align_and_promote(pred, true)
+    pred, true, px_amt = _get_valid_depths(pred, true)
     max_rel = torch.maximum((true / pred), (pred / true))
+    return DepthMetrics(
+        valid=px_amt,
+        abs_rel=((true - pred).abs_() / true).sum(),
+        sq_rel=((true - pred).square_() / true).sum(),
+        rmse=((true - pred) ** 2).sum(),
+        rmse_log=((torch.log1p(true) - torch.log1p(pred)) ** 2).sum(),
+        accuracy={
+            _threshold_to_key(t_base, n): (max_rel < (t_base**n)).long().sum()
+            for n in t_n
+        },
+    )
 
-    # Mean accuracies at different thresholds
-    accuracy = {
-        _threshold_to_key(t_base, n): (max_rel < (t_base**n)).double().mean()
-        for n in t_n
-    }
 
-    rmse = (true - pred) ** 2
-    rmse = torch.sqrt(rmse.mean())
+@torch.no_grad()
+def accumulate_partial_depth_metrics(
+    metrics: T.Iterable[DepthMetrics], *, device: torch.device | None = None
+):
+    r"""
+    Accumulates the partial depth metrics into a single set of metrics.
+    """
+    if device is None:
+        device = next(iter(metrics)).valid.device
+    else:
+        device = torch.device(device)
 
-    rmse_log = (torch.log1p(true) - torch.log1p(pred)) ** 2
-    rmse_log = torch.sqrt(rmse_log.mean())
+    accuracy_keys = list(next(iter(metrics)).accuracy.keys())
 
-    abs_rel = torch.mean(torch.abs(true - pred) / true)
+    # Allocate tensors for the accumulated metrics
+    with device:
+        valid = torch.zeros(1, dtype=torch.int64)
+        abs_rel = torch.zeros(1, dtype=_FLOAT_DTYPE)
+        sq_rel = torch.zeros(1, dtype=_FLOAT_DTYPE)
+        rmse = torch.zeros(1, dtype=_FLOAT_DTYPE)
+        rmse_log = torch.zeros(1, dtype=_FLOAT_DTYPE)
+        accuracy = {key: torch.zeros(1, dtype=_FLOAT_DTYPE) for key in accuracy_keys}
 
-    sq_rel = torch.mean(((true - pred) ** 2) / true)
+    # Accumulate the metrics
+    for metric in metrics:
+        valid += metric.valid.to(device=device)
+        abs_rel += metric.abs_rel.to(device=device)
+        sq_rel += metric.sq_rel.to(device=device)
+        rmse += metric.rmse.to(device=device)
+        rmse_log += metric.rmse_log.to(device=device)
+        for key in accuracy_keys:
+            accuracy[key] += metric.accuracy[key].to(device=device)
 
-    return {
-        _KEY_VALID_PX: valid_amt,
-        "abs_rel": abs_rel.item(),
-        "sq_rel": sq_rel.item(),
-        "rmse": rmse.item(),
-        "rmse_log": rmse_log.item(),
-        "accuracy": {k: a.item() for k, a in accuracy.items()},
-    }
+    # Find the average metrics and finish the computation
+    return DepthMetrics(
+        valid=valid,
+        abs_rel=abs_rel / valid,
+        sq_rel=sq_rel / valid,
+        rmse=(rmse / valid).sqrt_(),
+        rmse_log=(rmse_log / valid).sqrt_(),
+        accuracy={key: value / valid for key, value in accuracy.items()},
+    )

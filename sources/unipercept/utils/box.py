@@ -1,3 +1,7 @@
+r"""
+Utilities for working with (boudning) boxes.
+"""
+
 from __future__ import annotations
 
 import torch

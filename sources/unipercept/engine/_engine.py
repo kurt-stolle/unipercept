@@ -1006,34 +1006,40 @@ class Engine:
         return model
 
     def _train_clip_gradients(self, model: nn.Module) -> Tensor:
-        max_norm: float
-
-        # Read the max norm value (from smoother or directly from params)
-        if self._grad_norm_smoother is not None:
-            assert self._params.max_grad_norm is not None
-
-            max_norm_obs = self._grad_norm_smoother.observe()
-            if not torch.isfinite(max_norm_obs):
-                max_norm = self._params.max_grad_norm
-            else:
-                max_norm = max_norm_obs.item()
-                max_norm = min(max_norm, self._params.max_grad_norm)
-        else:
-            max_norm = self._params.max_grad_norm
-
-        # Skip gradient clipping if max_norm is None or when sync_gradients is disabled
-        if not self.xlr.sync_gradients or max_norm is None:
-            return torch.tensor(torch.nan, device=self.xlr.device)
-
-        # Apply gradient clipping
         self.xlr.unscale_gradients()
-        total_norm = torch.nn.utils.clip_grad_norm_(
-            model.parameters(), max_norm, norm_type=2
-        )
 
-        # Smooth the gradient norm
-        if self._grad_norm_smoother is not None and torch.isfinite(total_norm):
-            self._grad_norm_smoother(total_norm)
+        if self._params.max_grad_value is not None:
+            nn.utils.clip_grad_value_(model.parameters(), self._params.max_grad_value)
+
+        if self._params.max_grad_norm is not None:
+            max_norm: float
+            # Read the max norm value (from smoother or directly from params)
+            if self._grad_norm_smoother is not None:
+                assert self._params.max_grad_norm is not None
+
+                max_norm_obs = self._grad_norm_smoother.observe()
+                if not torch.isfinite(max_norm_obs):
+                    max_norm = self._params.max_grad_norm
+                else:
+                    max_norm = max_norm_obs.item()
+                    max_norm = min(max_norm, self._params.max_grad_norm)
+            else:
+                max_norm = self._params.max_grad_norm
+
+            # Skip gradient clipping if max_norm is None or when sync_gradients is disabled
+            if not self.xlr.sync_gradients or max_norm is None:
+                return torch.tensor(torch.nan, device=self.xlr.device)
+
+            # Apply gradient clipping
+            total_norm = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm, norm_type=2
+            )
+
+            # Smooth the gradient norm
+            if self._grad_norm_smoother is not None and torch.isfinite(total_norm):
+                self._grad_norm_smoother(total_norm)
+        else:
+            total_norm = torch.tensor(torch.nan, device=self.xlr.device)
 
         return total_norm
 

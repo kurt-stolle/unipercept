@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import collections.abc
 from itertools import repeat
+import typing as T
+
+_V = T.TypeVar("_V")
 
 
-def _ntuple(n):
-    def parse(x):
+def _ntuple(n: int) -> T.Callable[[_V | T.Iterable[_V]], tuple[_V, ...]]:
+    def parse(x: _V | T.Iterable[_V]) -> tuple[_V, ...]:
         if isinstance(x, collections.abc.Iterable) and not isinstance(x, str):
             return tuple(x)
-        return tuple(repeat(x, n))
+        return tuple(repeat(x, n))  # type: ignore
 
     return parse
 

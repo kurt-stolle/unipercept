@@ -13,6 +13,7 @@ from typing_extensions import override
 
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
 from unipercept.nn.layers.norm import NormSpec, get_norm
+from unipercept.nn.layers.utils import to_2tuple
 
 __all__ = ["MapMLP", "EmbedMLP"]
 
@@ -53,7 +54,7 @@ class MapMLP(nn.Module):
         out_channels: int,
         hidden_channels: int | float = 1.0,
         *,
-        dropout=0.0,
+        dropout: float | tuple[float, float] | T.Iterable[float] = 0.0,
         norm: NormSpec = nn.LayerNorm,
         bias=True,
         activation: ActivationSpec = nn.GELU,
@@ -70,15 +71,17 @@ class MapMLP(nn.Module):
                 f"Invalid type for `hidden_channels`: {type(hidden_channels)}"
             )
 
+        drop1, drop2 = to_2tuple(dropout)
+
         self.eps = eps
         self.fc1 = nn.Linear(
             in_channels, hidden_channels, bias=bias if norm is None else False
         )
         self.act = get_activation(activation)
-        self.drop1 = nn.Dropout(dropout, inplace=True)
+        self.drop1 = nn.Dropout(drop1, inplace=True)
         self.norm = get_norm(norm, hidden_channels)
         self.fc2 = nn.Linear(hidden_channels, out_channels, bias=bias)
-        self.drop2 = nn.Dropout(dropout, inplace=True)
+        self.drop2 = nn.Dropout(drop2, inplace=True)
 
         nn.init.trunc_normal_(self.fc1.weight)
         if self.fc1.bias is not None:

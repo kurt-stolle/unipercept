@@ -309,6 +309,11 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
             f"{self.__class__.__name__} does not support to_module"
         )
 
+    @TX.override
+    def from_dict_instance(self, *args, **kwargs):
+        msg = f"{self.__class__.__name__} does not support from_dict_instance"
+        raise NotImplementedError(msg)
+
     # ---------- #
     # State dict #
     # ---------- #

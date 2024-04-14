@@ -615,6 +615,7 @@ class MemmapTensordictWriter:
                 futures=futures,
                 executor=executor,
                 copy_existing=False,
+                share_non_tensor=False,
             )
 
             self._futures.extend(futures)

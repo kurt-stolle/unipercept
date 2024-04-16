@@ -24,7 +24,8 @@ classifiers = [
 ]
 dependencies = [
     "torch >= 2.2.2",
-    "tensordict >= 0.3.1",
+    "torchvision",
+    "tensordict >= 0.3.2",
     "einops >= 0.7.0",
     "timm >= 0.6.14",
     "bullet >= 2.2.0",
@@ -44,6 +45,7 @@ dependencies = [
     "termcolor",
     "pycocotools",
     "ftfy",
+    "wandb",
 ]
 dynamic = ["version"]
 
@@ -288,7 +290,7 @@ extension-pkg-whitelist = [
     "netcdf4",
     "scipy",
     "pandas",
-    "wandb"
+    "wandb",
 ]
 ignore = "CVS"
 ignore-patterns = "test.*?py,conftest.py,.*?_test.py"

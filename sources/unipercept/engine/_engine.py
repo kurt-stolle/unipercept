@@ -416,6 +416,9 @@ class Engine:
             ),
         )
 
+    def get_training_stage(self, num: int = -1) -> TrainingStage:
+        return self._stages[num]
+
     @status(EngineStatus.IS_TRAINING_RUN)
     def run_training(
         self,
@@ -457,7 +460,7 @@ class Engine:
         if stage is None:
             stage_num = self._state.stage
             assert stage_num >= 0, "Expected stage to be set"
-            stage = self._stages[stage_num]
+            stage = self.get_training_stage(stage_num)
         elif isinstance(stage, int):
             if stage < 0 or stage >= len(self._stages):
                 raise ValueError(
@@ -466,7 +469,7 @@ class Engine:
                     "that used a custom StageDefinition instead of a number."
                 )
             stage_num = stage
-            stage = self._stages[stage]
+            stage = self.get_training_stage(stage)
         else:
             try:
                 stage_num = self._stages.index(stage)
@@ -1054,7 +1057,16 @@ class Engine:
         model = model.to(self.xlr.device)
         model.eval()
 
-        args = self.select_inputs(model, inputs.to(self.xlr.device))
+        inputs_device = inputs.device or torch.device("cpu")
+        inputs_shape = inputs.batch_size
+        inputs = inputs.to(self.xlr.device)
+        if len(inputs_shape) == 0:
+            inputs = inputs.unsqueeze(0)
+        elif len(inputs_shape) != 1:
+            msg = f"Expected inputs to have a batch dimension, got {inputs_shape}"
+            raise ValueError(msg)
+
+        args = self.select_inputs(model, inputs)
         outputs: ModelOutput = model(*args)
         assert outputs.predictions is not None
 
@@ -1062,6 +1074,11 @@ class Engine:
             predictions = pad_sequence(outputs.predictions, return_mask=True)
         else:
             predictions = outputs.predictions
+
+        if len(inputs_shape) == 0:
+            predictions = predictions[0]
+
+        predictions = predictions.to(inputs_device)
 
         return T.cast(TensorDictBase, predictions)
 

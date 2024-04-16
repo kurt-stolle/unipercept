@@ -59,6 +59,7 @@ class MapMLP(nn.Module):
         bias=True,
         activation: ActivationSpec = nn.GELU,
         eps: float = EPS,
+        init_gain: float = 1.0,
     ):
         super().__init__()
 
@@ -83,11 +84,11 @@ class MapMLP(nn.Module):
         self.fc2 = nn.Linear(hidden_channels, out_channels, bias=bias)
         self.drop2 = nn.Dropout(drop2, inplace=True)
 
-        nn.init.trunc_normal_(self.fc1.weight)
+        nn.init.kaiming_normal_(self.fc1.weight, mode="fan_in", nonlinearity="relu")
         if self.fc1.bias is not None:
             nn.init.zeros_(self.fc1.bias)
 
-        nn.init.trunc_normal_(self.fc2.weight, mean=0.0, std=0.01, a=-0.1, b=0.1)
+        nn.init.orthogonal_(self.fc2.weight, gain=init_gain)
         if self.fc2.bias is not None:
             nn.init.zeros_(self.fc2.bias)
 

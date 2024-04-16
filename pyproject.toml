@@ -247,8 +247,9 @@ exclude = [
     "docs/**.*",
 ]
 imports = [
-    "requests",
-    "torch",
+    "torch >= 2.2.0",
+    "tensordict >= 0.3.2",
+    "accelerate",
     "transformers",
     "torchvision",
     "tensordict",

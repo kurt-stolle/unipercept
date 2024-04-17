@@ -22,6 +22,6 @@ def __getattr__(name: str):
 
     if name == "SqueezeExcite2d":
         msg = "The `SqueezeExcite2d` layer has been moved to `unipercept.nn.layers.squeeze_excite`."
-        warnings.warn(msg, stacklevel=2)
+        warnings.warn(msg, stacklevel=0)
 
         return squeeze_excite.SqueezeExcite2d

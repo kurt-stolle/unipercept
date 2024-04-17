@@ -122,12 +122,14 @@ def segmentation_guided_triplet_loss(
     patch_width: int,
 ) -> T.Tuple[torch.Tensor, torch.Tensor]:
     if seg_true.ndim != dep_feat.ndim:
-        seg_true.unsqueeze(1)
+        seg_true = seg_true.unsqueeze(1)
 
-    assert dep_feat.ndim == 4, f"Expected B x C x H x W, got: {dep_feat.shape}"
+    assert (
+        dep_feat.ndim == 4
+    ), f"Expected features as B x C x H x W, got: {dep_feat.shape} for segmentation {dep_feat.shape}"
     assert (
         seg_true.ndim == dep_feat.ndim
-    ), f"Expected B x 1 x H x W, got: {seg_true.shape}!"
+    ), f"Expected segmentatino as B x 1 x H x W, got: {seg_true.shape} for depth features {dep_feat.shape}!"
 
     with torch.no_grad():
         seg_true = nn.functional.interpolate(
@@ -195,11 +197,6 @@ def segmentation_guided_triplet_loss(
     mask_pos = target_pos_num > threshold
     mask_neg = target_neg_num > threshold
     mask = mask_pos & mask_neg
-
-    # TODO: Check whether first gathering into fixed-size vectors and using the
-    # standard triplet loss in PyTorch could be more efficient and/or lead to
-    # a more stable implementation.
-    # See https://pytorch.org/docs/stable/generated/torch.nn.TripletMarginLoss.html
 
     return patch_losses, mask
 

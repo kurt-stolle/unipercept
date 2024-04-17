@@ -47,8 +47,7 @@ def masks_to_centers(masks: Tensor, stride: int = 1, use_vmap: bool = False) -> 
 def masks_to_boxes(
     masks: Tensor,
     stride: int = 1,
-    use_vmap: bool = False,
-    filter_size: int | T.Tuple[int, int] | None = 15,
+    filter_size: int | T.Tuple[int, int] | None = None,
     filter_threshold: float = 0.5,
 ) -> Tensor:
     """
@@ -69,43 +68,34 @@ def masks_to_boxes(
     -------
         Bounding box tensor (N, (X1,Y1,X2,Y2)), where X in [0,W] and Y in [0,H]
     """
-    masks = masks.bool().permute(0, 2, 1)  # Ensure output is XY not Y
+    if masks.numel() == 0:
+        return torch.zeros((0, 4), device=masks.device)
+    if masks.ndim != 3:
+        msg = f"Expected masks to have 3 dimensions, got {masks.ndim}"
+        raise ValueError(msg)
+
     if filter_size is not None and filter_threshold > 0.0:
         masks_blur = masks.float()
         masks_blur = tvfn.gaussian_blur_image(masks_blur, filter_size)
         masks_blur = masks > filter_threshold
         masks_blur_valid = masks_blur.int().sum(dim=(-1, -2)) > 0
         masks[masks_blur_valid] = masks_blur[masks_blur_valid]
-    masks = masks.long()
 
     axes = _get_index_axes_like(masks, stride=stride)
-
-    if use_vmap:
-        xyxy = torch.vmap(_get_bounding_box, (-1, None), (1, 1))(axes, masks)
-        return torch.cat(xyxy, dim=-1)
-    else:
-        xy1 = []
-        xy2 = []
-        for i in range(axes.shape[-1]):
-            min_index, max_index = _get_bounding_box(axes[..., i], masks=masks)
-            xy1.append(min_index)
-            xy2.append(max_index)
-
-        return torch.cat([torch.stack(xy1, dim=-1), torch.stack(xy2, dim=-1)], dim=-1)
+    return _get_bounding_box_batched(axes, masks)
 
 
+@torch.no_grad()
 def _get_index_axes_like(t: Tensor, *, stride: int) -> Tensor:
     """
     Returns a grid of indices with shape (H, W, 2).
     """
-    with torch.no_grad():
-        h, w = t.shape[-2:]
-        y = torch.arange(0, h * stride, stride, dtype=torch.float, device=t.device)
-        x = torch.arange(0, w * stride, stride, dtype=torch.float, device=t.device)
-        g = (
-            torch.stack(torch.meshgrid(y, x, indexing="ij"), dim=-1) + stride // 2
-        )  # (H, W, 2)
-    return g
+    h, w = t.shape[-2:]
+    with t.device:
+        y = torch.arange(0, h * stride, stride, dtype=torch.float) + stride // 2
+        x = torch.arange(0, w * stride, stride, dtype=torch.float) + stride // 2
+    # g = torch.stack(torch.meshgrid(y, x, indexing="ij"), dim=-1)
+    return torch.meshgrid(y, x, indexing="ij")
 
 
 def _get_mass_center(masks: Tensor, index_axes: Tensor) -> Tensor:
@@ -117,16 +107,18 @@ def _get_mass_center(masks: Tensor, index_axes: Tensor) -> Tensor:
     # return (m / m * ax).nanmean(dim=(-2, -1))
 
 
-def _get_bounding_box(index_axes: Tensor, masks: Tensor) -> tuple[Tensor, Tensor]:
-    # Select the maximum index in the valid indices tensor
-    max_coords = masks * index_axes[None, :, :]
-    max_index = max_coords.amax(dim=(-1, -2))
+def _get_bounding_box_batched(index_axes: Tensor, masks: Tensor):
+    y, x = index_axes
 
-    # Apply a mask of the maximum value to the invalid indices
-    min_coords = max_coords + masks.eq(0) * max_index[:, None, None]
-    min_index = min_coords.amin(dim=(-1, -2))
+    x_mask = masks * x.unsqueeze(0)
+    x_max = x_mask.flatten(1).max(-1)[0]
+    x_min = x_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
 
-    return min_index, max_index
+    y_mask = masks * y.unsqueeze(0)
+    y_max = y_mask.flatten(1).max(-1)[0]
+    y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
+
+    return torch.stack([x_min, y_min, x_max, y_max], 1)
 
 
 class BlurSizeMethod(E.StrEnum):

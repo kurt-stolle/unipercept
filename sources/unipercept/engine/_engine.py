@@ -1071,7 +1071,8 @@ class Engine:
         assert outputs.predictions is not None
 
         if isinstance(outputs.predictions, T.List):
-            predictions = pad_sequence(outputs.predictions, return_mask=True)
+            predictions = pad_sequence(outputs.predictions, pad_dim=0, return_mask=True)
+            predictions.rename_key_("masks", "valid")
         else:
             predictions = outputs.predictions
 

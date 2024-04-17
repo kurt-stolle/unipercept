@@ -66,7 +66,7 @@ def test_mask_to_boxes(i: torch.Tensor, o: tuple[float, float]):
     from unipercept.utils.mask import masks_to_boxes
 
     i = i.unsqueeze(0).repeat(2, 1, 1)
-    r = masks_to_boxes(i, use_vmap=True)
+    r = masks_to_boxes(i)
     print(r)
 
     assert r.dtype == torch.float
@@ -75,19 +75,13 @@ def test_mask_to_boxes(i: torch.Tensor, o: tuple[float, float]):
     assert r.shape[-1] == 4
     assert torch.allclose(r, o_t)
 
-    r_vmap = masks_to_boxes(i, use_vmap=False)
-    print(r_vmap)
-    assert r_vmap.shape == r.shape
-    assert torch.allclose(r_vmap, r), "Vmap and non-vmap should be equal"
-    assert torch.allclose(r_vmap, o_t)
-
 
 @pytest.mark.unit
 def test_masks_to_boxes_batch():
     from unipercept.utils.mask import masks_to_boxes
 
     i = torch.nn.utils.rnn.pad_sequence([c[0] for c in box_cases], batch_first=True)
-    r = masks_to_boxes(i, use_vmap=True)
+    r = masks_to_boxes(i)
     print(r)
     assert r.dtype == torch.float
 
@@ -97,10 +91,3 @@ def test_masks_to_boxes_batch():
 
     assert r.shape[-1] == 4
     assert torch.allclose(r, o_t)
-
-    r_vmap = masks_to_boxes(i, use_vmap=False)
-
-    print(r_vmap)
-    assert r_vmap.shape == r.shape
-    assert torch.allclose(r_vmap, r), "Vmap and non-vmap should be equal"
-    assert torch.allclose(r_vmap, o_t)

@@ -5,9 +5,12 @@ from __future__ import annotations
 import enum
 import functools
 import typing as T
+import warnings
 
 from timm.scheduler.scheduler import Scheduler
 from torch.optim import Optimizer
+
+from ._types import Interval
 
 __all__ = ["SchedType", "create_scheduler", "SchedulerFactory"]
 
@@ -51,14 +54,14 @@ def create_scheduler(
     updates_per_epoch: int,
     /,
     *,
-    decay_epochs: int = 90,
-    decay_milestones: T.Sequence[int] = (90, 180, 270),
-    cooldown_epochs: int = 0,
-    patience_epochs: int = 10,
+    decay_interval: Interval | None = None,
+    decay_milestones: T.Sequence[Interval] | None = None,
+    cooldown_interval: Interval | None = None,
+    patience_interval: Interval | None = None,
     decay_rate: float = 0.1,
     min_lr: float = 0,
-    warmup_lr: float = 1e-5,
-    warmup_epochs: int | float = 1,
+    warmup_lr: float | None = 1e-7,
+    warmup_interval: Interval | None = None,
     warmup_prefix: bool = False,
     noise: float | T.Sequence[float] | None = None,
     noise_pct: float = 0.67,
@@ -70,29 +73,56 @@ def create_scheduler(
     k_decay: float = 1.0,
     plateau_mode: str = "max",
     step_on_epochs: bool = False,
+    **kwargs,
 ) -> SchedulerAndNum:
-    assert isinstance(
-        optimizer, Optimizer
-    ), f"Invalid optimizer type: {type(optimizer)}"
-    assert (
-        updates_per_epoch is not None and updates_per_epoch > 0
-    ), f"{updates_per_epoch=}"
-    assert epochs is not None and epochs > 0, f"{epochs=}"
+    if "warmup_epochs" in kwargs:
+        if warmup_interval is not None:
+            msg = "Cannot specify both 'warmup_epochs' and 'warmup_interval'."
+            raise ValueError(msg)
 
-    t_initial = epochs
-    warmup_t = warmup_epochs
-    decay_t = decay_epochs
-    cooldown_t = cooldown_epochs
+        warmup_interval = Interval(kwargs.pop("warmup_epochs"), "epochs")
+
+        warnings.warn(
+            "The 'warmup_epochs' argument is deprecated, use 'warmup_interval' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if len(kwargs) > 0:
+        msg = f"Unknown arguments: {kwargs}"
+        raise ValueError(msg)
+
+    initial_interval = Interval(epochs, "epochs")
+    if warmup_interval is None:
+        warmup_interval = Interval(0, "steps")
+    if decay_interval is None:
+        decay_interval = Interval(0, "steps")
+    if cooldown_interval is None:
+        cooldown_interval = Interval(0, "steps")
+    if patience_interval is None:
+        patience_interval = Interval(0, "steps")
 
     if not step_on_epochs:
-        assert (
-            updates_per_epoch > 0
-        ), "updates_per_epoch must be set to number of dataloader batches"
-        t_initial = t_initial * updates_per_epoch
-        warmup_t = warmup_t * updates_per_epoch
-        decay_t = decay_t * updates_per_epoch
-        decay_milestones = [d * updates_per_epoch for d in decay_milestones]
-        cooldown_t = cooldown_t * updates_per_epoch
+        warmup_t = warmup_interval.get_steps(updates_per_epoch)
+        t_initial = initial_interval.get_steps(updates_per_epoch)
+        decay_t = decay_interval.get_steps(updates_per_epoch)
+
+        if decay_milestones is not None:
+            decay_ts = [d.get_steps(updates_per_epoch) for d in decay_milestones]
+        else:
+            decay_ts = []
+        cooldown_t = cooldown_interval.get_steps(updates_per_epoch)
+    else:
+        warmup_t = round(warmup_interval.get_epochs(updates_per_epoch))
+        t_initial = round(initial_interval.get_epochs(updates_per_epoch))
+        decay_t = round(decay_interval.get_epochs(updates_per_epoch))
+
+        if decay_milestones is not None:
+            decay_ts = [
+                round(d.get_epochs(updates_per_epoch)) for d in decay_milestones
+            ]
+        else:
+            decay_ts = []
+        cooldown_t = round(cooldown_interval.get_epochs(updates_per_epoch))
 
     # Setup warmup args
     warmup_args = dict(
@@ -171,7 +201,7 @@ def create_scheduler(
 
             lr_scheduler = MultiStepLRScheduler(
                 optimizer,
-                decay_t=list(decay_milestones),
+                decay_t=list(decay_ts),
                 decay_rate=decay_rate,
                 t_in_epochs=step_on_epochs,
                 **warmup_args,
@@ -185,7 +215,7 @@ def create_scheduler(
             lr_scheduler = PlateauLRScheduler(
                 optimizer,
                 decay_rate=decay_rate,
-                patience_t=patience_epochs,
+                patience_t=round(patience_interval.get_epochs(updates_per_epoch)),
                 cooldown_t=0,
                 **warmup_args,
                 lr_min=min_lr,  # type: ignore

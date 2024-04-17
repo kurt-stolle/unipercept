@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import collections.abc
-from itertools import repeat
 import typing as T
+from itertools import repeat
 
 _V = T.TypeVar("_V")
 

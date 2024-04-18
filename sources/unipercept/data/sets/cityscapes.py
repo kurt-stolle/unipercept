@@ -334,6 +334,13 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         default="//datasets/cityscapes", metadata={"help": "Root directory"}
     )
 
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "split": ["train", "val", "test"],
+        }
+
     path_image = formatter("{self.root}/leftImg8bit/{self.split}")
     path_panoptic = formatter("{self.root}/gtFine/cityscapes_panoptic_{self.split}")
     path_depth = formatter("{self.root}/disparity/{self.split}")
@@ -501,6 +508,22 @@ class CityscapesVPSDataset(CityscapesDataset, info=get_info, id="cityscapes-vps"
     split: Literal["train", "val", "test"]
     root: str = "//datasets/cityscapes-vps"
     all: bool = True
+
+    @classmethod
+    @TX.override
+    def variants(cls):
+        for var in super().variants():
+            if var["all"] is True and var["split"] == "train":
+                continue
+            yield var
+
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "all": [True, False],
+            "split": ["train", "val", "test"],
+        }
 
     @property
     @override

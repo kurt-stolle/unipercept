@@ -22,6 +22,7 @@ from __future__ import annotations
 import typing as T
 import zipfile
 
+import typing_extensions as TX
 from tqdm import tqdm
 from typing_extensions import override
 
@@ -206,6 +207,13 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
     root: str = "//datasets/semkitti-dvps"
     pseudo: bool = True
     download: bool = False
+
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "split": ["train", "val"],
+        }
 
     def __post_init__(self):
         if not file_io.isdir(self.root):

@@ -47,6 +47,7 @@ def plot_input_data(
     image_options: MissingValue["SKIP"] | T.Optional[dict[str, T.Any]] = None,
     segmentation_options: T.Optional[dict[str, T.Any]] = None,
     depth_options: T.Optional[dict[str, T.Any]] = None,
+    title: str | None = None,
 ) -> T.Any:
     """
     Plots the given input data.
@@ -103,6 +104,9 @@ def plot_input_data(
             draw_image_depth(
                 cap.depths, info, ax=axs[i, 2], scale=scale, **depth_options
             )
+
+    if title is not None:
+        fig.suptitle(title)
 
     fig.tight_layout(pad=0)
     return fig

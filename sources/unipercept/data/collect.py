@@ -68,10 +68,9 @@ class GroupAdjacentTime:
         self._num_frames = num_frames
         self._verbose = verbose
         self._step_size = set(step_size) if step_size is not None else {1}
-
-        _logger.debug(
-            f"Using adjacent collector ({num_frames} frames) with required sources {self._required_capture_sources}"
-        )
+        # _logger.debug(
+        #     f"Using adjacent collector ({num_frames} frames) with required sources {self._required_capture_sources}"
+        # )
 
     @override
     def __str__(self):
@@ -149,7 +148,7 @@ class GroupAdjacentTime:
                 success += 1
         if success <= 0:
             raise ValueError(f"No sequences with {self._num_frames} captures found!")
-        _logger.debug(f"{self}: {success} pairs with {self._num_frames} captures!")
+        # _logger.debug(f"{self}: {success} pairs with {self._num_frames} captures!")
 
 
 class ExtractIndividualFrames(GroupAdjacentTime):

@@ -7,6 +7,7 @@ from __future__ import annotations
 import typing as T
 from datetime import datetime
 
+import typing_extensions as TX
 from typing_extensions import override
 
 from unipercept import file_io
@@ -974,6 +975,13 @@ class VistasDataset(PerceptionDataset, info=get_info, id="vistas"):
 
     split: T.Literal["train", "val", "test"]
     root: str = "//datasets/vistas"
+
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "split": ["train", "val", "test"],
+        }
 
     @override
     def _build_manifest(self) -> Manifest:

@@ -236,6 +236,13 @@ class KITTISTEPDataset(
     split: T.Literal["train", "val", "test"]
     root: str = "//datasets/kitti-step"
 
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "split": ["train", "val", "test"],
+        }
+
     @property
     def root_path(self) -> file_io.Path:
         return file_io.Path(self.root)

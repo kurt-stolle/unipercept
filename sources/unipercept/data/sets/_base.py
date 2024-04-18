@@ -7,6 +7,7 @@ import dataclasses
 import dataclasses as D
 import enum as E
 import functools
+import itertools
 import typing as T
 
 import torch
@@ -533,6 +534,26 @@ class PerceptionDataset(
         default_factory=_individual_frames_queue,
         metadata={"help": "Queue generator", "locate": True},
     )
+
+    @classmethod
+    def variants(cls) -> T.Iterator[dict[str, T.Any]]:
+        """
+        Returns a list of all possible variants of the dataset.
+        """
+        try:
+            options = cls.options()
+            for values in itertools.product(*options.values()):
+                yield dict(zip(options.keys(), values))
+        except NotImplementedError:
+            pass
+
+    @classmethod
+    def options(cls) -> dict[str, T.Iterable[T.Any]]:
+        """
+        Returns a dictionary of all possible keyword argument value options.
+        """
+        msg = f"{cls.__name__} does not implement get_variant_options!"
+        raise NotImplementedError(msg)
 
     @TX.override
     def __init_subclass__(cls, id: str | None = None, **kwargs):

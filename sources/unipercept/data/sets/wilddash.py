@@ -8,6 +8,8 @@ import json
 import typing as T
 from datetime import datetime
 
+import typing_extensions as TX
+
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.data.sets._base import PerceptionDataset, create_metadata
@@ -302,6 +304,13 @@ class WildDashDataset(PerceptionDataset, id="wilddash", info=get_info):
 
     root = "//datasets/wilddash"
     split: T.Literal["train", "val"]
+
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "split": ["train", "val"],
+        }
 
     def _build_manifest(self) -> up.data.types.Manifest:
         pan_path = file_io.Path(self.root) / "panoptic.json"

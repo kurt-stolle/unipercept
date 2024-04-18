@@ -169,4 +169,4 @@ def resize_depthmap(
 
     scale = (h_i / h_o + w_i / w_o) / 2
 
-    return (res * scale).clamp(d_min, d_max)
+    return (res * scale).clamp(d_min, d_max).as_subclass(DepthMap)

@@ -11,6 +11,7 @@ import re
 import typing as T
 from pathlib import Path
 
+import typing_extensions as TX
 from tqdm import tqdm
 
 from unipercept import file_io
@@ -76,6 +77,13 @@ def get_info() -> Metadata:
 class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
     split: T.Literal["train", "val"]
     root: str = "//datasets/kitti-360"
+
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "split": ["train", "val", "test"],
+        }
 
     @property
     def root_path(self) -> Path:

@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Mapping
 
+import typing_extensions as TX
 from tqdm import tqdm
 from typing_extensions import override
 
@@ -106,6 +107,14 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
     split: Literal["train", "val", "trainval", "test"] = "train"
     download: bool = False
     year: str = "2012"
+
+    @classmethod
+    @TX.override
+    def options(cls):
+        return {
+            "split": ["train", "val", "trainval", "test"],
+            "year": ["2007", "2012"],
+        }
 
     def _build_panoptic(self) -> list[tuple[str, str, str]]:
         from torchvision.datasets import VOCSegmentation

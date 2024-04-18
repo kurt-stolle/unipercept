@@ -218,15 +218,16 @@ class PanopticMap(_Mask):
             case LabelsFormat.CITYSCAPES_VPS:
                 divisor = self.DIVISOR
                 ignore_label = self.IGNORE
-                sem = self.get_semantic_map()
-                ids = self.get_instance_map()
+                sem, ids = self.to_parts(as_tuple=True)
                 img = torch.where(ids > 0, ids - 1 + sem * divisor, sem)
                 img = torch.where(img == ignore_label, 0, img)
             case LabelsFormat.KITTI:
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
-                img[:, :, 0] = self.get_semantic_map()
-                img[:, :, 1] = self.get_instance_map() // BYTE_OFFSET
-                img[:, :, 2] = self.get_instance_map() % BYTE_OFFSET
+
+                sem, ids = self.to_parts(as_tuple=True)
+                img[:, :, 0] = sem
+                img[:, :, 1] = ins // BYTE_OFFSET
+                img[:, :, 2] = ins % BYTE_OFFSET
 
             case LabelsFormat.VISTAS:
                 divisor = self.DIVISOR
@@ -302,13 +303,27 @@ class PanopticMap(_Mask):
 
         return cls.from_parts(encoded_map // divisor, encoded_map % divisor)
 
+    @T.overload
     def to_parts(self, as_tuple: bool = False) -> torch.Tensor:
+        ...
+
+    @T.overload
+    def to_parts(self, as_tuple: bool = True) -> T.Tuple[torch.Tensor, torch.Tensor]:
+        ...
+
+    def to_parts(
+        self, as_tuple: bool = False
+    ) -> torch.Tensor | T.Tuple[torch.Tensor, torch.Tensor]:
         """
         Split the semantic and instance segmentation maps, returing a tensor of size [..., 2].
         The first channel contains the semantic segmentation map, the second channel contains the instance
+        id that is NOT UNIQUE for each class.
         """
-        parts = (self.get_semantic_map(), self.get_instance_map())
-        return parts if as_tuple else torch.stack(parts, dim=-1)
+        sem = torch.floor_divide(self, self.DIVISOR)
+        ins = torch.remainder(self, self.DIVISOR)
+        if as_tuple:
+            return sem, ins
+        return torch.stack((sem, ins), dim=-1)
 
     def get_semantic_map(self) -> _Mask:
         return torch.floor_divide(self, self.DIVISOR).as_subclass(_Mask)
@@ -362,16 +377,15 @@ class PanopticMap(_Mask):
 
     def unique_instances(self) -> torch.Tensor:
         """Count the number of unique instances for each semantic class."""
-        ins_mask = self.get_instance_map() > 0
-        return torch.unique(ins_mask) - 1
+        ins_mask = self.get_instance_map() != PanopticMap.IGNORE
+        return torch.unique(self[ins_mask])
 
     def remove_instances_(self, semantic_list: T.Iterable[int]) -> None:
         """Remove instances for the specified semantic classes."""
-        sem_map = self.get_semantic_map()
-        ins_map = self.get_instance_map()
+        sem_map, ins_map = self.to_parts(as_tuple=True)
 
         # Compute candidate map where all pixels that are not in the semantic list are set to -1
-        can_map = torch.where(ins_map > 0, sem_map, -1)
+        can_map = torch.where(ins_map > 0, sem_map, PanopticMap.IGNORE)
 
         # Set all pixels that are not in the semantic list to 0
         for class_ in semantic_list:
@@ -385,8 +399,7 @@ class PanopticMap(_Mask):
         new class IDs. All old class IDs that are not in the dictionary are mapped to ``ignore_label``.
         """
 
-        ins_map = self.get_instance_map()
-        sem_map = self.get_semantic_map()
+        sem_map, ins_map = self.to_parts(as_tuple=True)
 
         self.fill_(self.IGNORE)
 

@@ -123,10 +123,10 @@ class TorchvisionOp(Op):
     def _run(self, inputs: InputData) -> InputData:
         if self._transforms is None:
             return inputs
-
         if inputs.motions is not None:
             raise NotImplementedError("Transforms for motion data not supported!")
         inputs.captures = self._transforms(inputs.captures.fix_subtypes_())
+
         return inputs
 
 

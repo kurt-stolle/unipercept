@@ -70,6 +70,10 @@ def whitespace_clean(text):
 
 
 class Tokenize:
+    """
+    Wraps a tokenizer to tokenize a list of strings.
+    """
+
     def __init__(self, tokenizer, max_seq_len=77, truncate=True):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
@@ -106,6 +110,10 @@ class Tokenize:
 
 
 class SimpleTokenizer:
+    """
+    Implementes the GPT-2 BPE tokenizer.
+    """
+
     def __init__(self, bpe_path: str | None = None):
         if bpe_path is None:
             bpe_path = default_bpe()

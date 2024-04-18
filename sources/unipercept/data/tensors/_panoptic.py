@@ -331,13 +331,15 @@ class PanopticMap(_Mask):
         return uq[uq >= 0]
 
     def get_instance_map(self) -> _Mask:
-        return torch.remainder(self, self.DIVISOR).as_subclass(_Mask)
+        # old: does not support same sub-id for different classes
+        ins_ids = torch.remainder(self, self.DIVISOR)
+        return torch.where(ins_ids > 0, self, -1).as_subclass(_Mask)
 
     def get_instance_masks(self) -> T.Iterator[tuple[int, _Mask]]:
         """Return a list of masks, one for each instance."""
         ins_map = self.get_instance_map()
         uq = torch.unique(ins_map)
-        yield from ((int(u), (ins_map == u).as_subclass(_Mask)) for u in uq)
+        yield from ((int(u), (ins_map == u).as_subclass(_Mask)) for u in uq if u > 0)
 
     def get_instance_mask(self, instance_id: int) -> _Mask:
         """Return a mask for the specified instance."""

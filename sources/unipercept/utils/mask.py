@@ -10,6 +10,8 @@ import torch.signal
 import torchvision.transforms.v2.functional as tvfn
 from torch import Tensor
 
+from unipercept.utils.signal import get_gaussian_2d
+
 __all__ = ["masks_to_centers", "masks_to_boxes"]
 
 
@@ -32,7 +34,7 @@ def masks_to_centers(masks: Tensor, stride: int = 1, use_vmap: bool = False) -> 
         return torch.zeros((0, 2), device=masks.device, dtype=masks.dtype)
 
     masks = masks.permute(0, 2, 1)  # Ensure output is XY not YX
-    axes = _get_index_axes_like(masks, stride=stride)
+    axes = torch.stack(_get_index_axes_like(masks, stride=stride), dim=-1)
 
     if use_vmap:
         return torch.vmap(_get_mass_center, (None, -1), (1))(masks, axes)
@@ -178,7 +180,7 @@ def blur_masks(
         k_item = k_size.item()
         sigma = alpha * k_item + eps
 
-        k = _get_gaussian_kernel2d(
+        k = get_gaussian_2d(
             [k_item, k_item],
             [sigma, sigma],
             dtype if fp else torch.float32,
@@ -225,23 +227,6 @@ def blur_masks(
         output = output.round_().to(dtype=dtype)
 
     return output
-
-
-def _get_gaussian_kernel2d(
-    kernel_size: T.List[int],
-    sigma: T.List[float],
-    dtype: torch.dtype,
-    device: torch.device,
-) -> Tensor:
-    with torch.no_grad(), device:
-        k_x = torch.signal.windows.gaussian(
-            kernel_size[0], std=sigma[0], sym=True, dtype=dtype
-        )
-        k_y = torch.signal.windows.gaussian(
-            kernel_size[1], std=sigma[1], sym=True, dtype=dtype
-        )
-        k = k_y.unsqueeze(-1) * k_x
-    return k
 
 
 if __name__ == "__main__":

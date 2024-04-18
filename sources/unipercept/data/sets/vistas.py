@@ -988,58 +988,57 @@ class VistasDataset(PerceptionDataset, info=get_info, id="vistas"):
         from tqdm import tqdm
 
         split_dir = file_io.Path(self.root) / f"{self.split}ing"
-        pseudogen = PseudoGenerator()
+        with PseudoGenerator() as pseudogen:
+            sequences: T.Mapping[str, ManifestSequence] = {}
 
-        sequences: T.Mapping[str, ManifestSequence] = {}
+            image_list = list((split_dir / "images").glob("*.jpg"))
+            image_list.sort(key=lambda p: p.stem)
 
-        image_list = list((split_dir / "images").glob("*.jpg"))
-        image_list.sort(key=lambda p: p.stem)
+            if len(image_list) == 0:
+                raise RuntimeError(f"No images found in {split_dir}")
 
-        if len(image_list) == 0:
-            raise RuntimeError(f"No images found in {split_dir}")
+            for image_path in tqdm(image_list, desc="Building manifest", unit="image"):
+                cap_key = image_path.stem
+                seq_key = cap_key  # NOTE: no sequences
 
-        for image_path in tqdm(image_list, desc="Building manifest", unit="image"):
-            cap_key = image_path.stem
-            seq_key = cap_key  # NOTE: no sequences
+                sources: CaptureSources = {
+                    "image": {
+                        "path": str(image_path),
+                    },
+                    "panoptic": {
+                        "path": str(split_dir / "v2.0" / "panoptic" / f"{cap_key}.png"),
+                        "meta": {"format": "vistas"},
+                    },
+                    "depth": {
+                        "path": str(split_dir / "v2.0" / "depth" / f"{cap_key}.png"),
+                        "meta": {"format": "safetensors"},
+                    },
+                }
 
-            sources: CaptureSources = {
-                "image": {
-                    "path": str(image_path),
-                },
-                "panoptic": {
-                    "path": str(split_dir / "v2.0" / "panoptic" / f"{cap_key}.png"),
-                    "meta": {"format": "vistas"},
-                },
-                "depth": {
-                    "path": str(split_dir / "v2.0" / "depth" / f"{cap_key}.png"),
-                    "meta": {"format": "safetensors"},
-                },
-            }
+                def _source_exists(src):
+                    return file_io.Path(src["path"]).exists()
 
-            def _source_exists(src):
-                return file_io.Path(src["path"]).exists()
+                if not _source_exists(sources["panoptic"]) or self.split == "test":
+                    del sources["panoptic"]
+                if not _source_exists(sources["depth"]) or self.split == "test":
+                    pseudogen.add_depth_generator_task(
+                        sources["image"]["path"], sources["depth"]["path"]
+                    )
 
-            if not _source_exists(sources["panoptic"]):
-                del sources["panoptic"]
-            if not _source_exists(sources["depth"]):
-                pseudogen.add_depth_generator_task(
-                    sources["image"]["path"], sources["depth"]["path"]
-                )
+                camera = (
+                    CAMERA.to_canonical()
+                )  # TODO: fill with estimated camera parameters
+                captures: list[CaptureRecord] = [
+                    {"primary_key": cap_key, "sources": sources}
+                ]
 
-            camera = (
-                CAMERA.to_canonical()
-            )  # TODO: fill with estimated camera parameters
-            captures: list[CaptureRecord] = [
-                {"primary_key": cap_key, "sources": sources}
-            ]
-
-            # Create sequence item
-            seq_item: ManifestSequence = {
-                "camera": camera,
-                "fps": 15,
-                "captures": captures,
-            }
-            sequences[seq_key] = seq_item
+                # Create sequence item
+                seq_item: ManifestSequence = {
+                    "camera": camera,
+                    "fps": 15,
+                    "captures": captures,
+                }
+                sequences[seq_key] = seq_item
 
         return {
             "timestamp": datetime.utcnow().isoformat(),

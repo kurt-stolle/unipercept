@@ -11,6 +11,7 @@ import typing as T
 
 import pandas as pd
 from tabulate import tabulate_formats
+from tqdm import tqdm
 
 import unipercept as up
 from unipercept.cli._command import command, logger
@@ -91,7 +92,7 @@ def _main_ls_variants(args):
     for ds_key in args.dataset:
         ds_cls = up.data.sets.catalog.get_dataset(ds_key)
         df = pd.DataFrame(ds_cls.variants())
-        df["dataset"] = args.dataset
+        df["dataset"] = ds_key
 
         df_list.append(df)
 
@@ -108,17 +109,41 @@ def _main_stats(args):
             print(variant)
             ds = ds_cls(**variant)
 
-            queue_size = len(ds.queue)
+            cap_count = 0
+            img_count = 0
+            dep_count = 0
+            pan_count = 0
+
+            mfst: up.data.types.Manifest = ds.manifest
+
+            for seq_count, seq in enumerate(
+                tqdm(mfst["sequences"].values(), desc=ds_key)
+            ):
+                seq_count += 1
+                caps = seq["captures"]
+                cap_count += len(caps)
+                for cap in caps:
+                    src = cap["sources"]
+                    if "image" in src:
+                        img_count += 1
+                    if "depth" in seq:
+                        dep_count += 1
+                    if "panoptic" in seq:
+                        pan_count += 1
 
             st_list.append(
                 {
                     "dataset": ds_key,
                     **variant,
-                    "queue_size": queue_size,
+                    "sequences": seq_count,
+                    "captures": cap_count,
+                    "images": img_count,
+                    "depths": dep_count,
+                    "panoptics": pan_count,
                 }
             )
     st = pd.DataFrame(st_list)
-    print(up.log.create_table(st))
+    print(up.log.create_table(st, format="wide"))
 
     out_file = args.output
     if out_file is None:

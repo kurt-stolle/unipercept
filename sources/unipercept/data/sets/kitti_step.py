@@ -335,9 +335,6 @@ class KITTISTEPDataset(
                     / f"{id.frame}.png"
                 )
 
-                if not panseg_path.is_file():
-                    panseg_path = None
-
                 depth_path = (
                     self.root_path
                     / "mono_depth"
@@ -345,21 +342,21 @@ class KITTISTEPDataset(
                     / id.seq
                     / f"{id.frame}.tiff"
                 )
-                if not depth_path.is_file():
+                if not depth_path.is_file() and self.split != "test":
                     pseudo.add_depth_generator_task(image_path, depth_path)
 
                 partial_sources: CaptureSources = {
                     "image": {
                         "path": image_path.as_posix(),
-                    },
-                    "depth": {
+                    }
+                }
+                if self.split != "test":
+                    partial_sources["depth"] = {
                         "path": depth_path.as_posix(),
                         "meta": {
                             "format": "tiff",
                         },
-                    },
-                }
-                if panseg_path is not None:
+                    }
                     partial_sources["panoptic"] = {
                         "path": panseg_path.as_posix(),
                         "meta": {

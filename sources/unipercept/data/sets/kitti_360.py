@@ -137,7 +137,7 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
                     / f"{id.frame}.png"
                 )
 
-                if not panseg_path.is_file():
+                if not panseg_path.is_file() and self.split != "test":
                     raise RuntimeError(f"File {panseg_path} does not exist")
 
                 depth_path = (
@@ -149,26 +149,34 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
                     / "mono_depth"
                     / f"{id.frame}.tiff"
                 )
-                if not depth_path.is_file():
+                if not depth_path.is_file() and self.split != "test":
                     pseudo_gen.add_depth_generator_task(image_path, depth_path)
 
-                partial_sources: CaptureSources = {
-                    "image": {
-                        "path": image_path.as_posix(),
-                    },
-                    "panoptic": {
-                        "path": panseg_path.as_posix(),
-                        "meta": {
-                            "format": "vistas",
+                if self.split != "test":
+                    partial_sources: CaptureSources = {
+                        "image": {
+                            "path": image_path.as_posix(),
                         },
-                    },
-                    "depth": {
-                        "path": depth_path.as_posix(),
-                        "meta": {
-                            "format": "tiff",
+                        "panoptic": {
+                            "path": panseg_path.as_posix(),
+                            "meta": {
+                                "format": "vistas",
+                            },
                         },
-                    },
-                }
+                        "depth": {
+                            "path": depth_path.as_posix(),
+                            "meta": {
+                                "format": "tiff",
+                            },
+                        },
+                    }
+                else:
+                    partial_sources: CaptureSources = {
+                        "image": {
+                            "path": image_path.as_posix(),
+                        },
+                    }
+
                 sources_map[id] = partial_sources
 
         if len(sources_map) == 0:

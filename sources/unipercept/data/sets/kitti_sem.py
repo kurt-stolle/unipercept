@@ -238,61 +238,62 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
 
         sequences: dict[str, ManifestSequence] = {}
 
-        pseudo = PseudoGenerator()
+        with PseudoGenerator() as pseudo:
+            for cap_path in tqdm(
+                sorted(cap_root.glob("**/*_leftImg8bit.png"), key=lambda p: p.stem),
+                desc="Discovering captured source images",
+            ):
+                seq_name, frame_name, *_ = cap_path.stem.split("_")
+                key = f"{seq_name}_{frame_name}"
 
-        for cap_path in tqdm(
-            sorted(cap_root.glob("**/*_leftImg8bit.png"), key=lambda p: p.stem),
-            desc="Discovering captured source images",
-        ):
-            seq_name, frame_name, *_ = cap_path.stem.split("_")
-            key = f"{seq_name}_{frame_name}"
-
-            # Ensure that the sequence exists
-            seq: ManifestSequence = sequences.setdefault(
-                seq_name,
-                {
-                    "camera": None,
-                    "fps": CAPTURE_FPS,
-                    "captures": [],
-                    "motions": [],
-                },
-            )
-
-            # Create sources map
-            sources: CaptureSources = {
-                "image": {
-                    "path": str(cap_path),
-                }
-            }
-
-            # Depth has the focal length encoded in the name, so we must do a search for it
-            depth_path = next(cap_path.parent.glob(f"{key}_depth_*.png"), None)
-            if depth_path is not None:
-                sources["depth"] = {
-                    "path": str(depth_path),
-                    "meta": {
-                        "format": "uint16",
-                        "focal_length": float(depth_path.stem.split("_")[-1]),
+                # Ensure that the sequence exists
+                seq: ManifestSequence = sequences.setdefault(
+                    seq_name,
+                    {
+                        "camera": None,
+                        "fps": CAPTURE_FPS,
+                        "captures": [],
+                        "motions": [],
                     },
+                )
+
+                # Create sources map
+                sources: CaptureSources = {
+                    "image": {
+                        "path": str(cap_path),
+                    }
                 }
 
-            # Panoptic must potentially be generated from the semantic and instance masks
-            panoptic_path = cap_path.parent / f"{key}_panoptic.png"
-            if not panoptic_path.exists():
-                semantic_path = cap_path.parent / f"{key}_gtFine_class.png"
-                instance_path = cap_path.parent / f"{key}_gtFine_instance.png"
+                # Depth has the focal length encoded in the name, so we must do a search for it
+                depth_path = next(cap_path.parent.glob(f"{key}_depth_*.png"), None)
+                if depth_path is not None:
+                    sources["depth"] = {
+                        "path": str(depth_path),
+                        "meta": {
+                            "format": "uint16",
+                            "focal_length": float(depth_path.stem.split("_")[-1]),
+                        },
+                    }
 
-                pseudo.add_panoptic_merge((semantic_path, instance_path), panoptic_path)
+                # Panoptic must potentially be generated from the semantic and instance masks
+                panoptic_path = cap_path.parent / f"{key}_panoptic.png"
+                if not panoptic_path.exists():
+                    semantic_path = cap_path.parent / f"{key}_gtFine_class.png"
+                    instance_path = cap_path.parent / f"{key}_gtFine_instance.png"
 
-            sources["panoptic"] = {
-                "path": str(panoptic_path),
-                "meta": {"format": "torch"},
-            }
+                    pseudo.add_panoptic_merge_task(
+                        semantic_path, instance_path, panoptic_path
+                    )
 
-            # Create the capture record
-            rec: CaptureRecord = {"primary_key": key, "sources": sources}
+                sources["panoptic"] = {
+                    "path": str(panoptic_path),
+                    "meta": {"format": "torch"},
+                }
 
-            # Add the record to the sequence
-            seq["captures"].append(rec)
+                # Create the capture record
+                rec: CaptureRecord = {"primary_key": key, "sources": sources}
+
+                # Add the record to the sequence
+                seq["captures"].append(rec)
 
         return {"timestamp": get_timestamp(), "version": "0.1", "sequences": sequences}

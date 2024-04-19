@@ -12,15 +12,12 @@ from bullet import Bullet
 from omegaconf import DictConfig
 from typing_extensions import override
 
-import unipercept as up
-from unipercept import file_io
+import unipercept.file_io as file_io
 
 __all__ = ["add_config_args", "ConfigFileContentType"]
 
 _NONINTERACTIVE_MODE = False
 _BULLET_STYLES = {"bullet": " >", "margin": 2, "pad_right": 2}
-
-up.list_datasets()  # trigger dataset registration
 
 if T.TYPE_CHECKING:
 
@@ -54,6 +51,8 @@ class ConfigLoad(argparse.Action):
 
     @override
     def __call__(self, parser, namespace, values, option_string=None):
+        from unipercept import read_config
+
         if values is None or len(values) == 0:
             if _NONINTERACTIVE_MODE:
                 parser.exit(message="No configuration file specified!\n", status=1)
@@ -62,7 +61,7 @@ class ConfigLoad(argparse.Action):
 
         name, *overrides = values
 
-        cfg = up.read_config(name)
+        cfg = read_config(name)
         cfg = self.apply_overrides(cfg, overrides)
         cfg["CLI"] = name
         cfg["CLI_OVERRIDES"] = list(overrides)
@@ -190,6 +189,8 @@ class ConfigDebugMode(argparse.Action):
 
     @override
     def __call__(self, parser, namespace, values, option_string=None):
+        from unipercept.engine.debug import DebugMode
+
         cfg = getattr(namespace, self.key)
 
         if cfg is None:
@@ -199,7 +200,7 @@ class ConfigDebugMode(argparse.Action):
         os.environ["WANDB_OFFLINE"] = "true"
         torch.autograd.set_detect_anomaly(True)
         cfg.ENGINE.params.full_determinism = True
-        cfg.ENGINE.params.debug = up.engine.debug.DebugMode.UNDERFLOW_OVERFLOW
+        cfg.ENGINE.params.debug = DebugMode.UNDERFLOW_OVERFLOW
 
 
 def add_config_args(

@@ -27,7 +27,7 @@ if T.TYPE_CHECKING:
         ImageSegmentationPipeline,
     )
 
-    from unipercept.data.tensors import DepthMap, PanopticMap
+    from unipercept.data.tensors import DepthMap, LabelsFormat, PanopticMap
 
 
 __all__ = ["PseudoGenerator"]
@@ -52,6 +52,7 @@ class PseudoGenerator:
         self,
         depth_model="facebook/dpt-dinov2-large-kitti",  # "sayakpaul/glpn-kitti-finetuned-diode-221214-123047",
         panoptic_model="facebook/mask2former-swin-large-cityscapes-panoptic",
+        panoptic_format: LabelsFormat | str | None = None,
     ):
         self._depth_model: T.Final[str] = depth_model
         self._depth_generate_queue: list[tuple[Pathable, Pathable]] = []
@@ -60,6 +61,7 @@ class PseudoGenerator:
         self._panoptic_generate_queue: list[tuple[Pathable, Pathable]] = []
 
         self._panoptic_merge_queue: list[tuple[Pathable, Pathable, Pathable]] = []
+        self._panoptic_format = panoptic_format
 
     def __len__(self) -> int:
         return len(self._depth_generate_queue)
@@ -140,7 +142,7 @@ class PseudoGenerator:
         if panoptic_path is not None:
             panoptic_path = file_io.Path(panoptic_path)
             panoptic_path.parent.mkdir(parents=True, exist_ok=True)
-            pan.save(panoptic_path)
+            pan.save(panoptic_path, format=self._panoptic_format)
 
         return pan
 

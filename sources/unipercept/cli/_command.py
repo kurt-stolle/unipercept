@@ -6,7 +6,6 @@ import inspect
 import typing as T
 from typing import Callable, Concatenate, Generic, ParamSpec, TypeAlias
 
-import unipercept
 import unipercept.log
 
 __all__ = ["command", "logger"]
@@ -47,18 +46,6 @@ class command(Generic[CommandParams]):
         @functools.wraps(func)
         def wrapper(parser, *args, **kwargs):
             add_config_args(parser, **kwargs_add)
-            return func(parser, *args, **kwargs)
-
-        return wrapper
-
-    @staticmethod
-    def with_metadata(func: Command, **kwargs_add) -> Command:
-        """Decorator for commands that require a metadata file."""
-        from ._info import add_metadata_args
-
-        @functools.wraps(func)
-        def wrapper(parser, *args, **kwargs):
-            add_metadata_args(parser, **kwargs_add)
             return func(parser, *args, **kwargs)
 
         return wrapper

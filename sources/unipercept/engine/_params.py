@@ -49,7 +49,9 @@ class EvaluationSuite:
     enabled: bool
     loader: DataLoaderFactory
     batch_size: int = D.field(
-        default=get_env(int, "UP_ENGINE_EVALUATION_BATCH_SIZE", default=1),
+        default_factory=lambda: get_env(
+            int, "UP_ENGINE_EVALUATION_BATCH_SIZE", default=1
+        ),
         metadata={"help": "Batch size to use during evaluation."},
     )
     handlers: T.Sequence[up.evaluators.Evaluator]

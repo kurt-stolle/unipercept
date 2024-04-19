@@ -238,7 +238,7 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
 
         sequences: dict[str, ManifestSequence] = {}
 
-        with PseudoGenerator() as pseudo:
+        with PseudoGenerator(panoptic_format="kitti") as pseudo:
             for cap_path in tqdm(
                 sorted(cap_root.glob("**/*_leftImg8bit.png"), key=lambda p: p.stem),
                 desc="Discovering captured source images",
@@ -287,7 +287,7 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
 
                 sources["panoptic"] = {
                     "path": str(panoptic_path),
-                    "meta": {"format": "torch"},
+                    "meta": {"format": "kitti"},
                 }
 
                 # Create the capture record

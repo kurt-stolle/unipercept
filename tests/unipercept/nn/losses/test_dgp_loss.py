@@ -9,7 +9,7 @@ import typing_extensions as TX
 from unipercept.nn.losses import DGPLoss
 
 
-@pytest.fixture
+@pytest.fixture()
 def dg_loss():
     return DGPLoss()
 

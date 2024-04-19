@@ -226,8 +226,8 @@ class PanopticMap(_Mask):
 
                 sem, ids = self.to_parts(as_tuple=True)
                 img[:, :, 0] = sem
-                img[:, :, 1] = ins // BYTE_OFFSET
-                img[:, :, 2] = ins % BYTE_OFFSET
+                img[:, :, 1] = ids // BYTE_OFFSET
+                img[:, :, 2] = ids % BYTE_OFFSET
 
             case LabelsFormat.VISTAS:
                 divisor = self.DIVISOR

@@ -69,6 +69,7 @@ class Accelerator(accelerate.Accelerator):
                     broadcast_buffers=True,  # False,
                     gradient_as_bucket_view=True,
                     static_graph=params.static_graph,
+                    
                 ),
             ],
             step_scheduler_with_optimizer=False,

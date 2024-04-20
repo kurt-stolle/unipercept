@@ -320,7 +320,9 @@ class PanopticMap(_Mask):
         id that is NOT UNIQUE for each class.
         """
         sem = torch.floor_divide(self, self.DIVISOR)
-        ins = torch.remainder(self, self.DIVISOR)
+        ins = torch.where(
+            self != PanopticMap.IGNORE, torch.remainder(self, self.DIVISOR), 0
+        )
         if as_tuple:
             return sem, ins
         return torch.stack((sem, ins), dim=-1)
@@ -348,7 +350,9 @@ class PanopticMap(_Mask):
     def get_instance_map(self) -> _Mask:
         # old: does not support same sub-id for different classes
         ins_ids = torch.remainder(self, self.DIVISOR)
-        return torch.where(ins_ids > 0, self, -1).as_subclass(_Mask)
+        return torch.where(
+            (ins_ids > 0) & (self != PanopticMap.IGNORE), self, 0
+        ).as_subclass(_Mask)
 
     def get_instance_masks(self) -> T.Iterator[tuple[int, _Mask]]:
         """Return a list of masks, one for each instance."""

@@ -1011,6 +1011,12 @@ class Engine:
     def _train_clip_gradients(self, model: nn.Module) -> Tensor:
         self.xlr.unscale_gradients()
 
+        params = list(model.parameters())
+        for p in params:
+            if p is None or p.grad is None:
+                continue
+            torch.nan_to_num(p.grad, nan=0.0, posinf=1e8, neginf=-1e8, out=p.grad)
+
         if self._params.max_grad_value is not None:
             nn.utils.clip_grad_value_(model.parameters(), self._params.max_grad_value)
 

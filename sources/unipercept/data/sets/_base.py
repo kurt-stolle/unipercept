@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import dataclasses as D
+from datetime import UTC, datetime
 import enum as E
 import functools
 import itertools
@@ -15,7 +16,7 @@ import torch.utils.data
 import typing_extensions as TX
 
 from unipercept.data.tensors import PanopticMap
-from unipercept.data.types import Manifest, QueueItem
+from unipercept.data.types import Manifest, QueueItem, CaptureSources, ManifestSequence
 from unipercept.utils.camera import build_calibration_matrix
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
@@ -33,6 +34,7 @@ if T.TYPE_CHECKING:
 __all__ = [
     "PerceptionDataset",
     "PerceptionDataqueue",
+    "ConcatenatedDataset",
     "Metadata",
     "SClass",
     "SType",
@@ -225,6 +227,22 @@ class Metadata:
             for sem_id, sem_cls in self.semantic_classes.items()
             if sem_cls.depth_fixed is not None
         }
+    
+    def is_compatible(self, other: Metadata) -> bool:
+        """
+        Check whether this metadata is comatible with another metadata.
+        This entails that the datasets have the same thing and stuff offsets.
+        Note that the actual semantic classes do not need to be the same.
+        This function only checks whether the amount of classes and their offsets are 
+        the same.
+        """
+        if len(set(self.translations_dataset.values())) != len(set(other.translations_dataset.values())):
+            return False
+        if len(self.thing_offsets) != len(other.thing_offsets):
+            return False
+        if len(self.stuff_offsets) != len(other.stuff_offsets):
+            return False
+        return True
 
     # -------------- #
     # Thing specific #
@@ -535,6 +553,23 @@ class PerceptionDataset(
         metadata={"help": "Queue generator", "locate": True},
     )
 
+    @TX.override
+    def __init_subclass__(cls, id: str | None = None, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+        if id != None:
+            id_canon = catalog.parse_key(id)
+            if id != id_canon:
+                raise ValueError(
+                    f"Directly specifying an ID that is not canonical not allowed: '{id}' should be '{id_canon}'!"
+                )
+            catalog.register_dataset(id, info=cls._create_info)(cls)  # is a decorator
+        elif id is not None:
+            msg = f"Classes starting with '_' should not have an ID, got: {id}"
+            raise ValueError(msg)
+
+        cls._data_cache = {}
+
     @classmethod
     def variants(cls) -> T.Iterator[dict[str, T.Any]]:
         """
@@ -554,26 +589,6 @@ class PerceptionDataset(
         """
         msg = f"{cls.__name__} does not implement get_variant_options!"
         raise NotImplementedError(msg)
-
-    @TX.override
-    def __init_subclass__(cls, id: str | None = None, **kwargs):
-        super().__init_subclass__(**kwargs)
-
-        if not cls.__name__.startswith("_"):
-            if id is not None:
-                id_canon = catalog.parse_key(id)
-                if id != id_canon:
-                    raise ValueError(
-                        f"Directly specifying an ID that is not canonical not allowed: '{id}' should be '{id_canon}'!"
-                    )
-                catalog.register_dataset(id, info=cls._create_info)(
-                    cls
-                )  # is a decorator
-        elif id is not None:
-            msg = f"Classes starting with '_' should not have an ID, got: {id}"
-            raise ValueError(msg)
-
-        cls._data_cache = {}
 
     @classmethod
     def _load_capture_data(
@@ -689,3 +704,53 @@ class PerceptionDataset(
         # cls._data_cache[key] = input_data
 
         return input_data  # .clone().contiguous()
+
+
+class ConcatenatedDataset(PerceptionDataset, id=None):
+    """
+    A dataset that concatenates multiple datasets.
+    """
+
+    datasets: T.Sequence[PerceptionDataset]
+
+    def __post_init__(self, *args, **kwargs):
+        self.datasets = sorted(self.datasets, key=lambda ds: repr(ds))
+
+        if not all(
+            ds.info.is_compatible(self.datasets[0].info) for ds in self.datasets
+        ):
+            msg = "Datasets have different metadata."
+            raise ValueError(msg)
+
+        setattr(self, "read_info", self.datasets[0].read_info)
+
+    @TX.override
+    def __repr__(self) -> str:
+        ds_list = ",".join(repr(ds) for ds in self.datasets)
+        return f"{self.__class__.__name__}(datasets={ds_list})"
+
+    @classmethod
+    @TX.override
+    def options(cls) -> dict[str, T.Iterable[T.Any]]:
+        msg = f"{cls.__name__} does not implement options!"
+        raise NotImplementedError(msg)
+
+    @TX.override
+    def _build_manifest(self) -> Manifest:
+        mfst_list = [ds.manifest for ds in self.datasets]
+
+        version_list = [mfst["version"] for mfst in mfst_list]
+
+        sequences: dict[str, ManifestSequence] = {}
+        for mfst in mfst_list:
+            # Check for duplicates
+            if set(sequences.keys()) & set(mfst["sequences"].keys()):
+                msg = f"Duplicate sequence names in datasets: {sequences.keys() & mfst['sequences'].keys()}"
+                raise ValueError(msg)
+            sequences.update(mfst["sequences"])
+
+        return {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": "+".join(version_list),
+            "sequences": sequences,
+        }

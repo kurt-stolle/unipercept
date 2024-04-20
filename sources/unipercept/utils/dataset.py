@@ -239,6 +239,8 @@ class Dataset(
         a map-style dataset over unloaded data records. Can be indexed by key (string) and using
         the index number (int).
         """
+        assert self.queue_fn is not None
+        
         if self._queue is None:
             qmap = self.queue_fn(self.manifest)
             if isinstance(qmap, T.Mapping):

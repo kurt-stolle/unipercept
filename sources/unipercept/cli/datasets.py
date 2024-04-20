@@ -151,7 +151,6 @@ class StatsSubcommand(Subcommand, name="stats"):
         for ds_key in args.dataset:
             ds_cls = catalog.get_dataset(ds_key)
             for variant in ds_cls.variants():
-                print(variant)
                 ds = ds_cls(**variant)
 
                 cap_count = 0
@@ -161,32 +160,30 @@ class StatsSubcommand(Subcommand, name="stats"):
 
                 mfst: Manifest = ds.manifest
 
-            for seq_count, seq in enumerate(
-                tqdm(mfst["sequences"].values(), desc=ds_key)
-            ):
-                seq_count += 1
-                caps = seq["captures"]
-                cap_count += len(caps)
-                for cap in caps:
-                    src = cap["sources"]
-                    if "image" in src:
-                        img_count += 1
-                    if "depth" in seq:
-                        dep_count += 1
-                    if "panoptic" in seq:
-                        pan_count += 1
+                for seq_count, seq in enumerate(mfst["sequences"].values()):
+                    seq_count += 1
+                    caps = seq["captures"]
+                    cap_count += len(caps)
+                    for cap in caps:
+                        src = cap["sources"]
+                        if "image" in src:
+                            img_count += 1
+                        if "depth" in src:
+                            dep_count += 1
+                        if "panoptic" in src:
+                            pan_count += 1
 
-            st_list.append(
-                {
-                    "dataset": ds_key,
-                    **variant,
-                    "sequences": seq_count,
-                    "captures": cap_count,
-                    "images": img_count,
-                    "depths": dep_count,
-                    "panoptics": pan_count,
-                }
-            )
+                st_list.append(
+                    {
+                        "dataset": ds_key,
+                        **variant,
+                        "sequences": seq_count,
+                        "captures": cap_count,
+                        "images": img_count,
+                        "depths": dep_count,
+                        "panoptics": pan_count,
+                    }
+                )
         st = pd.DataFrame(st_list)
         print(create_table(st, format="wide"))
 

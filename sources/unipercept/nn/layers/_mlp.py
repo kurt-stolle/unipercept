@@ -1,6 +1,5 @@
 """
-Implements the kernel mapper module, which takes maps the multipurpose kernel $k^\star$ to all the different
-specific kernels using a simple dictionary of heads, represented as a `nn.ModuleDict`.
+Basic MLP and variants
 """
 
 from __future__ import annotations
@@ -13,14 +12,14 @@ from typing_extensions import override
 
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
 from unipercept.nn.layers.norm import NormSpec, get_norm
-from unipercept.nn.layers.utils import to_2tuple
+from unipercept.nn.layers.utils import to_ntuple
 
-__all__ = ["MapMLP", "EmbedMLP"]
+__all__ = ["MapMLP"]
 
 EPS = torch.finfo(torch.float32).eps
 
 
-class MapMLP(nn.Module):
+class MapMLP(nn.Sequential):
     """
     Straightforward MLP that maps the multipurpose kernel to a task-specific kernel.
 
@@ -46,19 +45,17 @@ class MapMLP(nn.Module):
         Epsilon value for normalization layers. Defaults to the machine epsilom for float32.
     """
 
-    eps: T.Final[float]
-
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
         hidden_channels: int | float = 1.0,
         *,
-        dropout: float | tuple[float, float] | T.Iterable[float] = 0.0,
-        norm: NormSpec = nn.LayerNorm,
+        dropout: float | T.Iterable[float] = 0.0,
+        layers: int = 3,
+        norm: NormSpec | None = None,
         bias=True,
         activation: ActivationSpec = nn.GELU,
-        eps: float = EPS,
         init_gain: float = 1.0,
     ):
         super().__init__()
@@ -72,42 +69,23 @@ class MapMLP(nn.Module):
                 f"Invalid type for `hidden_channels`: {type(hidden_channels)}"
             )
 
-        drop1, drop2 = to_2tuple(dropout)
+        dropout = to_ntuple(layers)(dropout)
 
-        self.eps = eps
-        self.fc1 = nn.Linear(
-            in_channels, hidden_channels, bias=bias if norm is None else False
-        )
-        self.act = get_activation(activation)
-        self.drop1 = nn.Dropout(drop1, inplace=True)
-        self.norm = get_norm(norm, hidden_channels)
-        self.fc2 = nn.Linear(hidden_channels, out_channels, bias=bias)
-        self.drop2 = nn.Dropout(drop2, inplace=True)
-
-        nn.init.kaiming_normal_(self.fc1.weight, mode="fan_in", nonlinearity="relu")
-        if self.fc1.bias is not None:
-            nn.init.zeros_(self.fc1.bias)
-
-        nn.init.orthogonal_(self.fc2.weight, gain=init_gain)
-        if self.fc2.bias is not None:
-            nn.init.zeros_(self.fc2.bias)
-
-    def _forward_mlp(self, x: torch.Tensor) -> torch.Tensor:
-        y = self.fc1(x)
-        y = self.act(y)
-        y = self.drop1(y)
-        y = self.norm(y)
-        y = self.fc2(y)
-        y = self.drop2(y)
-
-        return y
-
-    @override
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self._forward_mlp(x)
-
-
-class EmbedMLP(MapMLP):
-    @override
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return nn.functional.normalize(self._forward_mlp(x), p=2, dim=1, eps=self.eps)
+        for n, d in enumerate(dropout):
+            is_final = n == layers - 1
+            fc = nn.Linear(
+                in_channels if n == 0 else hidden_channels,
+                hidden_channels if n < layers - 1 else out_channels,
+                bias=bias if norm is None else False,
+            )
+            if is_final:
+                nn.init.orthogonal_(fc.weight, init_gain)
+            else:
+                nn.init.kaiming_normal_(fc.weight, mode="fan_in", nonlinearity="relu")
+            nn.init.zeros_(fc.bias)
+            self.add_module(f"fc{n}", fc)
+            if not is_final:
+                self.add_module(f"act{n}", get_activation(activation))
+            self.add_module(f"drop{n}", nn.Dropout(d, inplace=True))
+            if norm is not None and not is_final:
+                self.add_module(f"norm{n}", get_norm(norm, hidden_channels))

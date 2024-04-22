@@ -162,6 +162,10 @@ class MotionData(Tensorclass):
 
     optical_flow: OpticalFlow | None
     transform: Tensor
+    metadata: TensorDict | None = field(
+        default=None,
+        metadata={"help": "Additional metadata for the motion. "},
+    )
 
     def __post_init__(self):
         if self.optical_flow is not None and (
@@ -224,6 +228,10 @@ class InputData(Tensorclass):
                 "are padded, e.g. when using a sampler that samples from a dataset with images of different sizes."
             ),
         },
+    )
+    metadata: TensorDict | None = field(
+        default=None,
+        metadata={"help": "Additional metadata for the input data."},
     )
 
     @property

@@ -121,20 +121,30 @@ class DataLoaderFactory:
     @classmethod
     def with_training_defaults(cls, dataset: PerceptionDataset, **kwargs) -> T.Self:
         """Create a loader factory with default settings for inference mode."""
+        if "actions" in kwargs:
+            actions = kwargs.pop("actions")
+        else:
+            actions = []
         return cls(
             dataset=dataset,
             sampler=SamplerFactory(sampler="training"),
             config=DataLoaderConfig(drop_last=True),
+            actions=[op.train() for op in actions],
             **kwargs,
         )
 
     @classmethod
     def with_inference_defaults(cls, dataset: PerceptionDataset, **kwargs) -> T.Self:
         """Create a loader factory with default settings for training mode."""
+        if "actions" in kwargs:
+            actions = kwargs.pop("actions")
+        else:
+            actions = []
         return cls(
             dataset=dataset,
             sampler=SamplerFactory(sampler="inference"),
             config=DataLoaderConfig(drop_last=False),
+            actions=[op.eval() for op in actions],
             **kwargs,
         )
 

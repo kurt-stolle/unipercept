@@ -27,9 +27,6 @@ class command(Generic[CommandParams]):
         self.kwargs = kwargs
 
     def __call__(self, func: Command) -> Command:
-        if not inspect.isfunction(func):
-            raise TypeError(f"Command must be a function, but is {type(func)}!")
-
         name = self.name or str(func.__name__).replace("_", "-")
         if name in self._registry:
             raise ValueError(f"Command {name} already registered!")

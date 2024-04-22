@@ -19,68 +19,14 @@ from unipercept import file_io
 from unipercept.cli._command import command, logger
 from unipercept.log import create_table
 from unipercept.utils.string import to_snake_case
+from unipercept.utils.cli import create_subtemplate
 
 __all__ = []
 
 
-class Subcommand(metaclass=abc.ABCMeta):
-    """
-    Quick and dirty subcommand implementation.
-    """
+Subcommand = create_subtemplate()
 
-    __slots__ = ()
-
-    registry: T.ClassVar[dict[str, type[T.Self]]] = {}
-
-    def __init_subclass__(cls, *, name: str):
-        if name is None:
-            name = to_snake_case(cls.__name__)
-        cls.registry[name] = cls
-
-    def __new__(cls):
-        msg = f"Subcommand {self.__name__} must not be initialized."
-        raise TypeError(msg)
-
-    @staticmethod
-    @abc.abstractmethod
-    def setup(prs: argparse.ArgumentParser):  # noqa: U100
-        ...
-
-    @staticmethod
-    @abc.abstractmethod
-    def main(args: argparse.Namespace):  # noqa: U100
-        ...
-
-    @classmethod
-    def apply(cls, prs: argparse.ArgumentParser):
-        handlers: dict[str, T.Callable[[argparse.Namespace], None]] = {}
-        cmd = prs.add_subparsers(dest="subcommand", required=True)
-        for name, sub in cls.registry.items():
-            doc = sub.__call__.__doc__
-            if doc is None:
-                doc = f"run the {name} subcommand"
-            else:
-                doc = doc.strip()
-            subprs = cmd.add_parser(name, help=doc)
-            sub.setup(subprs)
-            handlers[name] = sub.main
-
-        return handlers
-
-
-@command(help="dataset operations")
-def datasets(prs: argparse.ArgumentParser):
-    handlers = Subcommand.apply(prs)
-
-    def main(args):
-        cmd = handlers.get(args.subcommand)
-        if cmd is None:
-            print(f"Unknown subcommand: {args.datasets_subcommand}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            cmd(args)
-
-    return main
+command(name="datasets", help="dataset operations")(Subcommand)
 
 
 class ListSubcommand(Subcommand, name="list"):

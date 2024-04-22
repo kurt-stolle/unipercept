@@ -1,4 +1,7 @@
-"""Implements a lazy optimizer for use in configuration files."""
+"""Implements a lazy optimizer for use in configuration files.
+"""
+# TODO: https://pytorch.org/docs/stable/distributed.optim.html#torch.distributed.optim.PostLocalSGDOptimizer
+# TODO: https://pytorch.org/docs/stable/distributed.optim.html#torch.distributed.optim.ZeroRedundancyOptimizer
 
 from __future__ import annotations
 

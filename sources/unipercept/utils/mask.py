@@ -50,7 +50,7 @@ def masks_to_boxes(
     masks: Tensor,
     stride: int = 1,
     filter_size: int | T.Tuple[int, int] | None = None,
-    filter_threshold: float = 0.5,
+    threshold: float = 0.5,
 ) -> Tensor:
     """
     Convert masks to bounding boxes.
@@ -76,12 +76,15 @@ def masks_to_boxes(
         msg = f"Expected masks to have 3 dimensions, got {masks.ndim}"
         raise ValueError(msg)
 
-    if filter_size is not None and filter_threshold > 0.0:
+    if filter_size is not None and threshold > 0.0:
         masks_blur = masks.float()
         masks_blur = tvfn.gaussian_blur_image(masks_blur, filter_size)
-        masks_blur = masks > filter_threshold
+        masks_blur = masks >= threshold
         masks_blur_valid = masks_blur.int().sum(dim=(-1, -2)) > 0
         masks[masks_blur_valid] = masks_blur[masks_blur_valid]
+
+    if masks.dtype != torch.bool:
+        masks = masks >= threshold
 
     axes = _get_index_axes_like(masks, stride=stride)
     return _get_bounding_box_batched(axes, masks)

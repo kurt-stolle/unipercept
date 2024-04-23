@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import abc
 import dataclasses
 import dataclasses as D
 from datetime import UTC, datetime
@@ -16,7 +15,13 @@ import torch.utils.data
 import typing_extensions as TX
 
 from unipercept.data.tensors import PanopticMap
-from unipercept.data.types import Manifest, QueueItem, CaptureSources, ManifestSequence
+from unipercept.data.types import (
+    Manifest,
+    QueueItem,
+    CaptureSources,
+    ManifestSequence,
+    MotionSources,
+)
 from unipercept.utils.camera import build_calibration_matrix
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
@@ -25,10 +30,9 @@ from unipercept.utils.frozendict import frozendict
 from unipercept.utils.tensorclass import Tensorclass
 
 if T.TYPE_CHECKING:
-    import unipercept
-    from unipercept.data.collect import ExtractIndividualFrames, QueueGeneratorType
+    from unipercept.data.ops import Op
     from unipercept.data.types.coco import COCOCategory
-    from unipercept.model import CaptureData, ModelOutput
+    from unipercept.model import CaptureData, ModelOutput, InputData
 
 
 __all__ = [
@@ -227,16 +231,18 @@ class Metadata:
             for sem_id, sem_cls in self.semantic_classes.items()
             if sem_cls.depth_fixed is not None
         }
-    
+
     def is_compatible(self, other: Metadata) -> bool:
         """
         Check whether this metadata is comatible with another metadata.
         This entails that the datasets have the same thing and stuff offsets.
         Note that the actual semantic classes do not need to be the same.
-        This function only checks whether the amount of classes and their offsets are 
+        This function only checks whether the amount of classes and their offsets are
         the same.
         """
-        if len(set(self.translations_dataset.values())) != len(set(other.translations_dataset.values())):
+        if len(set(self.translations_dataset.values())) != len(
+            set(other.translations_dataset.values())
+        ):
             return False
         if len(self.thing_offsets) != len(other.thing_offsets):
             return False
@@ -629,11 +635,11 @@ class PerceptionDataset(
 
     @classmethod
     def _load_motion_data(
-        cls, sources: T.Sequence[unipercept.data.types.MotionSources], info: Metadata
-    ) -> unipercept.model.MotionData:
+        cls, sources: T.Sequence[MotionSources], info: Metadata
+    ) -> MotionData:
         raise NotImplementedError(f"{cls.__name__} does not implement motion sources!")
 
-    _data_cache: T.ClassVar[dict[str, unipercept.model.InputData]] = {}
+    _data_cache: T.ClassVar[dict[str, InputData]] = {}
 
     @classmethod
     def _sequence_to_long(cls, sequence: str) -> torch.Tensor:
@@ -644,9 +650,7 @@ class PerceptionDataset(
 
     @classmethod
     @TX.override
-    def _load_data(
-        cls, key: str, item: QueueItem, info: Metadata
-    ) -> unipercept.model.InputData:
+    def _load_data(cls, key: str, item: QueueItem, info: Metadata) -> InputData:
         from unipercept.model import CameraModel, InputData
 
         # Check for cache hit, should be a memmaped tensor
@@ -704,6 +708,14 @@ class PerceptionDataset(
         # cls._data_cache[key] = input_data
 
         return input_data  # .clone().contiguous()
+
+
+class TransformedDataset(PerceptionDataset, id=None):
+    """
+    A dataset that applies operations on the datapipe.
+    """
+
+    actions: T.Sequence[Op]
 
 
 class ConcatenatedDataset(PerceptionDataset, id=None):

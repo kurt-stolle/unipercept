@@ -26,6 +26,7 @@ from torch.utils.data.sampler import Sampler
 from typing_extensions import override
 
 from unipercept.config import get_env
+from unipercept.data.collect import ExtractIndividualFrames, QueueGeneratorType
 from unipercept.data.ops import Op, apply_dataset
 from unipercept.log import create_table, get_logger
 from unipercept.state import cpus_available, get_process_count, get_process_index
@@ -107,6 +108,12 @@ class DataLoaderFactory:
     dataset: PerceptionDataset
     sampler: SamplerFactory
     actions: T.Sequence[Op] = D.field(default_factory=list)
+    gatherer: QueueGeneratorType = D.field(
+        default_factory=ExtractIndividualFrames,
+        metadata={
+            "help": "The gatherer to use to collect items from the dataset into a queue. Defaults to extracting individual frames."
+        },
+    )
     config: DataLoaderConfig = D.field(default_factory=DataLoaderConfig)
     iterable: bool = D.field(
         default=False,
@@ -172,6 +179,8 @@ class DataLoaderFactory:
         if not use_distributed:
             sampler_kwargs["process_count"] = 1
             sampler_kwargs["process_index"] = 0
+
+        queue, pipe = self.dataset.collect()
 
         sampler = self.sampler(self.dataset.queue)
         # Transform items in pipe

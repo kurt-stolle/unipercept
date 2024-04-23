@@ -282,13 +282,19 @@ class PanopticMap(_Mask):
         semantic = torch.as_tensor(semantic)
         instance = torch.as_tensor(instance)
 
-        assert semantic.shape == instance.shape
-        assert int(semantic.min()) >= 0 or int(semantic.min()) == cls.IGNORE
-        assert int(instance.max()) <= cls.DIVISOR
+        if semantic.shape != instance.shape:
+            msg = f"Expected tensors of the same shape, got {semantic.shape} and {instance.shape}"
+            raise ValueError(msg)
+
+        cls.must_be_semantic_map(semantic)
+        cls.must_be_instance_map(instance)
 
         semantic = semantic.to(dtype=torch.long, non_blocking=True)
         instance = instance.to(dtype=torch.long, non_blocking=True)
+
+        ignore_mask = semantic == cls.IGNORE
         panoptic = instance + semantic * cls.DIVISOR
+        panoptic[ignore_mask] = cls.IGNORE
 
         return panoptic.as_subclass(cls)
 
@@ -304,11 +310,11 @@ class PanopticMap(_Mask):
         return cls.from_parts(encoded_map // divisor, encoded_map % divisor)
 
     @T.overload
-    def to_parts(self, as_tuple: bool = False) -> torch.Tensor:
+    def to_parts(self, as_tuple = False) -> torch.Tensor:
         ...
 
     @T.overload
-    def to_parts(self, as_tuple: bool = True) -> T.Tuple[torch.Tensor, torch.Tensor]:
+    def to_parts(self, as_tuple = True) -> T.Tuple[torch.Tensor, torch.Tensor]:
         ...
 
     def to_parts(
@@ -319,10 +325,10 @@ class PanopticMap(_Mask):
         The first channel contains the semantic segmentation map, the second channel contains the instance
         id that is NOT UNIQUE for each class.
         """
-        sem = torch.floor_divide(self, self.DIVISOR)
-        ins = torch.where(
-            self != PanopticMap.IGNORE, torch.remainder(self, self.DIVISOR), 0
-        )
+        ignore_mask = (self == PanopticMap.IGNORE)
+        sem = torch.floor_divide(self, self.DIVISOR).as_subclass(_Mask)
+        ins = torch.remainder(self, self.DIVISOR).as_subclass(_Mask)
+        ins[ignore_mask] = 0
         if as_tuple:
             return sem, ins
         return torch.stack((sem, ins), dim=-1)
@@ -436,6 +442,50 @@ class PanopticMap(_Mask):
         img = pil_image.fromarray(segm.numpy().astype("uint8"), mode="L")
 
         return img, segments_info
+
+    @classmethod
+    def must_be_semantic_map(cls, t: torch.Tensor):
+        if t.ndim < 2:
+            msg = f"Expected 2D tensor, got {t.ndim}D tensor"
+        elif t.dtype not in (torch.int32, torch.int64):
+            msg = f"Expected int32 or int64 tensor, got {t.dtype}"
+        elif (t_min := t.min()) < cls.IGNORE:
+            msg = f"Expected non-negative values other than {cls.IGNORE}, got {t_min.item()}"
+        elif (t_max := t.max()) >= cls.DIVISOR:
+            msg = f"Expected values < {cls.DIVISOR}, got {t_max.item()}"
+        else:
+            return
+        raise ValueError(msg)
+
+    @classmethod
+    def is_semantic_map(cls, t: torch.Tensor) -> bool:
+        try:
+            cls.must_be_semantic_map(t)
+        except ValueError:
+            return False
+        return True
+
+    @classmethod
+    def must_be_instance_map(cls, t: torch.Tensor):
+        if t.ndim < 2:
+            msg = f"Expected 2D tensor, got {t.ndim}D tensor"
+        elif t.dtype not in (torch.int32, torch.int64):
+            msg = f"Expected int32 or int64 tensor, got {t.dtype}"
+        elif (t_min := t.min()) < cls.IGNORE:
+            msg = f"Expected non-negative values, got {t_min.item()}"
+        elif (t_max := t.max()) >= cls.DIVISOR:
+            msg = f"Expected values < {cls.DIVISOR}, got {t_max.item()}"
+        else:
+            return
+        raise ValueError(msg)
+
+    @classmethod
+    def is_instance_map(cls, t: torch.Tensor) -> bool:
+        try:
+            cls.must_be_instance_map(t)
+        except ValueError:
+            return False
+        return True
 
 
 # def transform_label_map(label_map: torch.Tensor, transform: Transform) -> PanopticMap:

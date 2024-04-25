@@ -106,8 +106,11 @@ class CaptureData(Tensorclass):
 
     def fillna(self, inplace=True) -> T.Self:
         """
-        Materializes the default values for any attribute that is ``None``, i.e. when no data is available for that
-        entry. The default shape is inferred from the shape of the images attribute, which may never be ``None`` by
+        See :meth:`InputData.fillna`
+
+        Notes
+        -----
+        The default shape is inferred from the shape of the images attribute, which may never be ``None`` by
         definition.
         """
         has_panoptic = self.segmentations is not None
@@ -285,6 +288,23 @@ class InputData(Tensorclass):
         return torch.stack(batch)  # type: ignore
         # batch = [b.to_tensordict() for b in batch]
         # return LazyStackedTensorDict(*batch)
+
+    def fillna(self, inplace=True) -> T.Self:
+        """
+        Materializes the default values for any attribute that is ``None``, i.e. when no data is available for that
+        entry.
+        """
+        if not inplace:
+            self = self.clone()
+
+        if self.captures is not None:
+            self.captures.fillna(inplace=True)
+        # if self.motions is not None:
+        #     self.motions.fillna(inplace=True)
+        # if self.cameras is not None:
+        #     self.cameras.fillna(inplace=True)
+
+        return self
 
 
 #########################

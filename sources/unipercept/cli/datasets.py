@@ -7,6 +7,7 @@ from __future__ import annotations
 import abc
 import argparse
 import dataclasses as D
+import random
 import sys
 import typing as T
 
@@ -17,9 +18,12 @@ from tqdm import tqdm
 
 from unipercept import file_io
 from unipercept.cli._command import command, logger
+from unipercept.data.sets import PerceptionDataset
 from unipercept.log import create_table
-from unipercept.utils.string import to_snake_case
 from unipercept.utils.cli import create_subtemplate
+from unipercept.utils.inspect import generate_path, locate_object
+from unipercept.utils.seed import seed_worker, set_seed
+from unipercept.utils.string import to_snake_case
 
 __all__ = []
 
@@ -28,8 +32,174 @@ Subcommand = create_subtemplate()
 
 command(name="datasets", help="dataset operations")(Subcommand)
 
+set_seed()
+
+
+def _add_datasets_arg(prs: argparse.ArgumentParser, nargs="+"):
+    prs.add_argument("datasets", nargs=nargs, type=str, help="dataset name(s)")
+
+
+def _add_variant_arg(prs: argparse.ArgumentParser):
+    prs.add_argument("dataset", type=str, help="dataset name")
+    prs.add_argument(
+        "hash",
+        type=str,
+        help="variant hash (use 'list-variants' to show options)",
+    )
+
+
+def _get_dataset_by_hash(args: argparse.Namespace) -> PerceptionDataset:
+    from unipercept.data.sets import catalog
+
+    ds_cls = catalog.get_dataset(args.dataset)
+    for variant in ds_cls.variants():
+        ds = ds_cls(**variant)
+        if ds.hash == args.hash:
+            return ds
+    msg = f"Variant not found: {args.dataset}({args.hash})"
+    raise ValueError(msg)
+
+
+def _kwargs_to_str(variant: dict[str, T.Any]) -> str:
+    return ", ".join(f"{k}={v}" for k, v in variant.items())
+
+
+class ValidateSubcommand(Subcommand, name="validate"):
+    """
+    Check the dataset for integrity. This will check that the dataset has a
+    valid manifest and that all files in the manifest are present/loadable.
+    """
+
+    @staticmethod
+    @TX.override
+    def setup(prs: argparse.ArgumentParser):
+        prs.add_argument(
+            "--samples",
+            "-n",
+            type=int,
+            default=-1,
+            help="amount of samples to validate, -1 means all samples, 0 skips loading.",
+        )
+        _add_datasets_arg(prs)
+
+    @staticmethod
+    @TX.override
+    def main(args: argparse.Namespace):
+        from unipercept.data.sets import catalog
+
+        for ds_key in args.datasets:
+            ds_cls = catalog.get_dataset(ds_key)
+            for variant in ds_cls.variants():
+                logger.info("Validating %s", ds_key)
+
+                ds_repr = f"{ds_key}({_kwargs_to_str(variant)})"
+                ds = ds_cls(**variant)
+
+                queue, pipe = ds()
+
+                if (queue_len := len(queue)) != (pipe_len := len(pipe)):
+                    logger.info(
+                        f"FAIL: queue (%d items) and pipe (%d items) lengths do not match",
+                        queue_len,
+                        pipe_len,
+                    )
+                    continue
+
+                if args.samples == 0:
+                    continue
+                if args.samples == -1:
+                    n = len(queue)
+                elif args.samples > 0:
+                    n = min(args.samples, len(queue))
+                else:
+                    msg = "Invalid sample size: %d" % args.samples
+                    raise ValueError(msg)
+                with tqdm(desc=ds_repr, total=n) as pbar:
+                    for i in range(n):
+                        d = pipe[i]
+                        del d
+                        pbar.update()
+
+
+class ShowSubcommand(Subcommand, name="show"):
+    """
+    Show a sample from the dataset.
+    """
+
+    @staticmethod
+    @TX.override
+    def setup(prs: argparse.ArgumentParser):
+        prs.add_argument(
+            "--index",
+            "-i",
+            type=str,
+            nargs="+",
+            default="?",
+            help="index in the dataset queue to show, where '?' shows a random sample (default)",
+        )
+        _add_variant_arg(prs)
+
+    @staticmethod
+    @TX.override
+    def main(args: argparse.Namespace):
+        from pprint import pformat
+
+        from unipercept.render import plot_input_data
+
+        ds = _get_dataset_by_hash(args)
+        queue, pipe = ds()
+
+        for i_arg in args.index:
+            if i_arg == "?":
+                i: int = random.randint(0, len(queue) - 1)
+            else:
+                i = int(i_arg)
+            sample_id, queue_item = queue[i]
+
+            table = create_table(
+                {"id": sample_id, **queue_item},
+                format="long",
+            )
+            print(table)
+
+            sample = pipe[i]
+
+            plot_input_data(sample, info=ds.info)
+
+
+class DownloadSubcommand(Subcommand, name="download"):
+    """
+    Download a dataset (if supported).
+    """
+
+    @staticmethod
+    @TX.override
+    def setup(prs: argparse.ArgumentParser):
+        prs.add_argument(
+            "--force",
+            "-f",
+            action="store_true",
+            help="force download even if the dataset is already downloaded",
+        )
+        _add_datasets_arg(prs)
+
+    @staticmethod
+    @TX.override
+    def main(args: argparse.Namespace):
+        from unipercept.data.sets import catalog
+
+        for ds_key in args.datasets:
+            ds_cls = catalog.get_dataset(ds_key)
+            for variant in ds_cls.variants():
+                print("Downloading %s(%s)...", ds_key, _kwargs_to_str(variant))
+                ds_cls(**variant).download(force=args.force)
+
 
 class ListSubcommand(Subcommand, name="list"):
+    """
+    List available datasets.
+    """
+
     @staticmethod
     @TX.override
     def setup(prs: argparse.ArgumentParser):
@@ -38,9 +208,6 @@ class ListSubcommand(Subcommand, name="list"):
     @staticmethod
     @TX.override
     def main(args: argparse.Namespace):
-        """
-        List available datasets.
-        """
         from unipercept.data.sets import catalog
 
         for ds in catalog.list_datasets():
@@ -48,34 +215,64 @@ class ListSubcommand(Subcommand, name="list"):
 
 
 class ListVariantsSubcommand(Subcommand, name="list-variants"):
+    """
+    List available dataset variants.
+    """
+
     @staticmethod
     @TX.override
     def setup(prs: argparse.ArgumentParser):
-        prs.add_argument("dataset", nargs="+", help="dataset name(s)")
+        _add_datasets_arg(prs, nargs="*")
 
     @staticmethod
     @TX.override
     def main(args: argparse.Namespace):
-        """
-        List available dataset variants.
-        """
-
         from unipercept.data.sets import catalog
 
         df_list: list[pd.DataFrame] = []
-        for ds_key in args.dataset:
-            ds_cls = catalog.get_dataset(ds_key)
-            df = pd.DataFrame(ds_cls.variants())
-            df["dataset"] = ds_key
 
+        if len(args.datasets) == 0:
+            datasets = catalog.list_datasets()
+        else:
+            datasets = args.datasets
+
+        for ds_key in datasets:
+            ds_cls = catalog.get_dataset(ds_key)
+            info_list = []
+            for variant in ds_cls.variants():
+                ds = ds_cls(**variant)
+
+                ds_attrs = {}
+                for k, v in variant.items():
+                    ds_attrs[k] = v
+                for field in D.fields(ds):
+                    if field.name.startswith("_"):
+                        continue
+                    if field.name in ds_attrs:
+                        continue
+                    ds_attrs[field.name] = getattr(ds, field.name)
+
+                info_list.append(
+                    {
+                        "id": ds_key,
+                        "hash": ds.hash,
+                        "class": generate_path(ds_cls),
+                        **ds_attrs,
+                    }
+                )
+            df = pd.DataFrame(data=info_list)
             df_list.append(df)
 
         df_all = pd.concat(df_list)
 
-        print(create_table(df_all))
+        print(create_table(df_all, format="wide"))
 
 
 class StatsSubcommand(Subcommand, name="stats"):
+    """
+    Show statistics about the number of items in a dataset.
+    """
+
     @staticmethod
     @TX.override
     def setup(prs: argparse.ArgumentParser):
@@ -148,6 +345,10 @@ class StatsSubcommand(Subcommand, name="stats"):
 
 
 class InfoSubcommand(Subcommand, name="info"):
+    """
+    Show information about a dataset, also known as 'metadata'.
+    """
+
     @staticmethod
     @TX.override
     def setup(prs: argparse.ArgumentParser):
@@ -162,9 +363,6 @@ class InfoSubcommand(Subcommand, name="info"):
     @staticmethod
     @TX.override
     def main(args: argparse.Namespace):
-        """
-        Show information about a dataset, also known as 'metadata'.
-        """
         from tabulate import tabulate
 
         from unipercept import get_info
@@ -192,7 +390,9 @@ class CacheSubcommand(Subcommand, name="cache"):
     @TX.override
     def setup(prs: argparse.ArgumentParser):
         prs.add_argument(
-            "--purge", action="store_true", help="purge the cache (if it exists)"
+            "--purge",
+            action="store_true",
+            help="purge the cache (if it exists)",
         )
         prs.add_argument("dataset", help="dataset name")
 
@@ -215,12 +415,15 @@ class CacheSubcommand(Subcommand, name="cache"):
             exists = path.is_file()
             if args.purge and exists:
                 path.unlink()
+                cached = "True (purged)"
+            else:
+                cached = str(exists)
 
             stats.append(
                 {
                     "dataset": args.dataset,
                     **variant,
-                    "cached": exists,
+                    "cached": cached,
                     "path": path_str,
                 }
             )

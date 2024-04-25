@@ -105,8 +105,21 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
 
     root: str = "//datasets/voc"
     split: Literal["train", "val", "trainval", "test"] = "train"
-    download: bool = False
     year: str = "2012"
+
+    def _get_torchvision_dataset(self, *, download=False):
+        from torchvision.datasets import VOCSegmentation
+
+        root = file_io.get_local_path(self.root)
+
+        return VOCSegmentation(
+            root, year=self.year, image_set=self.split, download=download
+        )
+
+    @TX.override
+    def download(self, *, force: bool = False) -> None:
+        dataset = self._get_torchvision_dataset(download=True)
+        del dataset
 
     @classmethod
     @TX.override
@@ -117,15 +130,7 @@ class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
         }
 
     def _build_panoptic(self) -> list[tuple[str, str, str]]:
-        from torchvision.datasets import VOCSegmentation
-
-        root = file_io.get_local_path(self.root)
-
-        _logger.debug(f"Setting up panoptic annotations at {root}")
-
-        dataset = VOCSegmentation(
-            root, year=self.year, image_set=self.split, download=self.download
-        )
+        dataset = self._get_torchvision_dataset()
         src_img: list[str] = dataset.images
         src_seg: list[str] = dataset.targets
         src_pan = [

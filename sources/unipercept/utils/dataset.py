@@ -28,8 +28,8 @@ from unipercept.utils.frozendict import frozendict
 
 __all__ = ["Dataset"]
 
-_T_MFST = T.TypeVar("_T_MFST", bound=dict)  # Manifest
-_T_QITEM = T.TypeVar("_T_QITEM")  # Item in queue
+_T_MFST = T.TypeVar("_T_MFST", bound=T.Mapping)  # Manifest
+_T_QITEM = T.TypeVar("_T_QITEM", bound=T.Mapping)  # Item in queue
 _T_DITEM = T.TypeVar("_T_DITEM")  # Item in datapipe
 _T_DINFO = T.TypeVar("_T_DINFO")  # Meta info about the dataset
 _KEY_CREATE_INFO = "_create_info"
@@ -148,11 +148,13 @@ class Dataset(
         """
         ...
 
-    def _check_manifest(self, manifest: _T_MFST) -> bool:
+    @classmethod
+    @abc.abstractmethod
+    def _check_manifest(cls, manifest: _T_MFST) -> bool:  # noqa: U100
         """
         Checks that the manifest is valid.
         """
-        return True
+        ...
 
     _manifest: _T_MFST | None = D.field(
         default=None, hash=False, repr=False, compare=False, init=False
@@ -166,13 +168,13 @@ class Dataset(
     )
 
     @property
-    def cache_path(self) -> str:
+    def hash(self):
         ds_repr = repr(self)
-        file_name = hashlib.md5(ds_repr.encode(), usedforsecurity=False).hexdigest()
+        return hashlib.md5(ds_repr.encode(), usedforsecurity=False).hexdigest()
 
-        ds_repr = repr(self)
-        file_name = hashlib.md5(ds_repr.encode(), usedforsecurity=False).hexdigest()
-        return f"//cache/manifest/{file_name}.yaml"
+    @property
+    def cache_path(self) -> str:
+        return f"//cache/manifest/{self.hash}.yaml"
 
     @property
     def manifest(self) -> _T_MFST:
@@ -213,55 +215,36 @@ class Dataset(
                     self._manifest = torch.distributed.broadcast(mfst, 0)
         return T.cast(_T_MFST, self._manifest)
 
-    # ----- #
-    # QUEUE #
-    # ----- #
+    # @property
+    # def queue(self) -> _Dataqueue[_T_QITEM]:
+    #     """
+    #     Queue attribute: represents an ordered and transformed version of the manifest that server
+    #     a specific goal for loading. For example, queue could be reordered per video sequence and
+    #     made into pairs of 2 images from the manifest for trainig.
 
-    queue_fn: (
-        T.Callable[
-            [_T_MFST], T.Mapping[str, _T_QITEM] | T.Iterable[tuple[str, _T_QITEM]]
-        ]
-        | None
-    ) = D.field(default=None, repr=True, compare=False, kw_only=True)
+    #     Returns a DatasetQueue object, which is a subclass of PyTorch dataset that implements
+    #     a map-style dataset over unloaded data records. Can be indexed by key (string) and using
+    #     the index number (int).
+    #     """
+    #     assert self.queue_fn is not None
 
-    _queue: _Dataqueue[_T_QITEM] | None = D.field(
-        default=None, hash=False, repr=False, compare=False, init=False
-    )
+    #     if self._queue is None:
+    #         qmap = self.queue_fn(self.manifest)
+    #         if isinstance(qmap, T.Mapping):
+    #             qmap = dict(qmap)
+    #         elif isinstance(qmap, T.Iterable):
+    #             qmap = {k: v for k, v in qmap}
+    #         else:
+    #             raise TypeError(
+    #                 f"Queue function must return a mapping or iterable, not {type(qmap)}"
+    #             )
 
-    @property
-    def queue(self) -> _Dataqueue[_T_QITEM]:
-        """
-        Queue attribute: represents an ordered and transformed version of the manifest that server
-        a specific goal for loading. For example, queue could be reordered per video sequence and
-        made into pairs of 2 images from the manifest for trainig.
+    #         if len(qmap) == 0:
+    #             raise ValueError("Queue map must not be empty!")
 
-        Returns a DatasetQueue object, which is a subclass of PyTorch dataset that implements
-        a map-style dataset over unloaded data records. Can be indexed by key (string) and using
-        the index number (int).
-        """
-        assert self.queue_fn is not None
-        
-        if self._queue is None:
-            qmap = self.queue_fn(self.manifest)
-            if isinstance(qmap, T.Mapping):
-                qmap = dict(qmap)
-            elif isinstance(qmap, T.Iterable):
-                qmap = {k: v for k, v in qmap}
-            else:
-                raise TypeError(
-                    f"Queue function must return a mapping or iterable, not {type(qmap)}"
-                )
-
-            if len(qmap) == 0:
-                raise ValueError("Queue map must not be empty!")
-
-            # Store for later
-            self._queue = _Dataqueue(qmap)
-        return self._queue
-
-    # -------- #
-    # DATAPIPE #
-    # -------- #
+    #         # Store for later
+    #         self._queue = _Dataqueue(qmap)
+    #     return self._queue
 
     @classmethod
     @abc.abstractmethod
@@ -271,20 +254,55 @@ class Dataset(
         """
         ...
 
-    _datapipe: _Datapipe[_T_DITEM, _T_DINFO] | None = D.field(
-        default=None, hash=False, repr=False, compare=False, init=False
-    )
-
-    @property
-    def datapipe(self) -> _Datapipe[_T_DITEM, _T_DINFO]:
+    def build_queue(self, gatherer) -> _Dataqueue[_T_QITEM]:
         """
-        Datapipe attribute: represents the output dataset
+        Uses a gatherer function to obtain a queue.
         """
-        if self._datapipe is None:
-            self._datapipe = _Datapipe(
-                self._load_data, queue=self.queue, info=self.info
+        qmap = gatherer(self.manifest)
+        if isinstance(qmap, T.Mapping):
+            qmap = dict(qmap)
+        elif isinstance(qmap, T.Iterable):
+            qmap = {k: v for k, v in qmap}
+        else:
+            raise TypeError(
+                f"Queue function must return a mapping or iterable, not {type(qmap)}"
             )
-        return self._datapipe
+
+        if len(qmap) == 0:
+            raise ValueError("Queue map must not be empty!")
+
+        return _Dataqueue(qmap)
+
+    def build_pipe(
+        self, queue_or_gatherer: _Dataqueue[_T_QITEM]
+    ) -> _Datapipe[_T_DITEM, _T_DINFO]:
+        """
+        Uses a dataqueue to obtain a datapipe.
+        """
+        if isinstance(queue_or_gatherer, _Dataqueue):
+            queue = T.cast(_Dataqueue[_T_QITEM], queue_or_gatherer)
+        elif callable(queue_or_gatherer):
+            queue = _Dataqueue(queue_or_gatherer(self.manifest))
+            return _Datapipe(self._load_data, queue=queue, info=self.info)
+        else:
+            msg = f"Unsupported type for queue/gatherer: {type(queue_or_gatherer)}"
+            raise TypeError(msg)
+        return _Datapipe(self._load_data, queue=queue, info=self.info)
+
+    # _datapipe: _Datapipe[_T_DITEM, _T_DINFO] | None = D.field(
+    #     default=None, hash=False, repr=False, compare=False, init=False
+    # )
+
+    # @property
+    # def datapipe(self) -> _Datapipe[_T_DITEM, _T_DINFO]:
+    #     """
+    #     Datapipe attribute: represents the output dataset
+    #     """
+    #     if self._datapipe is None:
+    #         self._datapipe = _Datapipe(
+    #             self._load_data, queue=self.queue, info=self.info
+    #         )
+    #     return self._datapipe
 
     # --------------- #
     # INFO / METADATA #
@@ -406,11 +424,6 @@ class _Datapipe(
                     break
                 except StopIteration:
                     return
-                except Exception as e:
-                    key = "UNKNOWN"
-                    warnings.warn(f"Error loading item: {e}", stacklevel=2)
-            else:
-                raise RuntimeError(f"Failed to load item after {self._retry} retries")
 
     def __len__(self) -> int:
         return len(self.queue)

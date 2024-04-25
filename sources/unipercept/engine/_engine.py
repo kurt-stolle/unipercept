@@ -1095,7 +1095,11 @@ class Engine:
     @status(EngineStatus.IS_PREDICTION_RUN)
     @torch.no_grad()
     def predict(
-        self, model: nn.Module, datapipe: Dataset, *, prefix: str = "pred"
+        self,
+        model: nn.Module,
+        data: torch.utils.data.DataLoader | T.Iterable[InputData],
+        *,
+        prefix: str = "pred",
     ) -> TensorDict:
         raise NotImplementedError("TODO: Implement prediction")
 

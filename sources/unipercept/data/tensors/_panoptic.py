@@ -221,6 +221,8 @@ class PanopticMap(_Mask):
                 sem, ids = self.to_parts(as_tuple=True)
                 img = torch.where(ids > 0, ids - 1 + sem * divisor, sem)
                 img = torch.where(img == ignore_label, 0, img)
+
+                write_png(path, img)
             case LabelsFormat.KITTI:
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
 
@@ -229,12 +231,15 @@ class PanopticMap(_Mask):
                 img[:, :, 1] = ids // BYTE_OFFSET
                 img[:, :, 2] = ids % BYTE_OFFSET
 
+                write_png(path, img)
             case LabelsFormat.VISTAS:
                 divisor = self.DIVISOR
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
                 img[:, :, 0] = self % BYTE_OFFSET
                 img[:, :, 1] = self // BYTE_OFFSET
                 img[:, :, 2] = self // BYTE_OFFSET // BYTE_OFFSET
+
+                write_png(path, img)
             case LabelsFormat.WILD_DASH:
                 divisor = self.DIVISOR
                 ignore_label = self.IGNORE
@@ -243,6 +248,8 @@ class PanopticMap(_Mask):
                 img[:, :, 1] = (self // BYTE_OFFSET) % BYTE_OFFSET
                 img[:, :, 2] = self % BYTE_OFFSET
                 img = torch.where(self == ignore_label * divisor, 0, img)
+
+                write_png(path, img)
             case _:
                 raise NotImplementedError(f"{format=}")
 
@@ -310,11 +317,11 @@ class PanopticMap(_Mask):
         return cls.from_parts(encoded_map // divisor, encoded_map % divisor)
 
     @T.overload
-    def to_parts(self, as_tuple = False) -> torch.Tensor:
+    def to_parts(self, as_tuple=False) -> torch.Tensor:
         ...
 
     @T.overload
-    def to_parts(self, as_tuple = True) -> T.Tuple[torch.Tensor, torch.Tensor]:
+    def to_parts(self, as_tuple=True) -> T.Tuple[torch.Tensor, torch.Tensor]:
         ...
 
     def to_parts(
@@ -325,7 +332,7 @@ class PanopticMap(_Mask):
         The first channel contains the semantic segmentation map, the second channel contains the instance
         id that is NOT UNIQUE for each class.
         """
-        ignore_mask = (self == PanopticMap.IGNORE)
+        ignore_mask = self == PanopticMap.IGNORE
         sem = torch.floor_divide(self, self.DIVISOR).as_subclass(_Mask)
         ins = torch.remainder(self, self.DIVISOR).as_subclass(_Mask)
         ins[ignore_mask] = 0

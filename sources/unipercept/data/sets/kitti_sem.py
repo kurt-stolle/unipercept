@@ -37,6 +37,7 @@ from unipercept.data.sets._base import (
     create_metadata,
 )
 from unipercept.data.types import (
+    CameraModelParameters,
     CaptureRecord,
     CaptureSources,
     Manifest,
@@ -46,10 +47,11 @@ from unipercept.utils.time import get_timestamp
 
 __all__ = ["SemKITTIDataset"]
 
-DEFAULT_URL = (
+DOWNLOAD_URL: T.Final = (
     "https://huggingface.co/HarborYuan/PolyphonicFormer/resolve/main/semkitti-dvps.zip"
 )
-CAPTURE_FPS = 17.0
+DEFAULT_FOCAL_LENGTH: T.Final = 718.8560180664062
+CAPTURE_FPS: T.Final = 17.0
 
 
 def get_info() -> Metadata:
@@ -206,7 +208,6 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
     split: T.Literal["train", "val"]
     root: str = "//datasets/semkitti-dvps"
     pseudo: bool = True
-    download: bool = False
 
     @classmethod
     @TX.override
@@ -215,24 +216,26 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
             "split": ["train", "val"],
         }
 
-    def __post_init__(self):
-        if not file_io.isdir(self.root):
-            self._download_and_extract()
-
-    def _download_and_extract(self, url: str = DEFAULT_URL) -> None:
+    @TX.override
+    def download(self, *, force: bool = False) -> None:
         """
         Download and extract the dataset.
 
         The default download URL is provided by the authors of PolyphonicFormer.
         """
 
-        archive_path = file_io.get_local_path(url)
+        if file_io.is_dir(self.root) and not force:
+            return
+
+        archive_path = file_io.get_local_path(DOWNLOAD_URL)
         with zipfile.ZipFile(archive_path) as zip:
             zip.extractall(self.root)
         file_io.rm(archive_path)
 
     @override
     def _build_manifest(self) -> Manifest:
+        from unipercept.utils.image import size as get_image_size
+
         cap_root = file_io.Path(self.root) / "video_sequence" / self.split
         assert cap_root.exists(), f"Captures path {cap_root} does not exist!"
 
@@ -267,13 +270,40 @@ class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
                 # Depth has the focal length encoded in the name, so we must do a search for it
                 depth_path = next(cap_path.parent.glob(f"{key}_depth_*.png"), None)
                 if depth_path is not None:
+                    focal_length = float(depth_path.stem.split("_")[-1])
                     sources["depth"] = {
                         "path": str(depth_path),
                         "meta": {
-                            "format": "uint16",
-                            "focal_length": float(depth_path.stem.split("_")[-1]),
+                            "format": "depth_int16",
+                            "focal_length": focal_length,
                         },
                     }
+                else:
+                    focal_length = DEFAULT_FOCAL_LENGTH
+
+                # Set the camera of the sequence
+                if seq["camera"] is None:
+                    image_size = get_image_size(cap_path)
+                    cam: CameraModelParameters = {
+                        "focal_length": (focal_length, focal_length),
+                        "principal_point": (0.0, 0.0),
+                        "rotation": (0.0, 0.0, 0.0),
+                        "translation": (0.0, 0.0, 0.0),
+                        "image_size": (image_size.height, image_size.width),
+                    }
+                    seq["camera"] = cam
+                else:
+                    cam = seq["camera"]
+                    if not isinstance(cam, dict):
+                        msg = f"Camera metadata is not a dictionary: {cam}"
+                        raise TypeError(msg)
+
+                    assert (
+                        cam["focal_length"][0] == cam["focal_length"][1] == focal_length
+                    ), (
+                        f"Camera focal length mismatch: {cam['focal_length']} "
+                        f"!= {focal_length}"
+                    )
 
                 # Panoptic must potentially be generated from the semantic and instance masks
                 panoptic_path = cap_path.parent / f"{key}_panoptic.png"

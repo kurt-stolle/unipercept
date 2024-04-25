@@ -8,6 +8,7 @@ from . import (
     abbreviate,
     box,
     camera,
+    cli,
     conifg,
     dicttools,
     function,
@@ -18,5 +19,4 @@ from . import (
     state,
     tensor,
     time,
-    cli,
 )

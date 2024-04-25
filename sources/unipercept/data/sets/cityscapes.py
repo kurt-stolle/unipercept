@@ -482,7 +482,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
 
         return {
             "timestamp": datetime.utcnow().isoformat(),
-            "version": "1.0",
+            "version": self.version,
             "sequences": sequences,
         }
 

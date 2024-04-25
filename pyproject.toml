@@ -208,6 +208,7 @@ extend-ignore = [
     # "W503", # line break before binary operator
     "B001", # assert used
     "D200", # One-line docstring should fit on one line with quotes
+    "U100", # Unused parameters - leads to false positives in abstract methods
 ]
 exclude = [
     ".eggs",

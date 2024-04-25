@@ -82,6 +82,7 @@ def create_table(
     *,
     style: str = "rounded_outline",
     max_depth: int = 5,
+    max_width: int = 120,
     _depth: int = 0,
 ) -> str:
     """
@@ -97,6 +98,7 @@ def create_table(
     -------
     The table as a string.
     """
+    from pprint import pformat
 
     if isinstance(mapping, pd.DataFrame):
         mapping = mapping.to_dict(orient="list")
@@ -123,7 +125,9 @@ def create_table(
                 )
             if isinstance(v, str):
                 v = v.split("\n")
-            elif not isinstance(v, T.Sequence):
+            elif isinstance(v, T.Sequence):
+                v = [pformat(v_item) for v_item in v]
+            else:
                 v = [v]
             data.append(v)
 
@@ -153,10 +157,30 @@ def create_table(
                 ):
                     data.append((k if linenum == 0 else "", line))
             else:
-                v = repr(v)
-                if len(v) > 50:
-                    v = v[:50] + "..."
-                data.append((k, v))
+                try:
+                    v = pformat(v)
+                except Exception:  # noqa: PIE786
+                    v = repr(v)
+
+                v_lines = v.split("\n")
+
+                # Truncate long lines
+                for v_i in range(len(v_lines)):
+                    v_line = v_lines[v_i]
+                    if len(v_line) > max_width:
+                        v_line = v_line[: max_width - 3] + "..."
+
+                    v_line = v_line.replace("\t", "  ")
+                    if (
+                        v_line[0] == " "
+                    ):  # prevent tabulate from removing leading whitespace
+                        v_line = "␣" + v_line[1:]
+                    v_lines[v_i] = v_line
+
+                # Put the first line in the same row as the key
+                data.append((k, v_lines[0]))
+                for v_line in v_lines[1:]:
+                    data.append(("", v_line))
         # Create a long table, i.e. with a 'key' and 'value' header
         headers = ["Key", "Value"] if _depth == 0 else ()
     else:

@@ -39,30 +39,51 @@ SKIP = MissingValue("SKIP")
 
 
 def plot_input_data(
-    data: InputData,
+    data: InputData | T.Iterable[InputData] | TensorDictBase | T.Mapping[str, T.Any],
     /,
     info: Metadata,
     height: float = 4.0,
     scale: float = 1.0,
-    image_options: MissingValue["SKIP"] | T.Optional[dict[str, T.Any]] = None,
-    segmentation_options: T.Optional[dict[str, T.Any]] = None,
-    depth_options: T.Optional[dict[str, T.Any]] = None,
+    image_options: MissingValue["SKIP"] | T.Mapping[str, T.Any] | None = None,
+    segmentation_options: T.Mapping[str, T.Any] | None = None,
+    depth_options: T.Mapping[str, T.Any] | None = None,
     title: str | None = None,
 ) -> T.Any:
     """
-    Plots the given input data.
+    Plots input data from the given inputdata object.
     """
 
     import matplotlib.pyplot as plt
 
-    if data.batch_dims > 0:
-        msg = "Expected a single batch of data, got multiple batches!"
-        raise ValueError(msg)
+    from unipercept.model import InputData
 
-    caps = data.captures
-    nrows = caps.batch_size[0]
+    if not isinstance(data, InputData):
+        # Mapping must first be converted to a TensorDict
+        if isinstance(data, T.Mapping):
+            data = TensorDict.from_dict(data)
+        # Handle non-InputData types or raise an error
+        if isinstance(data, TensorDictBase):
+            data = InputData.from_tensordict(data)
+        elif isinstance(data, T.Iterable):
+            assert all(isinstance(d, InputData) for d in data)
+            data = torch.stack([d.fillna(inplace=False) for d in data])  # type: ignore
+        else:
+            msg = f"Cannot plot data type: {type(data)}"
+            return TypeError(msg)
+    if data.batch_dims > 1:
+        msg = f"Invalid data shape: {data.batch_size}"
+        return ValueError(msg)
+    if data.batch_dims == 0:
+        data = data.unsqueeze(0)
+
+    n_batch = data.batch_size[0]
+    n_caps = data.captures.batch_size[-1]
+
+    h_caps, w_caps = data.captures.images.shape[-2:]
+
+    nrows = n_batch * n_caps
     ncols = 3  # image, segmentation, depth
-    figsize = (3 * height * caps.images.shape[-2] / caps.images.shape[-1], height)
+    figsize = (3 * height * h_caps / w_caps, height)
 
     fig, axs = plt.subplots(
         nrows,
@@ -72,38 +93,39 @@ def plot_input_data(
         sharey=True,
         squeeze=False,
     )
-
     for i, lbl in enumerate(("Image", "Segmentation", "Depth")):
         axs[-1, i].set_xlabel(lbl)
 
-    for i, cap in enumerate(caps.unbind(0)):
-        axs[i, 0].set_ylabel(f"Frame {i+1}")
+    for b, data_single in enumerate(data.unbind(0)):
+        for i, cap in enumerate(data_single.captures.unbind(0)):
+            row = axs[b * n_caps + i, :]
+            row[0].set_ylabel(f"Batch {b+1} Frame {i+1}")
 
-        if image_options is None:
-            image_options = {}
-        if image_options not in SKIP:
-            draw_image(cap.images, ax=axs[i, 0], scale=scale, **image_options)
+            if image_options is None:
+                image_options = {}
+            if image_options not in SKIP:
+                draw_image(cap.images, ax=row[0], scale=scale, **image_options)
 
-        cap = cap.fillna(inplace=False)
+            if segmentation_options is None:
+                segmentation_options = {}
+            if segmentation_options not in SKIP:
+                segmentation_options.setdefault(
+                    "depth_map", cap.depths / info.depth_max
+                )
+                draw_image_segmentation(
+                    cap.segmentations,
+                    info,
+                    ax=row[1],
+                    scale=scale,
+                    **segmentation_options,
+                )
 
-        if segmentation_options is None:
-            segmentation_options = {}
-        if segmentation_options not in SKIP:
-            segmentation_options.setdefault("depth_map", cap.depths / info.depth_max)
-            draw_image_segmentation(
-                cap.segmentations,
-                info,
-                ax=axs[i, 1],
-                scale=scale,
-                **segmentation_options,
-            )
-
-        if depth_options is None:
-            depth_options = {}
-        if depth_options not in SKIP:
-            draw_image_depth(
-                cap.depths, info, ax=axs[i, 2], scale=scale, **depth_options
-            )
+            if depth_options is None:
+                depth_options = {}
+            if depth_options not in SKIP:
+                draw_image_depth(
+                    cap.depths, info, ax=row[2], scale=scale, **depth_options
+                )
 
     if title is not None:
         fig.suptitle(title)

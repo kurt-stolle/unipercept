@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import dataclasses
 import dataclasses as D
-from datetime import UTC, datetime
 import enum as E
 import functools
 import itertools
 import typing as T
+from datetime import UTC, datetime
 
 import torch
 import torch.utils.data
@@ -16,23 +16,26 @@ import typing_extensions as TX
 
 from unipercept.data.tensors import PanopticMap
 from unipercept.data.types import (
-    Manifest,
-    QueueItem,
     CaptureSources,
+    Manifest,
     ManifestSequence,
     MotionSources,
+    QueueItem,
 )
+from unipercept.log import get_logger
 from unipercept.utils.camera import build_calibration_matrix
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
-from unipercept.utils.dataset import _Dataqueue
+from unipercept.utils.dataset import _Datapipe, _Dataqueue
 from unipercept.utils.frozendict import frozendict
 from unipercept.utils.tensorclass import Tensorclass
 
 if T.TYPE_CHECKING:
-    from unipercept.data.ops import Op
     from unipercept.data.types.coco import COCOCategory
-    from unipercept.model import CaptureData, ModelOutput, InputData
+    from unipercept.model import CaptureData, InputData, MotionData
+
+
+_logger = get_logger(__name__)
 
 
 __all__ = [
@@ -46,19 +49,6 @@ __all__ = [
     "create_metadata",
     "catalog",
 ]
-
-PerceptionDataqueue: T.TypeAlias = _Dataqueue[QueueItem]
-
-# ---------------- #
-# HELPER FUNCTIONS #
-# ---------------- #
-
-
-def _individual_frames_queue() -> ExtractIndividualFrames:
-    from unipercept.data.collect import ExtractIndividualFrames
-
-    return ExtractIndividualFrames()
-
 
 # ---------------- #
 # CANONICAL COLORS #
@@ -546,6 +536,11 @@ def create_metadata(
 # DATASET MANAGEMENT #
 # ------------------ #
 
+
+PerceptionDataqueue: T.TypeAlias = _Dataqueue["QueueItem"]
+PerceptionDatapipe: T.TypeAlias = _Datapipe["InputData", "Metadata"]
+PerceptionGatherer: T.TypeAlias = T.Callable[[Manifest], tuple[str, QueueItem]]
+
 catalog: DataManager["PerceptionDataset", Metadata] = DataManager()
 
 
@@ -554,25 +549,57 @@ class PerceptionDataset(
 ):
     """Baseclass for datasets that are composed of captures and motions."""
 
-    queue_fn: T.Callable[[Manifest], QueueGeneratorType] = dataclasses.field(
-        default_factory=_individual_frames_queue,
-        metadata={"help": "Queue generator", "locate": True},
-    )
+    _VERSION_: T.ClassVar[str | None] = None
+    _ID_: T.ClassVar[str | None] = None
+
+    def download(self, *, force: bool = False) -> None:
+        """
+        Download the dataset to the local disk.
+        """
+        _logger.warning("%s does not implement download!", self.__class__.__name__)
+
+    @property
+    def id(self) -> str:
+        """
+        Returns the ID of the dataset.
+        """
+        if self.__class__._ID_ is None:
+            msg = f"{self.__class__.__name__} does not have an ID!"
+            raise RuntimeError(msg)
+        return self.__class__._ID_
+
+    @property
+    def version(self) -> str:
+        """
+        Returns the version of the dataset.
+        """
+        if self.__class__._VERSION_ is None:
+            msg = f"{self.__class__.__name__} does not have a version!"
+            raise RuntimeError(msg)
+        return self.__class__._VERSION_
 
     @TX.override
-    def __init_subclass__(cls, id: str | None = None, **kwargs):
+    def __init_subclass__(
+        cls, id: str | None = None, version: str | None = "1.0", **kwargs
+    ):
         super().__init_subclass__(**kwargs)
 
-        if id != None:
-            id_canon = catalog.parse_key(id)
-            if id != id_canon:
-                raise ValueError(
-                    f"Directly specifying an ID that is not canonical not allowed: '{id}' should be '{id_canon}'!"
+        if version is not None:
+            if (version_canon := version.lower().strip()) != version:
+                msg = (
+                    f"Version {version!r} is not canonical! Expected: {version_canon!r}"
                 )
-            catalog.register_dataset(id, info=cls._create_info)(cls)  # is a decorator
-        elif id is not None:
-            msg = f"Classes starting with '_' should not have an ID, got: {id}"
-            raise ValueError(msg)
+                raise ValueError(msg)
+            cls._VERSION_ = version
+
+        if id is not None:
+            if (id_canon := catalog.parse_key(id)) != id:
+                msg = f"ID {id!r} is not canonical! Expected: {id_canon!r}"
+                raise ValueError(msg)
+            cls._ID_ = id
+
+            # Register if an ID is provided
+            catalog.register_dataset(id, info=cls._create_info)(cls)
 
         cls._data_cache = {}
 
@@ -658,11 +685,11 @@ class PerceptionDataset(
         #     return cls._data_cache[key].clone().contiguous()
         # types.utils.check_typeddict(item, QueueItem)
         # Captures
-        item_caps = item["captures"]
-        item_caps_num = len(item_caps)
-        assert item_caps_num > 0
+        caps_spec = item["captures"]
+        caps_n = len(caps_spec)
+        assert caps_n > 0
 
-        data_caps = cls._load_capture_data(item_caps, info)
+        caps_data = cls._load_capture_data(caps_spec, info)
 
         # Motions
         if "motions" in item:
@@ -674,14 +701,14 @@ class PerceptionDataset(
             data_mots = None
 
         # Camera
-        item_camera = item["camera"]
-        data_camera = CameraModel(
+        camera_spec = item["camera"]
+        camera_data = CameraModel(
             matrix=build_calibration_matrix(
-                focal_lengths=[item_camera["focal_length"]],
-                principal_points=[item_camera["principal_point"]],
+                focal_lengths=[camera_spec["focal_length"]],
+                principal_points=[camera_spec["principal_point"]],
                 orthographic=False,
             ),
-            image_size=torch.tensor(item_camera["image_size"]),
+            image_size=torch.tensor(camera_spec["image_size"]),
             pose=torch.eye(4),
             batch_size=[],
         )
@@ -693,13 +720,13 @@ class PerceptionDataset(
 
         input_data = InputData(
             ids=ids,
-            captures=data_caps,
+            captures=caps_data,
             motions=data_mots,
-            cameras=data_camera,
+            cameras=camera_data,
             content_boxes=torch.cat(
                 [
                     torch.tensor([0, 0], dtype=torch.int32),
-                    data_camera.image_size.to(dtype=torch.int32),
+                    camera_data.image_size.to(dtype=torch.int32),
                 ]
             ),
             batch_size=[],
@@ -709,18 +736,35 @@ class PerceptionDataset(
 
         return input_data  # .clone().contiguous()
 
+    @classmethod
+    @TX.override
+    def _check_manifest(cls, manifest: Manifest) -> bool:
+        return cls.version == manifest["version"]
 
-class TransformedDataset(PerceptionDataset, id=None):
-    """
-    A dataset that applies operations on the datapipe.
-    """
+    def __call__(
+        self, gatherer: T.Callable[[Manifest], tuple[str, QueueItem]] | None = None
+    ) -> T.Tuple[PerceptionDataqueue, PerceptionDatapipe]:
+        """
+        Combined
+        """
+        from unipercept.data.collect import ExtractIndividualFrames
 
-    actions: T.Sequence[Op]
+        if gatherer is None:
+            gatherer = ExtractIndividualFrames()
+        queue = self.build_queue(gatherer)
+        pipe = self.build_pipe(queue)
+
+        return queue, pipe
 
 
 class ConcatenatedDataset(PerceptionDataset, id=None):
     """
     A dataset that concatenates multiple datasets.
+
+    The sequences in the manifest are tagged such that they can be identified as
+    originating from different datasets in the concatenated dataset.
+    This can then be used to route samples to the correct dataset for loading and
+    processing.
     """
 
     datasets: T.Sequence[PerceptionDataset]
@@ -735,6 +779,11 @@ class ConcatenatedDataset(PerceptionDataset, id=None):
             raise ValueError(msg)
 
         setattr(self, "read_info", self.datasets[0].read_info)
+
+    @property
+    @TX.override
+    def version(self) -> str:
+        return "+".join(ds.version for ds in self.datasets)
 
     @TX.override
     def __repr__(self) -> str:

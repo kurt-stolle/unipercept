@@ -122,7 +122,7 @@ class PseudoGenerator:
         self,
         semantic: PILImage,
         instance: PILImage,
-        panoptic_path: Pathable | None = None,
+        panoptic_path: Pathable,
     ) -> PanopticMap:
         from unipercept import file_io
         from unipercept.data.tensors import PanopticMap
@@ -139,10 +139,10 @@ class PseudoGenerator:
 
         pan = PanopticMap.from_parts(semantic=seg.cpu(), instance=ins.cpu())
 
-        if panoptic_path is not None:
-            panoptic_path = file_io.Path(panoptic_path)
-            panoptic_path.parent.mkdir(parents=True, exist_ok=True)
-            pan.save(panoptic_path, format=self._panoptic_format)
+        panoptic_path = file_io.Path(panoptic_path)
+        pan.save(panoptic_path, format=self._panoptic_format)
+
+        assert panoptic_path.exists(), f"Panoptic map not saved to {panoptic_path}!"
 
         return pan
 

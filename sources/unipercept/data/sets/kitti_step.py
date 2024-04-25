@@ -423,4 +423,8 @@ class KITTISTEPDataset(
             msg = "No sequences were discovered! Check the dataset installation"
             raise RuntimeError(msg)
 
-        return {"sequences": sequences, "timestamp": "2023-01-30", "version": "1.0.0"}
+        return {
+            "sequences": sequences,
+            "timestamp": "2023-01-30",
+            "version": self.version,
+        }

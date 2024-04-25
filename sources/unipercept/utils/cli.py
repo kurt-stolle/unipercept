@@ -2,12 +2,14 @@ r"""
 CLI utility functions.
 """
 
+from __future__ import annotations
+
 import abc
 import argparse
-from hashlib import md5
 import inspect
 import sys
 import typing as T
+from hashlib import md5
 
 
 class _SubcommandTemplate(metaclass=abc.ABCMeta):
@@ -46,11 +48,16 @@ class _SubcommandTemplate(metaclass=abc.ABCMeta):
         handlers: dict[str, T.Callable[[argparse.Namespace], None]] = {}
         cmd = prs.add_subparsers(dest="subcommand", required=True)
         for name, sub in cls.registry.items():
-            doc = sub.__call__.__doc__
-            if doc is None:
-                doc = f"run the {name} subcommand"
-            else:
-                doc = doc.strip()
+            doc = next(
+                (
+                    search_doc
+                    for cursor in (sub, sub.main, sub.setup)
+                    if (search_doc := getattr(sub, "__doc__", None)) is not None
+                    and len(search_doc) > 0
+                ),
+                f"run the {name} subcommand",
+            )
+            doc.strip()
             subprs = cmd.add_parser(name, help=doc)
             sub.setup(subprs)
             handlers[name] = sub.main

@@ -108,8 +108,8 @@ class DataLoaderFactory:
     dataset: PerceptionDataset
     sampler: SamplerFactory
     actions: T.Sequence[Op] = D.field(default_factory=list)
-    gatherer: QueueGeneratorType = D.field(
-        default_factory=ExtractIndividualFrames,
+    gatherer: QueueGeneratorType | None = D.field(
+        default=None,
         metadata={
             "help": "The gatherer to use to collect items from the dataset into a queue. Defaults to extracting individual frames."
         },
@@ -180,12 +180,10 @@ class DataLoaderFactory:
             sampler_kwargs["process_count"] = 1
             sampler_kwargs["process_index"] = 0
 
-        queue, pipe = self.dataset.collect()
+        queue, pipe = self.dataset(self.gatherer)
 
-        sampler = self.sampler(self.dataset.queue)
-        # Transform items in pipe
-        datapipe = self.dataset.datapipe
-        datapipe = apply_dataset(datapipe, self.actions)
+        sampler = self.sampler(queue)
+        pipe = apply_dataset(pipe, self.actions)
 
         # Create a dataset inteface for the dataloader
         if self.iterable:
@@ -196,12 +194,12 @@ class DataLoaderFactory:
             # if self.config.shard_chunk_size is not None:
             #     interface_kwargs["shared_chunk_size"] = self.shard_chunk_size
 
-            if isinstance(datapipe, IterableDataset):
+            if isinstance(pipe, IterableDataset):
                 raise ValueError(
                     f"Dataset {self.dataset} is already an iterable dataset, cannot wrap it in another iterable dataset!"
                 )
 
-            interface = DatasetInterface(datapipe, sampler, **interface_kwargs)
+            interface = DatasetInterface(pipe, sampler, **interface_kwargs)
 
             _logger.debug(
                 "Transformed map-style dataset to iterable-style dataset: %s",
@@ -210,7 +208,7 @@ class DataLoaderFactory:
 
             loader_kwargs["sampler"] = None
         else:
-            interface = datapipe
+            interface = pipe
 
             loader_kwargs["sampler"] = sampler
 
@@ -226,7 +224,7 @@ class DataLoaderFactory:
 
         _logger.debug(
             "Creating dataloader (%d queued; %d × %d items):\n%s",
-            len(self.dataset.queue),
+            len(queue),
             len(interface),
             batch_size,
             create_table(loader_kwargs, format="long"),

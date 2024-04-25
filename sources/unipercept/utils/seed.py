@@ -15,6 +15,9 @@ import torch
 __all__ = ["seed_worker", "set_seed"]
 
 
+DEFAULT_SEED = 1958
+
+
 def seed_worker(_):
     """
     Helper function to set worker seed during Dataloader initialization.
@@ -25,7 +28,7 @@ def seed_worker(_):
     set_seed(worker_seed)
 
 
-def set_seed(seed: int, fully_deterministic: bool = False):
+def set_seed(seed: int = DEFAULT_SEED, fully_deterministic: bool = False):
     if fully_deterministic:
         os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"

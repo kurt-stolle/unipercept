@@ -21,6 +21,7 @@ __all__ = [
     "MotionRecord",
     "MotionSources",
     "PinholeModelParameters",
+    "CameraModelParameters",
     "FileResource",
     "FileResourceWithMeta",
 ]
@@ -122,11 +123,10 @@ class MotionSources(T.TypedDict):
 
     optical_flow: FileResource
     transforms: FileResource
-    observer: T.NotRequired[str]
 
 
 @T.final
-class MotionRecord(T.TypedDict):
+class MotionRecord(T.TypedDict, T.Generic[_MetaType]):
     """
     A record of motion data in a temporal sequence.
 
@@ -140,6 +140,8 @@ class MotionRecord(T.TypedDict):
 
     frames: tuple[int, int]
     sources: MotionSources
+    observer: T.NotRequired[str]
+    meta: T.NotRequired[_MetaType]
 
 
 # ----------------- #
@@ -157,6 +159,7 @@ class PinholeModelParameters(T.TypedDict):
     rotation: tuple[float, float, float]  # (pitch (x), yaw (y), roll (z))
     translation: tuple[float, float, float]  # (tx, ty, tz)
     image_size: tuple[int, int]  # (height, width)
+    observer: T.NotRequired[str]
 
 
 CameraModelParameters: T.TypeAlias = PinholeModelParameters
@@ -175,6 +178,8 @@ class ManifestSequence(T.TypedDict):
     ----------
     camera
         Camera parameters for the sequence (intrinsic and extrinsic matrix).
+        When a dict is used, it corresponds to each 'observer' name in the
+        captures and motions.
     fps
         Amount of frames per second. Drift is not supported, so this is assumed to be constant.
     captures
@@ -185,7 +190,8 @@ class ManifestSequence(T.TypedDict):
         Remember that each motion references a range of frames, and thus the order of the motions is not important.
     """
 
-    camera: CameraModelParameters | None
+    # singular 'camera' instead of 'cameras' because the '-s' in captures and motions refers to the temporal nature of data, while the camera parameters are assumed to be fixed during each sequence.
+    camera: CameraModelParameters | None | list[CameraModelParameters]
     fps: float | None
     captures: list[CaptureRecord]
     motions: T.NotRequired[list[MotionRecord]]

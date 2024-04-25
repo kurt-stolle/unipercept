@@ -82,7 +82,7 @@ class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):
     @TX.override
     def options(cls):
         return {
-            "split": ["train", "val", "test"],
+            "split": ["train", "val"],
         }
 
     @property

@@ -11,6 +11,7 @@ import hashlib
 import pickle
 import random
 import threading
+import time
 import types
 import typing as T
 import warnings
@@ -20,10 +21,10 @@ import numpy.typing as NP
 import torch
 import torch.utils.data
 from typing_extensions import override
+import torch.distributed
 
 from unipercept import file_io
 from unipercept.log import get_logger
-from unipercept.utils.distributed import is_main_process, wait_for_sync
 from unipercept.utils.frozendict import frozendict
 
 __all__ = ["Dataset"]
@@ -183,7 +184,7 @@ class Dataset(
         a list of what files are in the dataset, and where they are located.
         """
         from unipercept.data.pipes import LazyYAMLCache  # TODO: nasty dependency
-        from unipercept.state import barrier, check_main_process, main_process_first
+        from unipercept.state import barrier, check_main_process
 
         if self._manifest is None:
             with self._manifest_lock:
@@ -194,10 +195,15 @@ class Dataset(
                     # The manifest should be stored until the cache path provided by the environment
                     cache: LazyYAMLCache[_T_MFST] = LazyYAMLCache(self.cache_path)
 
-                    if check_main_process() and not cache.exists():
-                        cache.store(self._build_manifest())
-
-                    barrier()
+                    if check_main_process():
+                        if not cache.exists():
+                            cache.store(self._build_manifest())
+                    else:
+                        # HACK: Fixes current bug in PyTorch distributed where barrier
+                        # is not honored
+                        while not cache.exists():
+                            time.sleep(0.1)
+                    # barrier()
 
                     self._manifest = cache.read()
                 else:

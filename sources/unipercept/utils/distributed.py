@@ -1,5 +1,10 @@
 """
-Wraps PyTorch distributed and adds some extra features
+Wraps PyTorch distributed and adds some extra features.
+
+Todo
+----
+This module must be merged with the `unipercept.state` module, which uses Accelerate
+to do the heavy lifting. 
 """
 
 from __future__ import annotations

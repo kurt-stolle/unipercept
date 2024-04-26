@@ -18,7 +18,16 @@ __all__ = ["Backbone", "BackboneFeatureInfo", "BackboneFeatures"]
 
 
 class BackboneFeatureInfo(T.NamedTuple):
-    """Information about a feature."""
+    """
+    Information about a feature.
+
+    Properties
+    ----------
+    channels : int
+        The number of channels of the feature.
+    stride : int
+        The stride of the feature (with respect to the input image).
+    """
 
     channels: int
     stride: int
@@ -33,6 +42,10 @@ BackboneFeatures: T.TypeAlias = T.Dict[str, BackboneFeatureInfo]
 
 
 class Backbone(nn.Module):
+    """
+    Baseclass for backbones.
+    """
+
     feature_info: T.Final[BackboneFeatures]
 
     def __init__(self, *, feature_info: BackboneFeatures, **kwargs):

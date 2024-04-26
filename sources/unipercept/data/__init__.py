@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from . import collect, io, ops, pipes, pseudolabeler, sets, tensors, types
+from . import collect, io, ops, pipes, pseudolabeler, sets, tensors, tokenizer, types
 from ._helpers import *
 from ._loader import *

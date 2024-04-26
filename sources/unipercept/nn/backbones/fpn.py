@@ -14,9 +14,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import typing_extensions as TX
+from fvcore.nn.weight_init import c2_xavier_fill
 
 from unipercept.nn.backbones._base import Backbone
-from unipercept.nn.layers import conv
+from unipercept.nn.layers import conv, weight
+from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec
 from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
@@ -72,61 +74,64 @@ class FeaturePyramidNetwork(nn.Module):
         corresponding names
     """
 
-    in_features: torch.jit.Final[T.List[str]]
+    in_features: T.Final[T.List[str]]
+    interpolate_mode: T.Final[str]
 
     def __init__(
         self,
         bottom_up: Backbone,
+        *,
         in_features: T.Iterable[str],
         out_channels: int,
         norm: T.Optional[T.Callable[..., nn.Module]],
         extra_blocks: T.Optional[ExtraFPNBlock],
         freeze: bool = False,
         squeeze_excite: bool = False,
+        conv_module: type[conv.Conv2d] = conv.Conv2d,
+        interpolate_mode: T.Literal["nearest", "nearest-exact", "bilinear"] = "nearest",
+        activation: ActivationSpec = lambda: nn.ReLU(inplace=True),
     ):
         super().__init__()
 
         self.inner_blocks = nn.ModuleDict()
         self.layer_blocks = nn.ModuleDict()
         self.in_features = list(in_features)
+        self.interpolate_mode = interpolate_mode
 
         for feature_name in self.in_features:
             feature_info = bottom_up.feature_info[feature_name]
 
             # Inner block
+            inner_conv = conv_module.with_norm(
+                feature_info.channels,
+                out_channels,
+                kernel_size=1,
+                padding=0,
+                norm=norm,
+            )
+            weight.init_xavier_fill_(inner_conv)
+
             if squeeze_excite:
                 inner_block_module = nn.Sequential(
-                    SqueezeExcite2d(feature_info.channels),
-                    conv.Conv2d.with_norm(
-                        feature_info.channels,
-                        out_channels,
-                        kernel_size=1,
-                        padding=0,
-                        norm=norm,
-                    ),
+                    SqueezeExcite2d(feature_info.channels), inner_conv
                 )
+
             else:
-                inner_block_module = conv.Conv2d.with_norm(
-                    feature_info.channels,
-                    out_channels,
-                    kernel_size=1,
-                    padding=0,
-                    norm=norm,
-                )
+                inner_block_module = inner_conv
             self.inner_blocks[feature_name] = inner_block_module
 
             # Layer block
-            layer_block_module = conv.Separable2d.with_norm(
-                out_channels, out_channels, kernel_size=3, norm=norm, padding=1
+            layer_block_module = conv_module.with_norm_activation(
+                out_channels,
+                out_channels,
+                kernel_size=3,
+                norm=norm,
+                padding=1,
+                activation=activation,
             )
-            self.layer_blocks[feature_name] = layer_block_module
+            weight.init_xavier_fill_(layer_block_module)
 
-        # Do not TX.override initialization of backbone and extra blocks.
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_uniform_(m.weight, a=1)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+            self.layer_blocks[feature_name] = layer_block_module
 
         # Extra outputs
         if extra_blocks is not None:
@@ -143,22 +148,9 @@ class FeaturePyramidNetwork(nn.Module):
             for p in self.bottom_up.parameters():
                 p.requires_grad_(False)
 
-    @TX.override
-    def forward(self, inputs: T.Dict[str, torch.Tensor]) -> T.Dict[str, torch.Tensor]:
-        """
-        Computes the FPN for a set of feature maps.
-
-        Parameters
-        ----------
-        inputs
-            feature maps for each feature level.
-
-        Returns
-        -------
-        dict[str, torch.Tensor]
-            Feature maps after FPN layers.
-        """
-
+    def _forward_fpn(
+        self, inputs: T.Dict[str, torch.Tensor]
+    ) -> T.Dict[str, torch.Tensor]:
         # Run the feature extractor
         features = self.bottom_up(inputs)
 
@@ -179,7 +171,7 @@ class FeaturePyramidNetwork(nn.Module):
             # Upscale and merge previous level (if exists)
             if x_mem is not None:
                 x_size = x.shape[-2:]
-                x_ups = F.interpolate(x_mem, size=x_size, mode="nearest-exact")
+                x_ups = F.interpolate(x_mem, size=x_size, mode=self.interpolate_mode)
                 x_mem = x + x_ups
             else:
                 x_mem = x
@@ -193,10 +185,25 @@ class FeaturePyramidNetwork(nn.Module):
         if self.extra_blocks is not None:
             results.extend(self.extra_blocks(results))
 
-        # make it back an OrderedDict
-        out = OrderedDict([(f"fpn_{i+1}", v) for i, v in enumerate(results)])
+        return OrderedDict([(f"fpn_{i+1}", v) for i, v in enumerate(results)])
 
-        return out
+    @TX.override
+    def forward(self, x: T.Dict[str, torch.Tensor]) -> T.Dict[str, torch.Tensor]:
+        """
+        Computes the FPN for a set of feature maps.
+
+        Parameters
+        ----------
+        inputs
+            feature maps for each feature level.
+
+        Returns
+        -------
+        dict[str, torch.Tensor]
+            Feature maps after FPN layers.
+        """
+
+        return self._forward_fpn(x)
 
 
 class LastLevelMaxPool(ExtraFPNBlock):
@@ -243,8 +250,7 @@ class LastLevelP6P7(ExtraFPNBlock):
             self.p7 = conv.Conv2d(channels, channels, 3, stride=2, padding=1)
 
             for module in [self.p6, self.p7]:
-                nn.init.kaiming_uniform_(module.weight, a=1)
-                nn.init.constant_(module.bias, 0)
+                c2_xavier_fill(module)
 
     @TX.override
     def forward(
@@ -252,6 +258,6 @@ class LastLevelP6P7(ExtraFPNBlock):
         x: T.List[torch.Tensor],
     ) -> T.List[torch.Tensor]:
         p6 = self.p6(x[-1])
-        p7 = self.p7(F.gelu(p6))
+        p7 = self.p7(F.relu(p6))
 
         return [p6, p7]

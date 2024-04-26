@@ -34,3 +34,12 @@ def get_activation(spec: ActivationSpec) -> nn.Module:
         return spec()
     else:
         raise ValueError(f"Cannot resolve value as an activation module: {spec}")
+
+
+class InplaceReLU(nn.ReLU):
+    """
+    A ReLU activation function that performs the operation in-place.
+    """
+
+    def __init__(self):
+        super().__init__(inplace=True)

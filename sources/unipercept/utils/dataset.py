@@ -194,8 +194,6 @@ class Dataset(
                     # The manifest should be stored until the cache path provided by the environment
                     cache: LazyYAMLCache[_T_MFST] = LazyYAMLCache(self.cache_path)
 
-                    barrier()
-
                     if check_main_process() and not cache.exists():
                         cache.store(self._build_manifest())
 

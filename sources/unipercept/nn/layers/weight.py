@@ -6,7 +6,7 @@ from typing import Callable, Sequence, Type
 
 import torch
 import torch.nn as nn
-from fvcore.nn.weight_init import c2_xavier_fill
+from fvcore.nn.weight_init import c2_msra_fill, c2_xavier_fill
 
 
 def init_wrap(
@@ -73,6 +73,14 @@ init_xavier_fill_ = init_wrap(
     (
         ...,
         c2_xavier_fill,
+        False,
+    ),
+)
+init_msra_fill_ = init_wrap(
+    (nn.Conv2d, nn.Linear),
+    (
+        ...,
+        c2_msra_fill,
         False,
     ),
 )

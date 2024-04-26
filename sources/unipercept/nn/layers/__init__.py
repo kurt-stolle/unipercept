@@ -7,7 +7,7 @@ import warnings
 
 import typing_extensions as TX
 
-from . import conv, merge, norm, projection, squeeze_excite, utils
+from . import activation, conv, merge, norm, projection, squeeze_excite, utils, weight
 from ._attention import *
 from ._coord import *
 from ._interpolate import *

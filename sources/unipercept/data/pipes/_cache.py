@@ -35,7 +35,7 @@ class LazyPickleCache(Generic[_M]):
         assert self.path.endswith(self.file_ext), self.path
 
     def exists(self) -> bool:
-        return file_io.isfile(self.path)
+        return file_io.Path(self.path).exists()
 
     def store(self, items: _M) -> None:
         items = dict(items)  # type: ignore

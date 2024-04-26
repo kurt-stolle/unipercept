@@ -1,3 +1,7 @@
+"""
+Implements a simple BPE tokenizer from the GPT-2 model.
+"""
+
 from __future__ import annotations
 
 import functools as F

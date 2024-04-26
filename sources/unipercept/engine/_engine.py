@@ -118,6 +118,7 @@ class Engine:
         "_params",
         "dry_run",
         "session_id",
+        "find_batch_size",
         "_config",
         "_dataloaders",
         "_stages",
@@ -137,6 +138,7 @@ class Engine:
         log_events: bool = False,
         dry_run: bool = False,
         grad_norm_smoother: SmoothingObserverModule | None = None,
+        find_batch_size: bool = False,
     ):
         self._default_setup()
 
@@ -156,6 +158,7 @@ class Engine:
         self._root = None
         self._config = None
         self._grad_norm_smoother = grad_norm_smoother
+        self.find_batch_size = find_batch_size
 
         self._stages = list(stages) if stages is not None else []
         self._evaluators: T.Final[dict[str, EvaluationSuite]] = (
@@ -493,8 +496,7 @@ class Engine:
 
         self._start_experiment_trackers(restart=False)
 
-        @find_executable_batch_size(starting_batch_size=stage.batch_size)
-        def train(batch_size: int) -> nn.Module:
+        def train_inner(batch_size: int) -> nn.Module:
             """
             This inner function accepts a parameter batch_size, which is automatically
             tuned to the maximum batch size that fits into memory.
@@ -569,6 +571,14 @@ class Engine:
 
         # Add FINDING_BATCH_SIZE flag to status
         self.status |= EngineStatus.FINDING_BATCH_SIZE
+
+        if self.find_batch_size:
+            train = find_executable_batch_size(starting_batch_size=stage.batch_size)(
+                train_inner
+            )
+        else:
+            train = functools.partial(train_inner, stage.batch_size)
+
         result = train()
 
         # If we are not running a larger procedure of stages, stop trackers
@@ -676,8 +686,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
 
     @T.overload
     def build_training_dataloader(
@@ -685,8 +694,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
 
     def build_training_dataloader(
         self,

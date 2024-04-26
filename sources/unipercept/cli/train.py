@@ -36,6 +36,12 @@ def train(p: argparse.ArgumentParser):
         action="store_true",
         help="continue training from the last checkpoint",
     )
+    p.add_argument(
+        "--reduce-batch-size",
+        type=int,
+        default=1,
+        help="factor by which to reduce all batch sizes and increase gradient accumulation steps",
+    )
 
     # Mode (training/evaluation/...)
     p_mode = p.add_mutually_exclusive_group(required=False)
@@ -56,6 +62,23 @@ def _step(args) -> config_t:
     if args.no_jit:
         _logger.info("Disabling JIT compilation")
         os.environ["PYTORCH_JIT"] = "0"
+
+    if args.reduce_batch_size > 1:
+        power = int(2 ** (args.reduce_batch_size - 1))
+        _logger.info(
+            "Reducing batch size by scale %d (batch_size / %d)",
+            args.reduce_batch_size,
+            power,
+        )
+        for stage in args.config.ENGINE.stages:
+            stage.batch_size //= power
+            if stage.batch_size < 1:
+                raise ValueError("Batch size cannot be less than 1")
+            if hasattr(stage, "gradient_accumulation"):
+                stage.gradient_accumulation *= power
+            else:
+                stage.gradient_accumulation = power
+
     return args.config
 
 

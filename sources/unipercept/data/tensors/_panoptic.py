@@ -317,12 +317,10 @@ class PanopticMap(_Mask):
         return cls.from_parts(encoded_map // divisor, encoded_map % divisor)
 
     @T.overload
-    def to_parts(self, as_tuple=False) -> torch.Tensor:
-        ...
+    def to_parts(self, as_tuple=False) -> torch.Tensor: ...
 
     @T.overload
-    def to_parts(self, as_tuple=True) -> T.Tuple[torch.Tensor, torch.Tensor]:
-        ...
+    def to_parts(self, as_tuple=True) -> T.Tuple[torch.Tensor, torch.Tensor]: ...
 
     def to_parts(
         self, as_tuple: bool = False
@@ -377,20 +375,42 @@ class PanopticMap(_Mask):
         """Return a mask for the specified instance."""
         return (self.get_instance_map() == instance_id).as_subclass(_Mask)
 
-    def get_masks(self, with_void=False) -> T.Iterator[tuple[int, int, _Mask]]:
+    @T.overload
+    def get_masks(
+        self, with_void=False, return_label=True
+    ) -> T.List[T.Tuple[int, _Mask]]: ...
+
+    @T.overload
+    def get_masks(
+        self, with_void=False, return_label=False
+    ) -> T.List[T.Tuple[int, _Mask]]: ...
+
+    def get_masks(
+        self, with_void: bool = False, return_label: bool = False
+    ) -> T.List[T.Tuple[int, int, _Mask]] | T.List[T.Tuple[int, _Mask]]:
         """Return a mask for each semantic class and instance (if any)."""
 
         pan_map = self.unique()
 
+        result = []
+
         for pan_id in pan_map:
             sem_id = pan_id // self.DIVISOR
-            ins_id = pan_id % self.DIVISOR
 
-            if sem_id == self.IGNORE and not with_void:
-                continue
+            if sem_id == self.IGNORE:
+                if not with_void:
+                    continue
+                ins_id = 0
+            else:
+                ins_id = torch.remainder(pan_id, self.DIVISOR)
 
             mask = (self == pan_id).as_subclass(_Mask)
-            yield int(sem_id), int(ins_id), mask
+
+            if not return_label:
+                result.append((int(sem_id), int(ins_id), mask))
+            else:
+                result.append((int(pan_id), mask))
+        return result
 
     def unique_instances(self) -> torch.Tensor:
         """Count the number of unique instances for each semantic class."""

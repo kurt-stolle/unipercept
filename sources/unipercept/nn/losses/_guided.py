@@ -7,6 +7,7 @@ from __future__ import annotations
 import typing as T
 
 import torch
+from torch.cuda.amp import autocast
 import torch.nn as nn
 from einops import reduce
 from torch import nn
@@ -33,7 +34,10 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.patch_size = patch_size
 
     @override
+    @autocast(enabled=False)
     def forward(self, seg_feat: torch.Tensor, dep_true: torch.Tensor):
+        seg_feat = seg_feat.float()
+        dep_true = dep_true.float()
         loss, mask = depth_guided_segmentation_loss(
             seg_feat, dep_true, self.eps, self.tau, self.patch_size
         )
@@ -98,7 +102,9 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.threshold = max(1, min(self.patch_width, self.patch_height) // 2 - 1)
 
     @override
+    @autocast(enabled=False)
     def forward(self, dep_feat: torch.Tensor, seg_true: torch.Tensor):
+        dep_feat = dep_feat.float()
         loss, mask = segmentation_guided_triplet_loss(
             dep_feat,
             seg_true,

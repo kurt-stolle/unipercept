@@ -6,6 +6,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
+from torch.cuda.amp import autocast
 from typing_extensions import override
 
 from unipercept.nn.losses.functional import (
@@ -43,7 +44,7 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         )
 
     @override
-    @torch.jit.script_if_tracing
+    @autocast(enabled=False)
     def forward(
         self,
         true: torch.Tensor,
@@ -93,18 +94,23 @@ class DepthSmoothLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.padded = False
 
     @override
-    @torch.jit.script_if_tracing
+    @autocast(enabled=False)
     def forward(
         self,
         images: torch.Tensor,
         depths: torch.Tensor,
         mask: torch.Optional[torch.Tensor],
     ) -> torch.Tensor:
+        images = images.float()
+        depths = depths.float()
+
         if len(images) == 0:
             return depths.sum()
 
         if mask is None:
             mask = torch.ones_like(images).bool()
+        else:
+            mask = mask.bool()
 
         # compute inverse depths
         # idepths = 1 / (depths / self.depth_max).clamp(self.eps)
@@ -186,9 +192,13 @@ class PEDLoss(nn.Module):
         super().__init__()
 
     @override
+    @autocast(enabled=False)
     def forward(
-        self, output, target
+            self, output: torch.Tensor, target: torch.Tensor
     ):  # NOTE:  target is panoptic mask, output is norm disparity
+        output = output.float()
+        target = target.float()
+
         # Compute the Iverson bracket for adjacent pixels along the x-dimension
         panoptic_diff_x = torch.diff(target, dim=-1) != 0
 
@@ -372,7 +382,13 @@ class ScaleAndShiftInvariantLoss(nn.Module):
 
         self.__prediction_ssi = None
 
+    @override
+    @autocast(enabled=False)
     def forward(self, prediction, target, mask):
+        prediction = prediction.float()
+        target = target.float()
+        mask = mask.bool()
+
         scale, shift = compute_scale_and_shift(prediction, target, mask)
         self.__prediction_ssi = scale.view(-1, 1, 1) * prediction + shift.view(-1, 1, 1)
 

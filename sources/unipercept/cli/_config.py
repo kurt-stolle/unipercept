@@ -11,9 +11,9 @@ import torch
 from bullet import Bullet
 from omegaconf import DictConfig
 from typing_extensions import override
-from unipercept.log import get_logger
 
 import unipercept.file_io as file_io
+from unipercept.log import create_table, get_logger
 
 __all__ = ["add_config_args", "ConfigFileContentType"]
 
@@ -183,7 +183,8 @@ class ConfigLoad(argparse.Action):
             overrides_applied[key] = f"{str(value)} ({type(value).__name__})"
         if len(overrides_applied) > 0:
             _logger.info(
-                "Configuration overrides applied from CLI: %s", overrides_applied
+                "Configuration overrides applied from CLI: %s",
+                create_table(overrides_applied, format="long"),
             )
         return cfg
 

@@ -4,9 +4,10 @@
 
 from __future__ import annotations
 
+import functools
 import typing as T
 from collections import OrderedDict
-import functools
+
 import torch
 import torch.nn as nn
 

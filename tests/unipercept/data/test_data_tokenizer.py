@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import pytest
-from unipercept.data.tokenizer import Tokenize, SimpleTokenizer
+
+from unipercept.data.tokenizer import SimpleTokenizer, Tokenize
 
 
 @pytest.fixture
@@ -21,6 +24,7 @@ def test_encode_decode(tokenizer: SimpleTokenizer):
 
     # Check encode-decone-encode consistency
     assert tokens == tokenizer.encode(tokenizer.decode(tokens))
+
 
 def test_tokenize(tokenizer):
     tokenize = Tokenize(tokenizer)

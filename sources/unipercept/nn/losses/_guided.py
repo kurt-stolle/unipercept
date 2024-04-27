@@ -7,10 +7,10 @@ from __future__ import annotations
 import typing as T
 
 import torch
-from torch.cuda.amp import autocast
 import torch.nn as nn
 from einops import reduce
 from torch import nn
+from torch.cuda.amp import autocast
 from typing_extensions import override
 
 from unipercept.nn.losses.functional import split_into_patches

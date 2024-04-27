@@ -19,9 +19,9 @@ import warnings
 import numpy as np
 import numpy.typing as NP
 import torch
+import torch.distributed
 import torch.utils.data
 from typing_extensions import override
-import torch.distributed
 
 from unipercept import file_io
 from unipercept.log import get_logger

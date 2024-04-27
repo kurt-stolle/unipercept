@@ -8,9 +8,9 @@ import functools as F
 import gzip
 import html
 import os
-import regex as re
 
 import ftfy
+import regex as re
 import torch
 
 

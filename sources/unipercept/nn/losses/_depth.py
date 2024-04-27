@@ -194,7 +194,7 @@ class PEDLoss(nn.Module):
     @override
     @autocast(enabled=False)
     def forward(
-            self, output: torch.Tensor, target: torch.Tensor
+        self, output: torch.Tensor, target: torch.Tensor
     ):  # NOTE:  target is panoptic mask, output is norm disparity
         output = output.float()
         target = target.float()

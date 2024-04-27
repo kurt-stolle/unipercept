@@ -1,7 +1,7 @@
 """Simple CLI extension for loading configuration files."""
 
 from __future__ import annotations
-
+import pandas as pd
 import argparse
 import enum
 import os
@@ -173,18 +173,20 @@ class ConfigLoad(argparse.Action):
         OmegaConf.update(cfg, key, value, merge=True)
 
     def apply_overrides(self, cfg, overrides):
-        overrides_applied = {}
+        overrides_applied = []
         for override in self.overrides_parser.parse_overrides(overrides):
             key = override.key_or_group
             value = override.value()
             # if value == "None":
             #     value = None
             self.safe_update(cfg, key, value)
-            overrides_applied[key] = f"{str(value)} ({type(value).__name__})"
+            overrides_applied.append(
+                {"Key": key, "Value": value, "Type": type(value).__name__}
+            )
         if len(overrides_applied) > 0:
             _logger.info(
-                "Configuration overrides applied from CLI: %s",
-                create_table(overrides_applied, format="long"),
+                "Configuration overrides applied from CLI:\n%s",
+                create_table(pd.DataFrame.from_records(overrides_applied), format="wide"),
             )
         return cfg
 

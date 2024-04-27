@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import typing as T
 from collections import OrderedDict
-
+import functools
 import torch
 import torch.nn as nn
 
-__all__ = ["Backbone", "BackboneFeatureInfo", "BackboneFeatures"]
+__all__ = ["Backbone", "BackboneFeatureInfo", "BackboneFeatures", "query_feature_info"]
 
 # ---------------- #
 # Feature metadata #
@@ -70,3 +70,13 @@ class Backbone(nn.Module):
             The extracted features.
         """
         raise NotImplementedError()
+
+
+@functools.lru_cache()
+def query_feature_info(module: type[Backbone], *args, **kwargs):
+    """
+    Utility function to query the feature information of a backbone in confiugration
+    files.
+    """
+    bb = module(*args, **kwargs)
+    return bb.feature_info

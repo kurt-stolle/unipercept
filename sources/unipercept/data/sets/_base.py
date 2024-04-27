@@ -241,6 +241,19 @@ class Metadata:
         return True
 
     # -------------- #
+    # General access #
+    # -------------- #
+
+    @property
+    def semantic_amount(self) -> int:
+        """
+        Returns the total amount of classes, including both thing and stuff classes.
+        Duplicates are not counted.
+        """
+        classes = set(self.thing_offsets.keys()) | set(self.stuff_offsets.keys())
+        return len(classes)
+
+    # -------------- #
     # Thing specific #
     # -------------- #
 

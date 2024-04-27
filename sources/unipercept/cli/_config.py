@@ -11,6 +11,7 @@ import torch
 from bullet import Bullet
 from omegaconf import DictConfig
 from typing_extensions import override
+from unipercept.log import get_logger
 
 import unipercept.file_io as file_io
 
@@ -18,6 +19,7 @@ __all__ = ["add_config_args", "ConfigFileContentType"]
 
 _NONINTERACTIVE_MODE = False
 _BULLET_STYLES = {"bullet": " >", "margin": 2, "pad_right": 2}
+_logger = get_logger(__name__)
 
 if T.TYPE_CHECKING:
 
@@ -166,18 +168,23 @@ class ConfigLoad(argparse.Action):
             if v is None:
                 break
             if not OmegaConf.is_config(v):
-                raise KeyError(
-                    f"Trying to update key {key}, but {prefix} is not a config, but has type {type(v)}."
-                )
+                msg = f"Trying to update key {key}, but {prefix} ({type(v)}) is not configurable."
+                raise KeyError(msg)
         OmegaConf.update(cfg, key, value, merge=True)
 
     def apply_overrides(self, cfg, overrides):
+        overrides_applied = {}
         for override in self.overrides_parser.parse_overrides(overrides):
             key = override.key_or_group
             value = override.value()
-            if value == "None":
-                value = None
+            # if value == "None":
+            #     value = None
             self.safe_update(cfg, key, value)
+            overrides_applied[key] = f"{str(value)} ({type(value).__name__})"
+        if len(overrides_applied) > 0:
+            _logger.info(
+                "Configuration overrides applied from CLI: %s", overrides_applied
+            )
         return cfg
 
 

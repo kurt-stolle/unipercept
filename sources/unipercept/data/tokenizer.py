@@ -8,7 +8,7 @@ import functools as F
 import gzip
 import html
 import os
-import re
+import regex as re
 
 import ftfy
 import torch

@@ -9,6 +9,7 @@ import functools
 import itertools
 import typing as T
 from datetime import UTC, datetime
+import warnings
 
 import torch
 import torch.utils.data
@@ -762,12 +763,29 @@ class PerceptionDataset(
         """
         from unipercept.data.collect import ExtractIndividualFrames
 
+        if queue_fn := getattr(self, "queue_fn", None) is not None:
+            warnings.warn(
+                "queue_fn is deprecated and will be removed in the future. "
+                "Please provide the gatherer outside the dataset definition instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            gatherer = queue_fn
         if gatherer is None:
             gatherer = ExtractIndividualFrames()
         queue = self.build_queue(gatherer)
         pipe = self.build_pipe(queue)
 
         return queue, pipe
+
+    if not T.TYPE_CHECKING:
+        queue_fn: T.Callable[[Manifest], tuple[str, QueueItem]] | None = D.field(
+            default=None,
+            repr=False,
+            metadata={
+                "help": "Shorthand for defining a gatherer outside the loader (deprecated)."
+            },
+        )
 
 
 class ConcatenatedDataset(PerceptionDataset, id=None):

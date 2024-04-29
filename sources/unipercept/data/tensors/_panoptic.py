@@ -386,7 +386,7 @@ class PanopticMap(_Mask):
     @T.overload
     def get_masks(
         self, with_void=False, return_label=False
-    ) -> T.List[T.Tuple[int, _Mask]]:
+    ) -> T.List[T.Tuple[int, int, _Mask]]:
         ...
 
     def get_masks(

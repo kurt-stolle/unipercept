@@ -127,8 +127,8 @@ class PseudoGenerator:
         from unipercept import file_io
         from unipercept.data.tensors import PanopticMap
 
-        seg = torch.from_numpy(np.asarray(semantic))
-        ins = torch.from_numpy(np.asarray(instance))
+        seg = torch.from_numpy(np.asarray(semantic).astype(np.int32))
+        ins = torch.from_numpy(np.asarray(instance).astype(np.int32))
 
         if seg.shape != ins.shape:
             msg = f"Expected same size, got {seg.shape} and {ins.shape}!"

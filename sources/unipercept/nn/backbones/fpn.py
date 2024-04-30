@@ -20,6 +20,8 @@ from unipercept.nn.backbones._base import Backbone
 from unipercept.nn.layers import conv, weight
 from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec
 from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
+from unipercept.nn.layers.utils import to_2tuple
+from unipercept.utils.inspect import locate_object
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
 
@@ -87,10 +89,11 @@ class FeaturePyramidNetwork(nn.Module):
         extra_blocks: T.Optional[ExtraFPNBlock],
         freeze: bool = False,
         squeeze_excite: bool = False,
-        conv_module: type[conv.Conv2d] = conv.Conv2d,
+        conv_module: type[conv.Conv2d] | tuple[type[conv.Conv2d], ...] = conv.Conv2d,
         interpolate_mode: T.Literal["nearest", "nearest-exact", "bilinear"] = "nearest",
         activation: ActivationSpec = lambda: nn.ReLU(inplace=True),
     ):
+
         super().__init__()
 
         self.inner_blocks = nn.ModuleDict()
@@ -98,11 +101,18 @@ class FeaturePyramidNetwork(nn.Module):
         self.in_features = list(in_features)
         self.interpolate_mode = interpolate_mode
 
+        conv_module_inner, conv_module_layer = to_2tuple(conv_module)
+
+        if isinstance(conv_module_inner, str):
+            conv_module_inner = locate_object(conv_module_inner)
+        if isinstance(conv_module_layer, str):
+            conv_module_layer = locate_object(conv_module_layer)
+
         for feature_name in self.in_features:
             feature_info = bottom_up.feature_info[feature_name]
 
             # Inner block
-            inner_conv = conv_module.with_norm(
+            inner_conv = conv_module_inner.with_norm(
                 feature_info.channels,
                 out_channels,
                 kernel_size=1,
@@ -121,7 +131,7 @@ class FeaturePyramidNetwork(nn.Module):
             self.inner_blocks[feature_name] = inner_block_module
 
             # Layer block
-            layer_block_module = conv_module.with_norm_activation(
+            layer_block_module = conv_module_layer.with_norm_activation(
                 out_channels,
                 out_channels,
                 kernel_size=3,

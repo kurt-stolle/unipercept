@@ -628,16 +628,23 @@ _INST_SEQ_TYPEMAP: dict[type, type] = {
     frozenset: frozenset,
 }
 
+# ------------------------- #
+# Various migration systems #
+# ------------------------- #
 
-def migrate_target(v: T.Any) -> T.Any:
-    if isinstance(v, str):
-        match v:
+
+def migrate_target(target: T.Any) -> T.Any:
+    if isinstance(target, str):
+        match target:
             case "unipercept.utils.catalog.DataManager.get_info_at":
                 return "unipercept.get_info_at"
             case _:
                 pass
-    return v
+    return target
 
+# -------------------- #
+# Config instantiation #
+# -------------------- #
 
 @T.overload
 def instantiate(cfg: T.Sequence[LazyObject[_L]], /) -> T.Sequence[_L]:

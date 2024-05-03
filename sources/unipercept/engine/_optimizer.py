@@ -135,7 +135,6 @@ class LearningRate:
         *,
         batch_size: int | None,
         processes: int,
-        opt_params: dict[str, T.Any],
     ):
         value = self.value
 

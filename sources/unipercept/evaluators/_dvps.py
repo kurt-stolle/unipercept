@@ -1,7 +1,9 @@
 """
 Implements the DVPQ and DSTQ metrics.
 
-Code adapted from: https://github.com/joe-siyuan-qiao/ViP-DeepLab
+See Also
+--------
+- Reference implementation <https://github.com/joe-siyuan-qiao/ViP-DeepLab>
 """
 
 from __future__ import annotations
@@ -427,7 +429,7 @@ def _compute_dvpq_at_group(
     *,
     storage,
     device,
-    threshold: int,
+    threshold: float,
     void_color,
     allow_stuff_instances,
     allow_unknown_category,
@@ -444,6 +446,8 @@ def _compute_dvpq_at_group(
     assert true_dep.dtype == torch.float32
     assert pred_dep.dtype == torch.float32
 
+    invalid_depth_id = max(*object_ids, *background_ids) + 1
+
     # Mask out invalid depths
     if threshold > 0:
         valid_dep = true_dep > 0
@@ -458,7 +462,7 @@ def _compute_dvpq_at_group(
         # Determine which pixels meet the threshold
         thres_mask = abs_rel < threshold
 
-        pred_seg[~thres_mask].fill_(-1)
+        pred_seg = torch.where(~thres_mask, invalid_depth_id, pred_seg)
 
     # Stack the group into one large image
     true_seg = rearrange(true_seg, "b h w -> (b h) w")
@@ -467,10 +471,10 @@ def _compute_dvpq_at_group(
     # Compute PQ
     pred_seg = _preprocess_mask(
         object_ids,
-        background_ids,
+        frozenset(list(background_ids) + [invalid_depth_id]),
         pred_seg,
         void_color=void_color,
-        allow_unknown_category=allow_unknown_category,
+        allow_unknown_category=True,
     )
     true_seg = _preprocess_mask(
         object_ids,

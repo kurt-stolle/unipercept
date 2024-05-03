@@ -6,13 +6,10 @@ import typing as T
 
 import torch
 import torch.nn as nn
+import math
 from torch.cuda.amp import autocast
 from typing_extensions import override
 
-from unipercept.nn.losses.functional import (
-    relative_absolute_squared_error,
-    scale_invariant_logarithmic_error,
-)
 from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
 from unipercept.utils.mask import masks_to_boxes
 
@@ -28,20 +25,67 @@ __all__ = [
 ]
 
 
-class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
-    weights: torch.Tensor
+def scale_invariant_logarithmic_error(
+    x: torch.Tensor, y: torch.Tensor, num: int, eps: float
+) -> torch.Tensor:
+    r"""
+    Scale invariant logarithmic error.
+    """
+    # log_err = torch.log(x) - torch.log(y)
+    log_err = torch.log1p(x) - torch.log1p(y)
 
-    def __init__(self, *, weight_sile=4.0, weight_are=1.0, weight_sre=1.0, **kwargs):
+    num_2 = num**2
+
+    # sile_1 = log_err.square().sum()/num
+    # sile_2 = log_err.sum().square()  / num_2
+
+    sile_1 = torch.mean(log_err**2)
+    sile_2 = (torch.sum(log_err) ** 2) / num_2
+
+    return sile_1 - sile_2
+
+
+def relative_absolute_squared_error(
+    x: torch.Tensor, y: torch.Tensor, num: int, eps: float
+) -> T.Tuple[torch.Tensor, torch.Tensor]:
+    r"""
+    Square relative error and absolute relative error.
+    """
+    err = x - y
+    err_rel = err / y
+    are = err_rel.abs().sum() / num
+
+    sre = err_rel.square().sum() / num
+    sre = sre.clamp(eps).sqrt()
+
+    return are, sre
+
+
+def relative_sqrt_error(
+    x: torch.Tensor, y: torch.Tensor, num: int, eps: float
+) -> torch.Tensor:
+    r"""
+    Computes relative square root error.
+    """
+    return torch.sqrt(torch.mean((1 - x / y) ** 2))
+
+
+class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
+    def __init__(
+        self,
+        *,
+        weight_sile=5.0,
+        weight_arse=0.0,
+        weight_srse=0.0,
+        weight_rsqe=1.0,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
 
-        self.register_buffer(
-            "weights",
-            torch.tensor(
-                [weight_sile, weight_are, weight_sre],
-                dtype=torch.float,
-                requires_grad=False,
-            ),
-        )
+        self.weight_sile = weight_sile
+        self.weight_arse = weight_arse
+        self.weight_srse = weight_srse
+        self.weight_rsqe = weight_rsqe
 
     @override
     @autocast(enabled=False)
@@ -53,22 +97,41 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         mask: torch.Tensor,
     ) -> torch.Tensor:
         assert mask.dtype == torch.bool, mask.dtype
-        assert mask.ndim >= 3, mask.ndim
-
-        true = true.float()
-        pred = pred.float()
-        mask = mask & (true > self.eps)
         if not mask.any():
             return pred.sum() * 0.0
-
-        true = true[mask]
-        pred = pred[mask]
+        true = true[mask].float().clamp(self.eps)
+        pred = pred[mask].float().clamp(self.eps)
         n = true.numel()
 
-        sile = self._compute_sile(pred, true, n)
-        are, sre = self._compute_rel(pred, true, n)
+        if self.weight_arse > 0 or self.weight_srse > 0:
+            are, sre = self._compute_arse(pred, true, n)
 
-        loss = torch.stack([sile, are, sre]) * self.weights
+            if self.weight_arse > 0:
+                are = are * self.weight_arse
+            else:
+                are = None
+
+            if self.weight_srse > 0:
+                sre = sre * self.weight_srse
+            else:
+                sre = None
+        else:
+            are = sre = None
+
+        if self.weight_sile > 0:
+            sile = self._compute_sile(pred, true, n) * self.weight_sile
+        else:
+            sile = None
+
+        if self.weight_rsqe > 0:
+            rsqe = self._compute_rsqe(pred, true, n) * self.weight_rsqe
+        else:
+            rsqe = None
+
+        loss_list = [sile, rsqe, are, sre]
+        loss = torch.stack(
+            [loss_comp for loss_comp in loss_list if loss_comp is not None]
+        )
 
         return loss.sum() * self.scale
 
@@ -77,10 +140,15 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     ) -> torch.Tensor:
         return scale_invariant_logarithmic_error(pred, true, num, self.eps)
 
-    def _compute_rel(
+    def _compute_arse(
         self, pred: torch.Tensor, true: torch.Tensor, num: int
     ) -> T.Tuple[torch.Tensor, torch.Tensor]:
         return relative_absolute_squared_error(pred, true, num, self.eps)
+
+    def _compute_rsqe(
+        self, pred: torch.Tensor, true: torch.Tensor, num: int
+    ) -> torch.Tensor:
+        return relative_sqrt_error(pred, true, num, self.eps)
 
 
 class DepthSmoothLoss(StableLossMixin, ScaledLossMixin, nn.Module):

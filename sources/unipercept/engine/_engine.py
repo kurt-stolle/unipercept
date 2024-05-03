@@ -23,16 +23,12 @@ import torch._dynamo.config
 import torch.optim
 import torch.types
 import torch.utils.data
-import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
-from sklearn import tree
-from tabulate import tabulate
-from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase, pad_sequence
+from tensordict import TensorDict, TensorDictBase, pad_sequence
 from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch import Tensor, nn
 from torch.utils._pytree import tree_flatten
-from torch.utils.data import Dataset
 from typing_extensions import override
 
 from unipercept import file_io
@@ -49,7 +45,6 @@ from unipercept.model import InputData, ModelBase, ModelOutput
 from unipercept.state import (
     barrier,
     check_main_process,
-    cpus_available,
     gather,
     get_process_count,
     get_process_index,
@@ -235,8 +230,9 @@ class Engine:
         if self._grad_norm_smoother is not None:
             xlr.register_for_checkpointing(self._grad_norm_smoother)
 
-        self._xlr = xlr
+        self._edge(Event.ON_ACCELERATOR_SETUP, accelerator=xlr)
 
+        self._xlr = xlr
         return xlr
 
     def select_inputs(self, model: nn.Module, inputs: InputType) -> T.Tuple[T.Any]:
@@ -537,7 +533,7 @@ class Engine:
             assert (
                 scheduled_epochs > 0
             ), "Expected scheduled epochs to be greater than 0"
-            optimizer = stage.optimizer(model)
+            optimizer = stage.optimizer(model, stage.batch_size)
             scheduler, train_epochs = stage.scheduler(
                 optimizer, scheduled_epochs, updates_per_epoch
             )
@@ -1027,6 +1023,12 @@ class Engine:
                 continue
             torch.nan_to_num(p.grad, nan=0.0, posinf=1e8, neginf=-1e8, out=p.grad)
 
+        self._edge(
+            Event.ON_TRAIN_GRADIENTS,
+            model=model,
+            sync_gradients=self.xlr.sync_gradients,
+        )
+
         if self._params.max_grad_value is not None:
             nn.utils.clip_grad_value_(model.parameters(), self._params.max_grad_value)
 
@@ -1455,6 +1457,7 @@ class Engine:
             if self._grad_norm_smoother is not None:
                 smooth_norm = self._grad_norm_smoother.observe().item()
                 logs["optimizer/smooth_norm"] = smooth_norm
+
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {
                 loss_key: gather(loss_item).mean().item()

@@ -81,39 +81,3 @@ def depth_to_disp(
 ##############################
 # Depth related loss metrics #
 ##############################
-
-
-def scale_invariant_logarithmic_error(
-    x: torch.Tensor, y: torch.Tensor, num: int, eps: float
-) -> torch.Tensor:
-    r"""
-    Scale invariant logarithmic error.
-    """
-    log_err = torch.log(x + eps) - torch.log(y + eps)
-    # log_err = torch.log1p(x) - torch.log1p(y)
-
-    num_2 = num**2
-
-    # sile_1 = log_err.square().sum()/num
-    # sile_2 = log_err.sum().square()  / num_2
-
-    sile_1 = (math.sqrt(num) * log_err).square().sum()
-    sile_2 = log_err.sum().square()
-
-    return (sile_1 - sile_2.clamp(max=sile_1)) / num_2
-
-
-def relative_absolute_squared_error(
-    x: torch.Tensor, y: torch.Tensor, num: int, eps: float
-) -> T.Tuple[torch.Tensor, torch.Tensor]:
-    r"""
-    Square relative error and absolute relative error.
-    """
-    err = x - y
-    err_rel = err / y.clamp(eps)
-    are = err_rel.abs().sum() / num
-
-    sre = err_rel.square().sum() / num
-    sre = sre.clamp(eps).sqrt()
-
-    return are, sre

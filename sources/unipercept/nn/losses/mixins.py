@@ -14,9 +14,9 @@ __all__ = [
     "split_into_patches",
 ]
 
-EPS_FLOAT: T.Final[float] = torch.finfo(torch.float).eps
-EPS_HALF: T.Final[float] = torch.finfo(torch.half).eps
-EPS_BF16: T.Final[float] = torch.finfo(torch.bfloat16).eps
+EPS_FLOAT: T.Final[float] = torch.finfo(torch.float).resolution
+EPS_HALF: T.Final[float] = torch.finfo(torch.half).resolution
+EPS_BF16: T.Final[float] = torch.finfo(torch.bfloat16).resolution
 
 
 class ScaledLossMixin(nn.Module):

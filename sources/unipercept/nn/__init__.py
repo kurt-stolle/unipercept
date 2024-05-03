@@ -12,7 +12,7 @@ from unipercept.utils.module import lazy_module_factory
 
 __all__ = []
 __getattr__, __dir__ = lazy_module_factory(
-    __name__, ["backbones", "layers", "losses", "typings", "integrations"]
+    __name__, ["backbones", "layers", "losses", "typings", "smooth"]
 )
 
 del lazy_module_factory

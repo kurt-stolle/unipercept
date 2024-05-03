@@ -8,35 +8,21 @@ import dataclasses as D
 import enum as E
 import typing as T
 from pprint import pformat
-
+from torch import Tensor, nn
 import numpy as np
+import torch
 import typing_extensions as TX
 from tqdm.auto import tqdm
 
-import unipercept.log
-import unipercept.state
+from unipercept.log import get_logger
+from unipercept.state import check_main_process
 
 if T.TYPE_CHECKING:
     from torch.utils.data import DataLoader
-
     from unipercept.engine import EngineParams
+    from unipercept.engine.accelerate import Accelerator
 
-__all__ = [
-    "State",
-    "Signal",
-    "Event",
-    "Event",
-    "CallbackDispatcher",
-    "CallbackType",
-    "Delegate",
-    "FlowCallback",
-    "ProgressCallback",
-    "Logger",
-    "ConditionalStoppingCallback",
-    "EarlyStoppingCallback",
-]
-
-_logger = unipercept.log.get_logger(__name__)
+_logger = get_logger(__name__)
 
 
 @D.dataclass(kw_only=True)
@@ -206,6 +192,7 @@ class Event(E.StrEnum):
     """
 
     ON_CREATE = E.auto()
+    ON_ACCELERATOR_SETUP = E.auto()
     ON_TRACKERS_SETUP = E.auto()
     ON_TRAIN_BEGIN = E.auto()
     ON_TRAIN_END = E.auto()
@@ -214,6 +201,7 @@ class Event(E.StrEnum):
     ON_TRAIN_STEP_BEGIN = E.auto()
     ON_TRAIN_SUBSTEP_END = E.auto()
     ON_TRAIN_STEP_END = E.auto()
+    ON_TRAIN_GRADIENTS = E.auto()
     ON_EVALUATE = E.auto()
     ON_PREDICT = E.auto()
     ON_INFERENCE_END = E.auto()
@@ -247,9 +235,22 @@ class CallbackDispatcher:
         handler: T.Callable[..., Signal | None] = getattr(self, event_name)
         handler(params, state, control, **kwargs)
 
-    def on_create(self, params: EngineParams, state: State, control: Signal):
+    def on_create(self, params: EngineParams, state: State, control: Signal, **kwargs):
         """
         Event called at the end of the initialization of the ``Engine``.
+        """
+
+    def on_accelerator_setup(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        accelerator: Accelerator,
+        **kwargs,
+    ):
+        """
+        Event called at the end of the initialization of the ``Accelerator``.
         """
 
     def on_trackers_setup(
@@ -315,6 +316,21 @@ class CallbackDispatcher:
         """
         Event called at the end of a training step. If using gradient accumulation, one training step might take
         several inputs.
+        """
+
+    def on_train_gradients(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        model: nn.Module,
+        sync_gradients: bool,
+        **kwargs,
+    ):
+        """
+        Event called during training before stepping the optimizer when the gradients
+        are available and have been unscaled by the gradient scaler.
         """
 
     def on_evaluate(
@@ -542,7 +558,7 @@ class ProgressCallback(CallbackDispatcher):
     def on_train_begin(
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
-        if unipercept.state.check_main_process(True):
+        if check_main_process(True):
             self.training_bar = tqdm(
                 desc="Training", total=state.train_steps, dynamic_ncols=True
             )
@@ -552,7 +568,7 @@ class ProgressCallback(CallbackDispatcher):
     def on_train_step_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
-        if unipercept.state.check_main_process(True):
+        if check_main_process(True):
             assert (
                 self.training_bar is not None
             ), f"Training bar does not exist at step {state.step}."
@@ -569,7 +585,7 @@ class ProgressCallback(CallbackDispatcher):
         loader: DataLoader,
         **kwargs,
     ):
-        if unipercept.state.check_main_process(True) and len(loader):
+        if check_main_process(True) and len(loader):
             if self.prediction_bar is None:
                 self.prediction_bar = tqdm(
                     desc="Inference",
@@ -583,7 +599,7 @@ class ProgressCallback(CallbackDispatcher):
     def on_inference_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
-        if unipercept.state.check_main_process(True):
+        if check_main_process(True):
             if self.prediction_bar is not None:
                 self.prediction_bar.close()
             self.prediction_bar = None
@@ -592,14 +608,14 @@ class ProgressCallback(CallbackDispatcher):
     def on_evaluate(
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
-        if unipercept.state.check_main_process(True):
+        if check_main_process(True):
             if self.prediction_bar is not None:
                 self.prediction_bar.close()
             self.prediction_bar = None
 
     @TX.override
     def on_predict(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        if unipercept.state.check_main_process(True):
+        if state.check_main_process(True):
             if self.prediction_bar is not None:
                 self.prediction_bar.close()
             self.prediction_bar = None
@@ -608,7 +624,7 @@ class ProgressCallback(CallbackDispatcher):
     def on_log(
         self, params: EngineParams, state: State, control: Signal, logs=None, **kwargs
     ):
-        if unipercept.state.check_main_process(True) and self.training_bar is not None:
+        if check_main_process(True) and self.training_bar is not None:
             # self.training_bar.write(str(logs))
             pass
 
@@ -616,7 +632,7 @@ class ProgressCallback(CallbackDispatcher):
     def on_train_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
-        if unipercept.state.check_main_process(True):
+        if state.check_main_process(True):
             if self.training_bar is not None:
                 self.training_bar.close()
             self.training_bar = None
@@ -638,11 +654,16 @@ class Logger(CallbackDispatcher):
         **kwargs,
     ):
         _ = logs.pop("total_flops", None)
-        if unipercept.state.check_main_process(True):
+        if check_main_process(True):
             _logger.info("Logs: %s", pformat(logs, indent=0, compact=True))
             _logger.info(
                 "State: %s", pformat(state.state_dict(), indent=0, compact=True)
             )
+
+
+######################
+# Stopping callbacks #
+######################
 
 
 class ConditionalStoppingCallback(CallbackDispatcher):
@@ -746,7 +767,7 @@ class EarlyStoppingCallback(CallbackDispatcher):
     def on_evaluate(
         self, params: EngineParams, state: State, control: Signal, metrics, **kwargs
     ):
-        if not unipercept.state.check_main_process():
+        if not check_main_process():
             return
 
         metric_to_check = params.metric
@@ -764,3 +785,195 @@ class EarlyStoppingCallback(CallbackDispatcher):
         self.check_metric_value(params, state, control, metric_value)
         if self.early_stopping_patience_counter >= self.early_stopping_patience:
             control.should_training_stop = True
+
+
+######################
+# Training callbacks #
+######################
+
+
+class GradientClippingCallback(CallbackDispatcher):
+    """
+    A ``Callback`` that handles gradient clipping during training.
+    """
+
+    def __init__(
+        self,
+        max_norm: float | None = None,
+        max_value: float | None = None,
+        tracker: nn.Module | None = None,
+    ):
+        """
+        Parameters
+        ----------
+        max_norm:
+            The maximum total norm of all gradients.
+        max_value:
+            The maximum absolute value of any individual gradient.
+        norm_tracker:
+            The tracker module to use for tracking the total norm of the gradients.
+            If None, the gradient is clipped based only by the ``max_norm`` value.
+        """
+        self.max_norm = max_norm
+        self.max_value = max_value
+
+        assert (
+            self.max_norm is None or self.max_norm >= 0
+        ), "max_norm must be non-negative or disabled"
+        assert (
+            self.max_value is None or self.max_value >= 0
+        ), "max_value must be non-negative or disabled"
+        assert (self.norm_tracker is None) or (
+            self.norm_tracker is not None and self.max_norm is not None
+        ), "max_norm must be defined when using a tracker"
+
+        self.norm_tracker = tracker
+        self.total_norm: Tensor | None = None
+        self.step_counter: Tensor | None = None
+
+    @TX.override
+    def on_accelerator_setup(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        accelerator: Accelerator,
+        **kwargs,
+    ):
+        if self.norm_tracker is not None:
+            accelerator.register_for_checkpointing(self.norm_tracker)
+        if self.norm_tracker is not None or self.max_norm is not None:
+            self.total_norm = torch.tensor(
+                0.0, device=accelerator.device, dtype=torch.float32, requires_grad=False
+            )
+        self.step_counter = torch.tensor(
+            0, device=accelerator.device, dtype=torch.int32, requires_grad=False
+        )
+
+    @TX.override
+    def on_train_begin(
+        self, params: EngineParams, state: State, control: Signal, **kwargs
+    ):
+        assert self.step_counter is not None
+        self.step_counter.zero_()
+
+        if self.total_norm is not None:
+            self.total_norm.zero_()
+
+    @TX.override
+    def on_log(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        logs: dict[str, T.Any],
+        **kwargs,
+    ):
+        assert self.step_counter is not None
+        if self.step_counter == 0:
+            return
+
+        if self.total_norm is not None:
+            self.total_norm.zero_()
+            logs["optimizer/total_norm"] = (self.total_norm / self.step_counter).item()
+
+        if self.norm_tracker is not None:
+            smooth_norm = self.norm_tracker.observe().item()
+            logs["optimizer/smooth_norm"] = smooth_norm
+
+        self.step_counter.zero_()
+
+    @TX.override
+    def on_train_gradients(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        model: nn.Module,
+        sync_gradients: bool,
+        **kwargs,
+    ):
+        assert self.step_counter is not None
+
+        if sync_gradients:
+            return
+        self.step_counter += 1
+
+        # Clip gradients by value
+        if self.max_value is not None:
+            nn.utils.clip_grad_value_(model.parameters(), self.max_value)
+
+        # Clip gradients by norm
+        if self.max_norm is not None:
+            assert self.total_norm is not None
+
+            max_norm: float
+            # Read the max norm value (from smoother or directly from params)
+            if self.norm_tracker is not None:
+                max_norm_obs = self.norm_tracker.observe()
+                if not torch.isfinite(max_norm_obs):
+                    max_norm = self.max_norm
+                else:
+                    max_norm = max_norm_obs.item()
+                    max_norm = min(max_norm, self.max_norm)
+            else:
+                max_norm = self.max_norm
+
+            # Apply gradient clipping
+            total_norm = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm, norm_type=2
+            )
+
+            # Smooth the gradient norm
+            if self.norm_tracker is not None and torch.isfinite(total_norm):
+                self.norm_tracker(total_norm)
+
+            # Update the total norm
+            self.total_norm.add_(total_norm)
+
+
+#####################################
+# Callbacks for Multi-Task Learning #
+#####################################
+
+
+class UncertaintyLossWeightingCallback(CallbackDispatcher):
+    """
+    Implements the Uncertrainty loss weighting algorithm from [1]
+
+    References
+    ----------
+    [1] Kendall et al., "Multi-Task Learning Using Uncertrainty to Weigh Losses for Scene Geometry and Semantics". CVPR 2018. https://arxiv.org/pdf/1705.07115
+    """
+
+    def __init__(self):
+        self.loss_weights: Tensor | None = None
+
+
+class DynamicLossWeightingCallback(CallbackDispatcher):
+    """
+    Implements the Dynamic Weight Average (DWA) loss weighting algorithm from [1]
+
+    References
+    ----------
+    [1] Liu et al., "End-to-End Multi-Task Learning with Attention". CVPR 2029. https://arxiv.org/abs/1803.10704
+    """
+
+    def __init__(self):
+        pass
+
+
+class AutoLambdaLossWeightingCallback(CallbackDispatcher):
+    """
+    Implements the Auto-Lambda loss weighting algorithm from [1]
+
+    References
+    ----------
+    [1] Liu et al., "Auto-Lambda: Disentangling Dynamic Task Relationships". TMLR 2022. https://arxiv.org/abs/2202.03091
+    """
+
+    def __init__(self):
+        pass

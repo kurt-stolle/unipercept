@@ -4,6 +4,6 @@ import typing as T
 
 import typing_extensions as TX
 
-from . import backbones, integrations, layers, losses, typings
+from . import backbones, smooth, layers, losses, typings
 
 __all__ = []

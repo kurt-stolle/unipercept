@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import enum
 import functools
+from typing_extensions import deprecated
+
+import cv2
+import numpy as np
+import PIL.Image as pil_image
 from typing import (
     Any,
     Callable,
@@ -26,9 +31,6 @@ __all__ = ["multi_read", "NoEntriesAction", "get_kwd", "read_pixels"]
 
 def read_pixels(path: str, color: bool, alpha=False) -> torch.Tensor:
     """Read an image file using OpenCV."""
-    import cv2
-    import numpy as np
-
     if alpha:
         flags = cv2.IMREAD_UNCHANGED
     else:
@@ -50,12 +52,35 @@ def read_pixels(path: str, color: bool, alpha=False) -> torch.Tensor:
     return tensor_image
 
 
-def write_png(path: Pathable, tensor: torch.Tensor):
-    """Write a tensor to a PNG file."""
+@deprecated("Use `write_png_rgb` instead")
+def write_png(*args, **kwargs):
+    """Write a tensor to a PNG file (RGB)"""
+    return write_png_rgb(*args, **kwargs)
+
+
+def write_png_rgb(path: Pathable, tensor: torch.Tensor):
+    """Write a tensor to a PNG file (RGB)"""
     import cv2
 
-    mat = tensor.cpu().numpy()
-    cv2.imwrite(get_local_path(path), mat)
+    assert tensor.ndim == 3
+    assert tensor.shape[0] == 3
+
+    path = get_local_path(path)
+    mat = tensor.cpu().numpy().astype(np.uint8)
+
+    # CV2 expects BGR input
+    mat = mat[..., ::-1]
+
+    cv2.imwrite(path, mat)
+
+
+def write_png_l16(path: Pathable, tensor: torch.Tensor):
+    """Write a tensor to a PNG file (L; 16-bit)"""
+
+    path = get_local_path(path)
+    mat = tensor.cpu().numpy().astype(np.uint16)
+
+    cv2.imwrite(path, mat)
 
 
 _KeywordType = TypeVar("_KeywordType")

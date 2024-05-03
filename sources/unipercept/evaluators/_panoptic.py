@@ -270,7 +270,7 @@ class PanopticEvaluator(PanopticWriter):
         *,
         device: torch.types.Device,
         allow_stuff_instances: bool = False,
-        allow_unknown_category: bool = False,
+        allow_unknown_category: bool = True,
     ) -> dict[str, T.Any]:
         """
         Calculate stat scores required to compute the metric for a full batch.

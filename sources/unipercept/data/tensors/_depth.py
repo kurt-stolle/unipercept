@@ -6,11 +6,12 @@ from enum import StrEnum, auto
 import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
+import cv2
 from torch.types import Device
 from torchvision.transforms.v2 import functional as tvfn
 from torchvision.tv_tensors import Mask
 
-from unipercept.data.tensors.helpers import get_kwd, read_pixels
+from unipercept.data.tensors.helpers import get_kwd, read_pixels, write_png_l16
 from unipercept.data.tensors.registry import pixel_maps
 from unipercept.utils.typings import Pathable
 
@@ -41,6 +42,7 @@ class DepthMap(Mask):
 
     def save(self, path: Pathable, format: DepthFormat | str | None = None) -> None:
         from unipercept import file_io
+        import numpy as np
 
         path = file_io.Path(path)
         if format is None:
@@ -70,6 +72,12 @@ class DepthMap(Mask):
                 safetensors.save_file({"data": torch.as_tensor(self)}, path)
             case DepthFormat.TORCH:
                 torch.save(torch.as_tensor(self), path)
+            case DepthFormat.DEPTH_INT16:
+                # depth_image = (self * float(2**8)).numpy().astype(np.uint16)
+                # image = pil_image.fromarray(depth_image, mode="I;16")
+                # image.save(path)
+                write_png_l16(path, self * float(2**8))
+
             case _:
                 msg = f"Unsupported depth format: {format}"
                 raise NotImplementedError(msg)
@@ -162,7 +170,7 @@ def resize_depthmap(
     d_min = inpt.min()
     d_max = inpt.max()
 
-    res = tvfn.resize_mask(inpt, size, max_size)
+    res = tvfn.resize_image(inpt, size, interpolation, max_size, antialias=antialias)
 
     h_i, w_i = inpt.shape[-2:]
     h_o, w_o = res.shape[-2:]

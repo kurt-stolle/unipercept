@@ -18,17 +18,19 @@ __all__ = ["seed_worker", "set_seed"]
 DEFAULT_SEED = 1958
 
 
-def seed_worker(_):
-    """
-    Helper function to set worker seed during Dataloader initialization.
-    """
-    import torch
-
-    worker_seed = torch.initial_seed() % 2**32
-    set_seed(worker_seed)
-
-
 def set_seed(seed: int = DEFAULT_SEED, fully_deterministic: bool = False):
+    """
+    Set seed for reproducible behavior. 
+    
+    Parameters
+    ----------
+    seed : int
+        Seed value to set. By default, 1958.
+    fully_deterministic : bool
+        Whether to set the environment to fully deterministic. By default, False.
+        This should only be used for debugging and testing, as it can significantly 
+        slow down training at little to no benefit.
+    """
     if fully_deterministic:
         os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
@@ -48,3 +50,13 @@ def set_seed(seed: int = DEFAULT_SEED, fully_deterministic: bool = False):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+def seed_worker(_):
+    """
+    Helper function to set worker seed during Dataloader initialization.
+    """
+    import torch
+
+    worker_seed = torch.initial_seed() % 2**32
+    set_seed(worker_seed)
+

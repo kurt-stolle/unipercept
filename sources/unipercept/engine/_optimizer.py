@@ -4,14 +4,16 @@
 # TODO: https://pytorch.org/docs/stable/distributed.optim.html#torch.distributed.optim.ZeroRedundancyOptimizer
 
 from __future__ import annotations
-
+import dataclasses as D
 import copy
 import enum
 import functools
 import itertools
+import math
 import typing as T
 from collections import defaultdict
 
+from numpy import isin
 import timm.optim
 import timm.optim.optim_factory
 import torch.nn as nn
@@ -26,6 +28,7 @@ __all__ = [
     "OptimPackage",
     "OptimizerFactory",
     "ParameterHPs",
+    "LearningRate",
 ]
 
 _logger = get_logger(__name__)
@@ -89,6 +92,64 @@ class OptimType(enum.StrEnum):
     ADAHESSIAN = enum.auto()
 
 
+@D.dataclass
+class LearningRate:
+    """
+    Container class for learning rates that are defined at instances of other parameters
+    (e.g. batch size). When these parameters are changed, the learning rate is updated
+    accordingly.
+    """
+
+    value: float
+    batch_size: int | None = None
+    processes: int = 1
+
+    @staticmethod
+    def scale_to_batch_size(
+        lr: float, opt: OptimType, cur: int | None, new: int | None
+    ) -> float:
+        if cur is None:
+            return lr
+        if new is None:
+            msg = "Cannot scale learning rate to batch size without new batch size"
+            raise ValueError(msg)
+        if cur == new:
+            return lr
+
+        k = new / cur
+        match opt:
+            case OptimType.ADAM, OptimType.ADAMW, OptimType.ADAMP, OptimType.NADAM, OptimType.NADAMW, OptimType.RADAM, OptimType.ADAMAX, OptimType.ADABELIEF, OptimType.RADABELIEF, OptimType.ADAFACTOR, OptimType.ADANP, OptimType.ADANW, OptimType.LAMB, OptimType.LAMBC, OptimType.LARC, OptimType.LARS, OptimType.NLARC, OptimType.NLARS, OptimType.MADGRAD, OptimType.MADGRADW, OptimType.NOVOGRAD, OptimType.RMSPROP, OptimType.RMSPROPTF, OptimType.LION, OptimType.ADAHESSIAN:
+                lr *= math.sqrt(k)
+            case _:
+                lr *= k
+        return lr
+
+    @staticmethod
+    def scale_to_processes(lr: float, opt: OptimType, cur: int, new: int) -> float:
+        lr_at_1 = lr / cur
+        return lr_at_1 * new
+
+    def scale(
+        self,
+        opt: OptimType,
+        *,
+        batch_size: int | None,
+        processes: int,
+        opt_params: dict[str, T.Any],
+    ):
+        value = self.value
+
+        # Scale learning rate to batch size
+        value = self.scale_to_batch_size(value, opt, self.batch_size, batch_size)
+
+        # Scale learning rate to processes
+        value = self.scale_to_processes(value, opt, self.processes, processes)
+
+        _logger.info("Scaling learning rate %.2e to %.2e", self.value, value)
+
+        return value
+
+
 class OptimPackage(enum.StrEnum):
     DEFAULT = enum.auto()
     APEX = enum.auto()
@@ -128,9 +189,10 @@ def create_optimizer(
     opt: str | OptimType,
     pkg: str | OptimPackage,
     model_or_params: ModelOrParams,
+    batch_size: int | None = None,
     /,
     *,
-    lr: float = 5e-5,
+    lr: float | LearningRate = 5e-5,
     weight_decay: float = 0.0,
     foreach: bool | None = None,
     lookahead: bool = False,
@@ -145,8 +207,7 @@ def create_optimizer(
     **opt_args: T.Any,
 ) -> Optimizer:
     """
-    Create an optimizer. Based on the implementation in ``timm.optim.create_optimizer``, with some edits to make it
-    fit in our framework.
+    Create an optimizer. Based on the implementation in ``timm.optim.create_optimizer``.
 
     Parameters
     ----------
@@ -176,12 +237,13 @@ def create_optimizer(
     opt = OptimType(opt) if isinstance(opt, str) else opt
     pkg = OptimPackage(pkg) if isinstance(pkg, str) else pkg
 
-    lr *= get_process_count() or 1
+    if not isinstance(lr, LearningRate):
+        lr = LearningRate(lr)
 
     # Extract parameters from model
     parameters = get_optimizer_params(
         model_or_params,
-        lr,
+        lr.scale(opt, batch_size=batch_size, processes=get_process_count()),
         weight_decay,
         weight_decay_bias=weight_decay_bias,
         weight_decay_norm=weight_decay_norm,

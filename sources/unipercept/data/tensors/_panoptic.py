@@ -10,7 +10,7 @@ from torchvision.tv_tensors import Mask as _Mask
 from typing_extensions import override
 
 from unipercept import file_io
-from unipercept.data.tensors.helpers import write_png
+from unipercept.data.tensors.helpers import write_png_rgb, write_png_l16
 from unipercept.data.types.coco import COCOResultPanoptic, COCOResultPanopticSegment
 from unipercept.utils.typings import Pathable
 
@@ -32,6 +32,7 @@ class LabelsFormat(StrEnum):
 
     CITYSCAPES = auto()
     CITYSCAPES_VPS = auto()
+    CITYSCAPES_DVPS = auto()
     KITTI = auto()
     VISTAS = auto()
     WILD_DASH = auto()
@@ -205,8 +206,8 @@ class PanopticMap(_Mask):
             case LabelsFormat.TORCH:
                 torch.save(torch.as_tensor(self), path)
             case LabelsFormat.CITYSCAPES:
-                divisor = self.DIVISOR
-                ignore_label = self.IGNORE
+                divisor = 1000
+                ignore_label = 255
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
                 img[:, :, 0] = self % BYTE_OFFSET
                 img[:, :, 1] = self // BYTE_OFFSET
@@ -214,15 +215,24 @@ class PanopticMap(_Mask):
                 img = torch.where(self == ignore_label * divisor, 0, img)
                 img = torch.where(self < divisor, img * divisor, img - 1)
 
-                write_png(path, img)
+                write_png_rgb(path, img)
             case LabelsFormat.CITYSCAPES_VPS:
-                divisor = self.DIVISOR
-                ignore_label = self.IGNORE
+                divisor = 1000
+                ignore_label = 255
                 sem, ids = self.to_parts(as_tuple=True)
                 img = torch.where(ids > 0, ids - 1 + sem * divisor, sem)
                 img = torch.where(img == ignore_label, 0, img)
 
-                write_png(path, img)
+                write_png_l16(path, img)
+            case LabelsFormat.CITYSCAPES_DVPS:
+                # https://github.com/joe-siyuan-qiao/ViP-DeepLab/tree/master/cityscapes-dvps
+
+                sem, ids = self.to_parts(as_tuple=True)
+                img = torch.zeros((*self.shape[-2:], 3), dtype=torch.uint8)
+                img[:, :, 0] = sem
+                img[:, :, 1] = ids
+
+                write_png_rgb(path, img)
             case LabelsFormat.KITTI:
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
 
@@ -231,7 +241,7 @@ class PanopticMap(_Mask):
                 img[:, :, 1] = ids // BYTE_OFFSET
                 img[:, :, 2] = ids % BYTE_OFFSET
 
-                write_png(path, img)
+                write_png_rgb(path, img)
             case LabelsFormat.VISTAS:
                 divisor = self.DIVISOR
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
@@ -239,7 +249,7 @@ class PanopticMap(_Mask):
                 img[:, :, 1] = self // BYTE_OFFSET
                 img[:, :, 2] = self // BYTE_OFFSET // BYTE_OFFSET
 
-                write_png(path, img)
+                write_png_rgb(path, img)
             case LabelsFormat.WILD_DASH:
                 divisor = self.DIVISOR
                 ignore_label = self.IGNORE
@@ -249,7 +259,7 @@ class PanopticMap(_Mask):
                 img[:, :, 2] = self % BYTE_OFFSET
                 img = torch.where(self == ignore_label * divisor, 0, img)
 
-                write_png(path, img)
+                write_png_rgb(path, img)
             case _:
                 raise NotImplementedError(f"{format=}")
 

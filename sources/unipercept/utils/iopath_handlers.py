@@ -280,8 +280,6 @@ class EnvironPathHandler(PathHandler):
         value = os.path.expanduser(value)
         value = os.path.realpath(value)
 
-        os.makedirs(value, exist_ok=True)
-
         self.PREFIX: T.Final = prefix
         self.LOCAL: T.Final = value
 

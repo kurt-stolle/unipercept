@@ -8,6 +8,7 @@ import torch.nn as nn
 from typing_extensions import override
 
 from .utils import make_divisible
+from .weight import init_xavier_fill_, init_msra_fill_
 
 __all__ = ["SqueezeExcite2d"]
 
@@ -27,6 +28,9 @@ class SqueezeExcite2d(nn.Module):
         self.act = nn.ReLU(inplace=True)
         self.map2 = nn.Conv2d(reduction, channels, kernel_size=1, bias=bias)
         self.gate = nn.Sigmoid()
+
+        init_msra_fill_(self.map1)
+        init_xavier_fill_(self.map2)
 
     @override
     def forward(self, x):

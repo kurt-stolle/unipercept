@@ -22,7 +22,7 @@ _logger = up.log.get_logger()
 KEY_SESSION_ID = "session_id"
 
 
-@command(help="trian a model", description=__doc__)
+@command(help="run a model on a directory/stream of images", description=__doc__)
 @command.with_config
 def train(p: argparse.ArgumentParser):
     p_size = p.add_mutually_exclusive_group(required=False)

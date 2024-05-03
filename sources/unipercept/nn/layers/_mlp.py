@@ -57,6 +57,7 @@ class MapMLP(nn.Sequential):
         bias=True,
         activation: ActivationSpec = nn.GELU,
         init_gain: float = 1.0,
+        init_mean: float = 0.0,
     ):
         super().__init__()
 
@@ -73,19 +74,24 @@ class MapMLP(nn.Sequential):
 
         for n, d in enumerate(dropout):
             is_final = n == layers - 1
+
+            # Fully connected layer
             fc = nn.Linear(
                 in_channels if n == 0 else hidden_channels,
                 hidden_channels if n < layers - 1 else out_channels,
-                bias=bias if norm is None else False,
+                bias=bias if (norm is None and not is_final) else False,
             )
             if is_final:
-                nn.init.orthogonal_(fc.weight, init_gain)
-            else:
-                nn.init.kaiming_normal_(fc.weight, mode="fan_in", nonlinearity="relu")
-            nn.init.zeros_(fc.bias)
+                nn.init.normal_(fc.weight, mean=init_mean, std=init_gain)
+                if fc.bias is not None:
+                    nn.init.zeros_(fc.bias)
             self.add_module(f"fc{n}", fc)
+
+            # Activation
             if not is_final:
                 self.add_module(f"act{n}", get_activation(activation))
             self.add_module(f"drop{n}", nn.Dropout(d, inplace=True))
+
+            # Normalization
             if norm is not None and not is_final:
                 self.add_module(f"norm{n}", get_norm(norm, hidden_channels))

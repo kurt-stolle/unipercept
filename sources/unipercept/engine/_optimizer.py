@@ -181,8 +181,8 @@ class OptimizerFactory:
         else:
             raise TypeError(f"Invalid optimizer type: {type(opt)}")
 
-    def __call__(self, model_or_params: ModelOrParams) -> Optimizer:
-        return self._partial(model_or_params)
+    def __call__(self, model_or_params: ModelOrParams, *args, **kwargs) -> Optimizer:
+        return self._partial(model_or_params, *args, **kwargs)
 
 
 def create_optimizer(

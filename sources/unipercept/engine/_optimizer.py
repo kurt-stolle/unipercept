@@ -135,7 +135,7 @@ class LearningRate:
         *,
         batch_size: int | None,
         processes: int,
-    ):
+        ) -> float:
         value = self.value
 
         # Scale learning rate to batch size
@@ -239,10 +239,12 @@ def create_optimizer(
     if not isinstance(lr, LearningRate):
         lr = LearningRate(lr)
 
+    lr = lr.scale(opt, batch_size=batch_size, processes=get_process_count())
+
     # Extract parameters from model
     parameters = get_optimizer_params(
         model_or_params,
-        lr.scale(opt, batch_size=batch_size, processes=get_process_count()),
+        lr,
         weight_decay,
         weight_decay_bias=weight_decay_bias,
         weight_decay_norm=weight_decay_norm,

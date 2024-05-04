@@ -3,10 +3,10 @@ from __future__ import annotations
 import typing as T
 from enum import StrEnum, auto
 
+import cv2
 import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
-import cv2
 from torch.types import Device
 from torchvision.transforms.v2 import functional as tvfn
 from torchvision.tv_tensors import Mask
@@ -41,8 +41,9 @@ class DepthMap(Mask):
         return cls(torch.zeros(shape, device=device, dtype=torch.float32))  # type: ignore
 
     def save(self, path: Pathable, format: DepthFormat | str | None = None) -> None:
-        from unipercept import file_io
         import numpy as np
+
+        from unipercept import file_io
 
         path = file_io.Path(path)
         if format is None:

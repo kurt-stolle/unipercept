@@ -19,6 +19,7 @@ __all__ = [
     "state",
     "tensor",
     "time",
+    "memory",
     "cli",
 ]  # type: ignore
 __getattr__, __dir__ = lazy_module_factory(__name__, __all__)

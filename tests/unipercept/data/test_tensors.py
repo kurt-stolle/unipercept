@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import typing as T
+from pathlib import Path
 
 import PIL.Image as pil_image
 import torch
@@ -38,7 +38,7 @@ def test_panoptic_map_to_coco():
 
 
 def test_panoptic_map_from_file():
-    from unipercept.data.sets import catalog, SType
+    from unipercept.data.sets import SType, catalog
 
     assert (
         TEST_ASSETS_PATH.exists()

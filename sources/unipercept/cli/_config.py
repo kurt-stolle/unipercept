@@ -1,12 +1,13 @@
 """Simple CLI extension for loading configuration files."""
 
 from __future__ import annotations
-import pandas as pd
+
 import argparse
 import enum
 import os
 import typing as T
 
+import pandas as pd
 import torch
 from bullet import Bullet
 from omegaconf import DictConfig
@@ -186,7 +187,9 @@ class ConfigLoad(argparse.Action):
         if len(overrides_applied) > 0:
             _logger.info(
                 "Configuration overrides applied from CLI:\n%s",
-                create_table(pd.DataFrame.from_records(overrides_applied), format="wide"),
+                create_table(
+                    pd.DataFrame.from_records(overrides_applied), format="wide"
+                ),
             )
         return cfg
 

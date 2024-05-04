@@ -15,6 +15,7 @@ from . import (
     inspect,
     logutils,
     mask,
+    memory,
     seed,
     state,
     tensor,

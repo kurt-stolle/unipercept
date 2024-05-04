@@ -8,10 +8,11 @@ import dataclasses as D
 import enum as E
 import typing as T
 from pprint import pformat
-from torch import Tensor, nn
+
 import numpy as np
 import torch
 import typing_extensions as TX
+from torch import Tensor, nn
 from tqdm.auto import tqdm
 
 from unipercept.log import get_logger
@@ -19,6 +20,7 @@ from unipercept.state import check_main_process
 
 if T.TYPE_CHECKING:
     from torch.utils.data import DataLoader
+
     from unipercept.engine import EngineParams
     from unipercept.engine.accelerate import Accelerator
 
@@ -393,8 +395,7 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None:
-        ...
+    ) -> Signal | None: ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]

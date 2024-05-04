@@ -7,13 +7,15 @@ steps listed in at the implementation <https://github.com/joe-siyuan-qiao/ViP-De
 
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
 
 import pytest
-from pathlib import Path
-import importlib
-from unipercept.evaluators import DVPSEvaluator, DVPSWriter
-from unipercept import file_io
 from tensordict import TensorDictBase
+
+from unipercept import file_io
+from unipercept.evaluators import DVPSEvaluator, DVPSWriter
+
 
 @pytest.fixture
 def cityscapes_storage() -> TensorDictBase:

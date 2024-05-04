@@ -8,7 +8,7 @@ import torch.nn as nn
 from typing_extensions import override
 
 from .utils import make_divisible
-from .weight import init_xavier_fill_, init_msra_fill_
+from .weight import init_msra_fill_, init_xavier_fill_
 
 __all__ = ["SqueezeExcite2d"]
 

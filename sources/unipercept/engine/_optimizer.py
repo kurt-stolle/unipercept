@@ -1,11 +1,14 @@
 """Implements a lazy optimizer for use in configuration files.
 """
-# TODO: https://pytorch.org/docs/stable/distributed.optim.html#torch.distributed.optim.PostLocalSGDOptimizer
-# TODO: https://pytorch.org/docs/stable/distributed.optim.html#torch.distributed.optim.ZeroRedundancyOptimizer
 
 from __future__ import annotations
-import dataclasses as D
+
+# TODO: https://pytorch.org/docs/stable/distributed.optim.html#torch.distributed.optim.PostLocalSGDOptimizer
+# TODO: https://pytorch.org/docs/stable/distributed.optim.html#torch.distributed.optim.ZeroRedundancyOptimizer
+from __future__ import annotations
+
 import copy
+import dataclasses as D
 import enum
 import functools
 import itertools
@@ -13,11 +16,11 @@ import math
 import typing as T
 from collections import defaultdict
 
-from numpy import isin
 import timm.optim
 import timm.optim.optim_factory
 import torch.nn as nn
 import torch.optim
+from numpy import isin
 
 from unipercept.log import get_logger
 from unipercept.state import get_process_count
@@ -118,7 +121,33 @@ class LearningRate:
 
         k = new / cur
         match opt:
-            case OptimType.ADAM, OptimType.ADAMW, OptimType.ADAMP, OptimType.NADAM, OptimType.NADAMW, OptimType.RADAM, OptimType.ADAMAX, OptimType.ADABELIEF, OptimType.RADABELIEF, OptimType.ADAFACTOR, OptimType.ADANP, OptimType.ADANW, OptimType.LAMB, OptimType.LAMBC, OptimType.LARC, OptimType.LARS, OptimType.NLARC, OptimType.NLARS, OptimType.MADGRAD, OptimType.MADGRADW, OptimType.NOVOGRAD, OptimType.RMSPROP, OptimType.RMSPROPTF, OptimType.LION, OptimType.ADAHESSIAN:
+            case (
+                OptimType.ADAM,
+                OptimType.ADAMW,
+                OptimType.ADAMP,
+                OptimType.NADAM,
+                OptimType.NADAMW,
+                OptimType.RADAM,
+                OptimType.ADAMAX,
+                OptimType.ADABELIEF,
+                OptimType.RADABELIEF,
+                OptimType.ADAFACTOR,
+                OptimType.ADANP,
+                OptimType.ADANW,
+                OptimType.LAMB,
+                OptimType.LAMBC,
+                OptimType.LARC,
+                OptimType.LARS,
+                OptimType.NLARC,
+                OptimType.NLARS,
+                OptimType.MADGRAD,
+                OptimType.MADGRADW,
+                OptimType.NOVOGRAD,
+                OptimType.RMSPROP,
+                OptimType.RMSPROPTF,
+                OptimType.LION,
+                OptimType.ADAHESSIAN,
+            ):
                 lr *= math.sqrt(k)
             case _:
                 lr *= k
@@ -135,7 +164,7 @@ class LearningRate:
         *,
         batch_size: int | None,
         processes: int,
-        ) -> float:
+    ) -> float:
         value = self.value
 
         # Scale learning rate to batch size

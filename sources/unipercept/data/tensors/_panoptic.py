@@ -10,7 +10,7 @@ from torchvision.tv_tensors import Mask as _Mask
 from typing_extensions import override
 
 from unipercept import file_io
-from unipercept.data.tensors.helpers import write_png_rgb, write_png_l16
+from unipercept.data.tensors.helpers import write_png_l16, write_png_rgb
 from unipercept.data.types.coco import COCOResultPanoptic, COCOResultPanopticSegment
 from unipercept.utils.typings import Pathable
 
@@ -327,12 +327,10 @@ class PanopticMap(_Mask):
         return cls.from_parts(encoded_map // divisor, encoded_map % divisor)
 
     @T.overload
-    def to_parts(self, as_tuple=False) -> torch.Tensor:
-        ...
+    def to_parts(self, as_tuple=False) -> torch.Tensor: ...
 
     @T.overload
-    def to_parts(self, as_tuple=True) -> T.Tuple[torch.Tensor, torch.Tensor]:
-        ...
+    def to_parts(self, as_tuple=True) -> T.Tuple[torch.Tensor, torch.Tensor]: ...
 
     def to_parts(
         self, as_tuple: bool = False
@@ -390,14 +388,12 @@ class PanopticMap(_Mask):
     @T.overload
     def get_masks(
         self, with_void=False, return_label=True
-    ) -> T.List[T.Tuple[int, _Mask]]:
-        ...
+    ) -> T.List[T.Tuple[int, _Mask]]: ...
 
     @T.overload
     def get_masks(
         self, with_void=False, return_label=False
-    ) -> T.List[T.Tuple[int, int, _Mask]]:
-        ...
+    ) -> T.List[T.Tuple[int, int, _Mask]]: ...
 
     def get_masks(
         self, with_void: bool = False, return_label: bool = False

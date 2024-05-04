@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import typing as T
 
 import torch
 import torch.nn as nn
-import math
 from torch.cuda.amp import autocast
 from typing_extensions import override
 

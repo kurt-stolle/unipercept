@@ -2,11 +2,6 @@ from __future__ import annotations
 
 import enum
 import functools
-from typing_extensions import deprecated
-
-import cv2
-import numpy as np
-import PIL.Image as pil_image
 from typing import (
     Any,
     Callable,
@@ -21,7 +16,11 @@ from typing import (
     overload,
 )
 
+import cv2
+import numpy as np
+import PIL.Image as pil_image
 import torch
+from typing_extensions import deprecated
 
 from unipercept.file_io import get_local_path
 from unipercept.utils.typings import Pathable
@@ -114,8 +113,7 @@ def multi_read(
     key: Any,
     *,
     no_entries: Literal[NoEntriesAction.ERROR] | Literal["error"],
-) -> Callable[Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn]:
-    ...
+) -> Callable[Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn]: ...
 
 
 @overload
@@ -126,8 +124,7 @@ def multi_read(
     no_entries: Literal[NoEntriesAction.NONE] | Literal["none"] = NoEntriesAction.NONE,
 ) -> Callable[
     Concatenate[Sequence[Mapping[Any, Any]], _ReadParams], _ReadReturn | None
-]:
-    ...
+]: ...
 
 
 def multi_read(

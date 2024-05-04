@@ -91,7 +91,7 @@ class FeaturePyramidNetwork(nn.Module):
         squeeze_excite: bool = False,
         conv_module: type[conv.Conv2d] | tuple[type[conv.Conv2d], ...] = conv.Conv2d,
         interpolate_mode: T.Literal["nearest", "nearest-exact", "bilinear"] = "nearest",
-        activation: ActivationSpec = lambda: nn.ReLU(inplace=True),
+        activation: ActivationSpec = None,
     ):
 
         super().__init__()

@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 from typing_extensions import override
+from unipercept.nn.layers.activation import InplaceReLU, get_activation, ActivationSpec
 
 import unipercept.nn.layers.conv as convolution
 from unipercept.nn.layers.norm import GroupNorm32, NormSpec
@@ -39,6 +40,7 @@ class SemanticMerge(nn.Module):
         common_stride: int,
         out_channels: int,
         norm: NormSpec = GroupNorm32,
+        activation: ActivationSpec = InplaceReLU,
         weight_method: WeightMethod | str = WeightMethod.SUM,
         squeeze_excite: bool = False,
     ):
@@ -77,7 +79,7 @@ class SemanticMerge(nn.Module):
                     padding=1,
                     norm=norm,
                     bias=norm is None,
-                    activation=nn.GELU,
+                    activation=get_activation(activation),
                 )
 
                 head_ops.add_module(f"conv_{n}", conv)

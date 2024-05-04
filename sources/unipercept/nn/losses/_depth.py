@@ -31,17 +31,9 @@ def scale_invariant_logarithmic_error(
     r"""
     Scale invariant logarithmic error.
     """
-    # log_err = torch.log(x) - torch.log(y)
-    log_err = torch.log1p(x) - torch.log1p(y)
-
-    num_2 = num**2
-
-    # sile_1 = log_err.square().sum()/num
-    # sile_2 = log_err.sum().square()  / num_2
-
+    log_err =  x.log() - y.log()
     sile_1 = torch.mean(log_err**2)
-    sile_2 = (torch.sum(log_err) ** 2) / num_2
-
+    sile_2 = (torch.sum(log_err) ** 2) / (num*num)
     return sile_1 - sile_2
 
 
@@ -67,7 +59,7 @@ def relative_sqrt_error(
     r"""
     Computes relative square root error.
     """
-    return torch.sqrt(torch.mean((1 - x / y) ** 2))
+    return torch.sqrt(torch.mean((1 - x / y) ** 2).clamp(eps))
 
 
 class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
@@ -444,11 +436,10 @@ class ScaleAndShiftInvariantLoss(nn.Module):
     def __init__(self, alpha=0.5, scales=4, reduction="batch-based"):
         super().__init__()
 
-        self.__data_loss = MSELoss(reduction=reduction)
-        self.__regularization_loss = GradientLoss(scales=scales, reduction=reduction)
-        self.__alpha = alpha
-
-        self.__prediction_ssi = None
+        self.mse = MSELoss(reduction=reduction)
+        self.gradient = GradientLoss(scales=scales, reduction=reduction)
+        self.alpha = alpha
+        self.ssi = None
 
     @override
     @autocast(enabled=False)
@@ -458,17 +449,12 @@ class ScaleAndShiftInvariantLoss(nn.Module):
         mask = mask.bool()
 
         scale, shift = compute_scale_and_shift(prediction, target, mask)
-        self.__prediction_ssi = scale.view(-1, 1, 1) * prediction + shift.view(-1, 1, 1)
+        self.ssi = scale.view(-1, 1, 1) * prediction + shift.view(-1, 1, 1)
 
-        total = self.__data_loss(self.__prediction_ssi, target, mask)
-        if self.__alpha > 0:
-            total += self.__alpha * self.__regularization_loss(
-                self.__prediction_ssi, target, mask
+        total = self.mse(self.ssi, target, mask)
+        if self.alpha > 0:
+            total += self.alpha * self.gradient(
+                self.ssi, target, mask
             )
-
         return total
 
-    def __get_prediction_ssi(self):
-        return self.__prediction_ssi
-
-    prediction_ssi = property(__get_prediction_ssi)

@@ -23,7 +23,6 @@ import typing_extensions as TX
 from einops import rearrange
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
-from tqdm import tqdm
 
 import unipercept.evaluators.helpers as H
 from unipercept.evaluators._depth import PRED_DEPTH, TRUE_DEPTH, DepthWriter

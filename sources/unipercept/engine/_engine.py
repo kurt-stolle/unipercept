@@ -797,6 +797,7 @@ class Engine:
 
         # Sync backnorm
         if self._params.convert_sync_batchnorm:
+            _logger.info("Train loop: converting BatchNorm to SyncBatchNorm")
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = self.xlr.prepare_model(model).to(self.xlr.device)
         loader, scheduler, optimizer = self.xlr.prepare(loader, scheduler, optimizer)

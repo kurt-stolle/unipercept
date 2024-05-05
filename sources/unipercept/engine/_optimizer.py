@@ -105,7 +105,7 @@ class LearningRate:
 
     value: float
     batch_size: int | None = None
-    processes: int = 1
+    per_device: bool = False
 
     @staticmethod
     def scale_to_batch_size(
@@ -154,9 +154,12 @@ class LearningRate:
         return lr
 
     @staticmethod
-    def scale_to_processes(lr: float, opt: OptimType, cur: int, new: int) -> float:
-        lr_at_1 = lr / cur
-        return lr_at_1 * new
+    def scale_to_processes(
+        lr: float, opt: OptimType, per_device: bool, devices: int
+    ) -> float:
+        if not per_device:
+            return lr
+        return lr * devices
 
     def scale(
         self,
@@ -171,7 +174,7 @@ class LearningRate:
         value = self.scale_to_batch_size(value, opt, self.batch_size, batch_size)
 
         # Scale learning rate to processes
-        value = self.scale_to_processes(value, opt, self.processes, processes)
+        value = self.scale_to_processes(value, opt, self.per_device, processes)
 
         _logger.info("Scaling learning rate %.2e to %.2e", self.value, value)
 

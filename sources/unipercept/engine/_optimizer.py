@@ -159,7 +159,7 @@ class LearningRate:
     ) -> float:
         if not per_device:
             return lr
-        return lr * devices
+        return lr / devices
 
     def scale(
         self,

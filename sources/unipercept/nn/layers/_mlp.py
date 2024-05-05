@@ -12,7 +12,7 @@ from typing_extensions import override
 
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
 from unipercept.nn.layers.norm import NormSpec, get_norm
-from unipercept.nn.layers.utils import to_ntuple
+from unipercept.nn.layers.utils import to_2tuple
 
 __all__ = ["MapMLP"]
 
@@ -52,45 +52,85 @@ class MapMLP(nn.Sequential):
         hidden_channels: int | float = 1.0,
         *,
         dropout: float | T.Iterable[float] = 0.0,
-        layers: int = 3,
+        layers: int = 2,
         norm: NormSpec | None = None,
-        bias=True,
+        bias: T.Tuple[bool, bool] | bool | None = None,
         activation: ActivationSpec = nn.GELU,
-        init_gain: float = 1.0,
-        init_mean: float = 0.0,
+        init_gain: float | None = None,
     ):
+        """
+        Parameters
+        ----------
+        in_channels
+            Number of input channels.
+        out_channels
+            Number of output channels.
+        hidden_channels
+            Number of hidden channels. If a float is provided, it is interpreted as a percentage of the input channels.
+        layers
+            The number of layers. Default: 2.
+        dropout
+            Dropout probability. If two values are provided, the final value is for the last layer.
+        norm
+            Normalization layer to use. If `None`, no normalization is applied.
+        bias
+            Whether to add a bias term. If two values are provided, the final value is for the last layer. If `None`, a bias is added if no normalization is applied.
+        activation
+            Activation function to use. If `None`, no activation is applied. Default: `nn.GELU`.
+        init_gain
+            The gain value for the initialization of the weights. If `None`, no additional initialization is applied.
+        """
         super().__init__()
+
+        if layers == 1:
+            msg = "At least two layers are required."
+            raise ValueError(msg)
 
         if isinstance(hidden_channels, float):
             hidden_channels = int(in_channels * hidden_channels)
         elif isinstance(hidden_channels, int):
             pass
         else:
-            raise ValueError(
-                f"Invalid type for `hidden_channels`: {type(hidden_channels)}"
-            )
+            msg = f"Invalid type for `hidden_channels`: {type(hidden_channels)}"
+            raise ValueError(msg)
 
-        dropout = to_ntuple(layers)(dropout)
+        if isinstance(bias, T.Iterable):
+            bias, final_bias = bias
+        else:
+            final_bias = bias
+        if bias is None:
+            bias = norm is None
+        if final_bias is None:
+            final_bias = True
 
-        for n, d in enumerate(dropout):
-            is_final = n == layers - 1
+        if isinstance(dropout, T.Iterable):
+            dropout, final_dropout = dropout
+        else:
+            final_dropout = 0.0
+
+        for n in range(layers):
+            is_final = n >= (layers - 1)
 
             # Fully connected layer
             fc = nn.Linear(
                 in_channels if n == 0 else hidden_channels,
-                hidden_channels if n < layers - 1 else out_channels,
-                bias=bias if (norm is None and not is_final) else False,
+                hidden_channels if not is_final else out_channels,
+                bias=bias if not is_final else final_bias,
             )
-            if is_final:
-                nn.init.normal_(fc.weight, mean=init_mean, std=init_gain)
+            if is_final and init_gain is not None:
+                nn.init.orthogonal_(fc.weight, gain=init_gain)
                 if fc.bias is not None:
                     nn.init.zeros_(fc.bias)
             self.add_module(f"fc{n}", fc)
 
             # Activation
-            if not is_final:
+            if not is_final and activation is not None:
                 self.add_module(f"act{n}", get_activation(activation))
-            self.add_module(f"drop{n}", nn.Dropout(d, inplace=True))
+
+            # Dropout
+            layer_dropout = final_dropout if is_final else dropout
+            if layer_dropout > 0.0:
+                self.add_module(f"drop{n}", nn.Dropout(layer_dropout, inplace=True))
 
             # Normalization
             if norm is not None and not is_final:

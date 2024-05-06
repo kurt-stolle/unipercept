@@ -18,8 +18,19 @@ from unipercept import file_io
 
 if T.TYPE_CHECKING:
     from unipercept.engine import EngineParams
+__all__ = ["Accelerator", "find_executable_batch_size", "StatefulObject"]
 
-__all__ = ["Accelerator", "find_executable_batch_size"]
+
+class StatefulObect(T.Protocol):
+    """
+    Protocol for classes that have a ``state_dict()`` and ``load_state_dict()`` method.
+    """
+
+    def state_dict(self) -> T.Dict[str, T.Any]:
+        ...
+
+    def load_state_dict(self, state_dict: T.Dict[str, T.Any]) -> None:
+        ...
 
 
 class Accelerator(accelerate.Accelerator):
@@ -96,6 +107,13 @@ class Accelerator(accelerate.Accelerator):
 
         return model
 
+    @TX.override
+    def register_for_checkpointing(self, obj: StatefulObject) -> None:
+        """
+        Registers an object for checkpointing. See ``accelerate.Accelerator.register_for_checkpointing`` for more information.
+        """
+        return super().register_for_checkpointing(obj)
+
 
 if T.TYPE_CHECKING:
     _P = T.ParamSpec("_P")
@@ -109,20 +127,23 @@ if T.TYPE_CHECKING:
         function: _Fin[_P, _R],
         *,
         starting_batch_size: int = 128,
-    ) -> _Fout[_P, _R]: ...
+    ) -> _Fout[_P, _R]:
+        ...
 
     @T.overload
     def find_executable_batch_size(
         function: None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]:
+        ...
 
     def find_executable_batch_size(
         function: _Fin | None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]:
+        ...
 
 else:
     find_executable_batch_size = accelerate.utils.find_executable_batch_size

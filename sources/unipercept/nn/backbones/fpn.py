@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import typing as T
 from collections import OrderedDict
-
+import numpy as np
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -42,6 +43,8 @@ class ExtraFPNBlock(nn.Module):
     results
         the extended set of results of the FPN
     """
+
+    out_levels: T.Final[int]
 
     def forward(
         self,
@@ -85,21 +88,46 @@ class FeaturePyramidNetwork(nn.Module):
         *,
         in_features: T.Iterable[str],
         out_channels: int,
-        norm: T.Optional[T.Callable[..., nn.Module]],
-        extra_blocks: T.Optional[ExtraFPNBlock],
+        out_features: T.Optional[T.List[str]] = None,
+        norm: T.Optional[T.Callable[..., nn.Module]] = None,
+        extra_blocks: T.Optional[ExtraFPNBlock] = None,
         freeze: bool = False,
         squeeze_excite: bool = False,
         conv_module: type[conv.Conv2d] | tuple[type[conv.Conv2d], ...] = conv.Conv2d,
         interpolate_mode: T.Literal["nearest", "nearest-exact", "bilinear"] = "nearest",
         activation: ActivationSpec = None,
     ):
-
         super().__init__()
 
         self.inner_blocks = nn.ModuleDict()
         self.layer_blocks = nn.ModuleDict()
         self.in_features = list(in_features)
+        assert len(self.in_features) > 0, "in_features cannot be empty"
         self.interpolate_mode = interpolate_mode
+
+        in_levels = [
+            int(math.log2(bottom_up.feature_info[f].stride)) for f in self.in_features
+        ]
+        out_levels = in_levels
+        if extra_blocks is not None:
+            out_levels += [
+                in_levels[-1] + i + 1 for i in range(extra_blocks.out_levels)
+            ]
+        if out_features is None:
+            out_features = ["fpn_" + str(i) for i in out_levels]
+
+        self.out_features = out_features
+        assert all(
+            f[:4] == "fpn_" for f in self.out_features
+        ), "Output features must start with 'fpn_'"
+        self.out_indices = [
+            i
+            for i, level in enumerate(out_levels)
+            if f"fpn_{level}" in self.out_features
+        ]
+        assert len(set(self.out_indices)) == len(
+            out_features
+        ), "Duplicate output indices"
 
         conv_module_inner, conv_module_layer = to_2tuple(conv_module)
 
@@ -195,7 +223,12 @@ class FeaturePyramidNetwork(nn.Module):
         if self.extra_blocks is not None:
             results.extend(self.extra_blocks(results))
 
-        return OrderedDict([(f"fpn_{i+1}", v) for i, v in enumerate(results)])
+        return OrderedDict(
+            [
+                (k, results[i])
+                for k, i in zip(self.out_features, self.out_indices, strict=True)
+            ]
+        )
 
     @TX.override
     def forward(self, x: T.Dict[str, torch.Tensor]) -> T.Dict[str, torch.Tensor]:
@@ -224,6 +257,8 @@ class LastLevelMaxPool(ExtraFPNBlock):
     def __init__(self):
         super().__init__()
 
+        self.out_levels = 1
+
     def forward(
         self,
         x: torch.Tensor,
@@ -239,7 +274,8 @@ class LastLevelP6P7(ExtraFPNBlock):
 
     if T.TYPE_CHECKING:
         # Backwards compatability
-        def __init__(self, channels: int): ...
+        def __init__(self, channels: int):
+            ...
 
     else:
 
@@ -254,6 +290,8 @@ class LastLevelP6P7(ExtraFPNBlock):
                     raise ValueError("channels must be provided")
                 assert in_channels == out_channels
                 channels = in_channels
+
+            self.out_levels = 2
 
             self.p6 = conv.Conv2d(channels, channels, 3, stride=2, padding=1)
             self.p7 = conv.Conv2d(channels, channels, 3, stride=2, padding=1)

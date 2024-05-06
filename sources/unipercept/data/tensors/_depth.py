@@ -160,7 +160,7 @@ class DepthMap(Mask):
         return cls(depth)
 
 
-@tvfn.register_kernel(functional="resize", tv_tensor_cls=DepthMap)
+#@tvfn.register_kernel(functional="resize", tv_tensor_cls=DepthMap)
 def resize_depthmap(
     inpt: DepthMap,
     size: T.List[int],

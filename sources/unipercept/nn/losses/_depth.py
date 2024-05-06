@@ -7,7 +7,6 @@ import typing as T
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
 from typing_extensions import override
 
 from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
@@ -80,12 +79,10 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.weight_rsqe = weight_rsqe
 
     @override
-    @autocast(enabled=False)
     def forward(
         self,
         true: torch.Tensor,
         pred: torch.Tensor,
-        *,
         mask: torch.Tensor,
     ) -> torch.Tensor:
         assert mask.dtype == torch.bool, mask.dtype
@@ -154,7 +151,6 @@ class DepthSmoothLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.padded = False
 
     @override
-    @autocast(enabled=False)
     def forward(
         self,
         images: torch.Tensor,
@@ -252,7 +248,6 @@ class PEDLoss(nn.Module):
         super().__init__()
 
     @override
-    @autocast(enabled=False)
     def forward(
         self, output: torch.Tensor, target: torch.Tensor
     ):  # NOTE:  target is panoptic mask, output is norm disparity
@@ -442,7 +437,6 @@ class ScaleAndShiftInvariantLoss(nn.Module):
         self.ssi = None
 
     @override
-    @autocast(enabled=False)
     def forward(self, prediction, target, mask):
         prediction = prediction.float()
         target = target.float()

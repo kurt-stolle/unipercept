@@ -6,16 +6,13 @@ import argparse
 import os
 import sys
 
-import torch
-
 import unipercept as up
-from unipercept.cli._command import command
+from unipercept.cli._command import command, logger
 from unipercept.cli._config import ConfigFileContentType as config_t
-
-_logger = up.log.get_logger()
 
 
 KEY_SESSION_ID = "session_id"
+
 
 
 @command(help="trian a model", description=__doc__)
@@ -60,12 +57,12 @@ def train(p: argparse.ArgumentParser):
 
 def _step(args) -> config_t:
     if args.no_jit:
-        _logger.info("Disabling JIT compilation")
+        logger.info("Disabling JIT compilation")
         os.environ["PYTORCH_JIT"] = "0"
 
     if args.reduce_batch_size > 1:
         power = int(2 ** (args.reduce_batch_size - 1))
-        _logger.info(
+        logger.info(
             "Reducing batch size by scale %d (batch_size / %d)",
             args.reduce_batch_size,
             power,
@@ -109,11 +106,11 @@ def _main(args):
         engine.session_id = session_id_recovered
         engine.session_dir = resume_dir
     elif up.state.check_main_process():
-        _logger.info("Storing serialized config to YAML file %s", engine.config_path)
+        logger.info("Storing serialized config to YAML file %s", engine.config_path)
         lazy_config[KEY_SESSION_ID] = engine.session_id
         engine.config = lazy_config
 
-    _logger.info(
+    logger.info(
         "Starting engine session:\n%s",
         up.log.create_table(
             {
@@ -127,11 +124,11 @@ def _main(args):
     model_factory = up.model.ModelFactory(lazy_config.MODEL, weights=args.weights)
     try:
         if args.evaluation:
-            _logger.info(
+            logger.info(
                 "Running in EVALUATION ONLY MODE. Be aware that no weights are loaded if not provided explicitly!"
             )
             results = engine.run_evaluation(model_factory)
-            _logger.info(
+            logger.info(
                 "Evaluation results: \n%s", up.log.create_table(results, format="long")
             )
         else:
@@ -148,7 +145,7 @@ def _main(args):
         print("\n", flush=True, file=sys.stdout)
         print("\n", flush=True, file=sys.stderr)
 
-        _logger.info(
+        logger.info(
             "Training interrupted by user. To resume, use the --resume flag and configuration file: %s",
             engine.config_path,
         )

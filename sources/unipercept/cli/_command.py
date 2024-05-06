@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import functools
-import inspect
 import typing as T
+from pathlib import Path
 from typing import Callable, Concatenate, Generic, ParamSpec, TypeAlias
 
 import unipercept.log
@@ -74,6 +74,8 @@ class command(Generic[CommandParams]):
         import sys
 
         if name is not None:
+            if name.endswith(".py"):
+                name = Path(name).stem
             sys.argv.insert(1, name)
 
         parser = cls.get_parser()

@@ -15,6 +15,7 @@ from unipercept.cli import (
     path,
     profile,
     train,
+    check,
 )
 
 from ._command import command
@@ -28,6 +29,7 @@ __all__ = [
     "datasets",
     "evaluate",
     "path",
+    "check",
 ]
 
 command.root()

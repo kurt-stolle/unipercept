@@ -270,7 +270,15 @@ class CallbackDispatcher:
         """
 
     def on_train_begin(
-        self, params: EngineParams, state: State, control: Signal, **kwargs
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        model,
+        optimizer,
+        scheduler,
+        **kwargs,
     ):
         """
         Event called at the beginning of training.
@@ -298,7 +306,15 @@ class CallbackDispatcher:
         """
 
     def on_train_step_begin(
-        self, params: EngineParams, state: State, control: Signal, **kwargs
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        model,
+        optimizer,
+        scheduler,
+        **kwargs,
     ):
         """
         Event called at the beginning of a training step. If using gradient accumulation, one training step might take
@@ -343,7 +359,7 @@ class CallbackDispatcher:
         """
 
     def on_predict(
-        self, params: EngineParams, state: State, control: Signal, metrics, **kwargs
+        self, params: EngineParams, state: State, control: Signal, *, metrics, **kwargs
     ):
         """
         Event called after a successful prediction.
@@ -395,7 +411,8 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None: ...
+    ) -> Signal | None:
+        ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]
@@ -953,6 +970,26 @@ class UncertaintyLossWeightingCallback(CallbackDispatcher):
     def __init__(self):
         self.loss_weights: Tensor | None = None
 
+    def state_dict(self) -> dict[str, T.Any]:
+        return {"loss_weights": self.loss_weights}
+
+    def load_state_dict(self, state_dict: dict[str, T.Any]):
+        self.loss_weights = state_dict["loss_weights"]
+
+    @TX.override
+    def on_accelerator_setup(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        accelerator: Accelerator,
+        **kwargs,
+    ):
+        accelerator.register_for_checkpointing(self)
+
+    # TODO
+
 
 class DynamicLossWeightingCallback(CallbackDispatcher):
     """
@@ -966,6 +1003,8 @@ class DynamicLossWeightingCallback(CallbackDispatcher):
     def __init__(self):
         pass
 
+    # TODO
+
 
 class AutoLambdaLossWeightingCallback(CallbackDispatcher):
     """
@@ -978,3 +1017,5 @@ class AutoLambdaLossWeightingCallback(CallbackDispatcher):
 
     def __init__(self):
         pass
+
+    # TODO

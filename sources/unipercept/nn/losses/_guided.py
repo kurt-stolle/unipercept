@@ -53,23 +53,24 @@ def depth_guided_segmentation_loss(
     tau: int,
     patch_size: int,
 ) -> T.Tuple[torch.Tensor, torch.Tensor]:
-    seg_patch = split_into_patches(seg_feat, (patch_size, patch_size))
-    dep_patch = split_into_patches(dep_true, (patch_size, patch_size))
-    dep_valid = dep_patch > eps
-
     center_idx = patch_size // 2
 
-    # Extract center from each patch
+    # Depth ground truths
     with torch.no_grad():
-        seg_center = seg_patch[:, :, :, center_idx, center_idx].contiguous()
-        seg_center.unsqueeze_(-1).unsqueeze_(-1)
+        dep_patch = split_into_patches(dep_true, (patch_size, patch_size))
+        dep_valid = dep_patch > eps
         depth_center = dep_patch[:, :, :, center_idx, center_idx].contiguous()
         depth_center.unsqueeze_(-1).unsqueeze_(-1)
+        dep_diff = torch.abs(depth_center - dep_patch)  # .clamp_(min=eps)
+
+    # Segmentation features
+    seg_patch = split_into_patches(seg_feat, (patch_size, patch_size))
+    seg_center = seg_patch[:, :, :, center_idx, center_idx].contiguous()
+    seg_center.unsqueeze_(-1).unsqueeze_(-1)
+    seg_diff = torch.norm(seg_center - seg_patch, dim=1)  # .clamp(min=eps)
 
     # Compute loss for all patches and centers
     # TODO: Stability of the loss function
-    dep_diff = torch.abs(depth_center - dep_patch)  # .clamp_(min=eps)
-    seg_diff = torch.norm(seg_center - seg_patch, dim=1)  # .clamp(min=eps)
     loss = torch.exp(-dep_diff / tau) * torch.exp(-(seg_diff**2))
 
     # Compute the mask for which the loss function is valid
@@ -99,7 +100,7 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
 
         self.patch_width, self.patch_height = patch_size
         self.margin = margin
-        self.threshold = max(1, min(self.patch_width, self.patch_height) // 2 - 1)
+        self.threshold = max(1, min(self.patch_width, self.patch_height) // 2)
 
     @override
     @autocast(enabled=False)
@@ -143,39 +144,36 @@ def segmentation_guided_triplet_loss(
             size=dep_feat.shape[-2:],
             mode="nearest-exact",
         )
+        seg_patch = split_into_patches(
+            seg_true, (patch_height, patch_width)  # , (patch_height, patch_width)
+        )  # B x 1 x P x 5 x 5
 
-    # Split both depth estimated output and panoptic label into NxN patches
-    # P ~= (H * W) / (5 * 5)
-    seg_patch = split_into_patches(
-        seg_true, (patch_height, patch_width)  # , (patch_height, patch_width)
-    )  # B x 1 x P x 5 x 5
+        # Discard patches that have a panoptic value below 0 (ignore) or that all have the same class (no panoptic contours)
+        patch_min = reduce(seg_patch, "n c p h w -> n c p () ()", "min")
+        patch_max = reduce(seg_patch, "n c p h w -> n c p () ()", "max")
+        # patch_min = seg_patch.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]
+        # patch_max = seg_patch.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]
+        patch_valid = (patch_min >= 0) & (patch_min != patch_max)  # N x C x P x 1 x 1
+
+        patch_center_i = patch_height // 2
+        patch_center_j = patch_width // 2
+        # Calculate anchors of output and target
+        # N x C x P x 1 x 1
+        target_anchor = (
+            seg_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)
+        )
+        # Calculate mask of positive and negative features
+        # N x C x P x 5 x 5
+        mask_pos = ((seg_patch == target_anchor) & patch_valid).int()
+        mask_neg = ((seg_patch != target_anchor) & patch_valid).int()
+
+    # Split depth features into patches
     dep_patch = split_into_patches(
         dep_feat, (patch_height, patch_width)  # , (patch_height, patch_width)
     )  # B x C x P x 5 x 5
-
-    # Discard patches that have a panoptic value below 0 (ignore) or that all have the same class (no panoptic contours)
-    patch_min = reduce(seg_patch, "n c p h w -> n c p () ()", "min")
-    patch_max = reduce(seg_patch, "n c p h w -> n c p () ()", "max")
-    # patch_min = seg_patch.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]
-    # patch_max = seg_patch.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]
-    patch_valid = (patch_min >= 0) & (patch_min != patch_max)  # N x C x P x 1 x 1
-
-    patch_center_i = patch_height // 2
-    patch_center_j = patch_width // 2
-    # Calculate anchors of output and target
-    # N x C x P x 1 x 1
-    target_anchor = (
-        seg_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)
-    )
     output_anchor = (
         dep_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)
     )
-
-    # Calculate mask of positive and negative features
-    # N x C x P x 5 x 5
-    mask_pos = ((seg_patch == target_anchor) & patch_valid).int()
-    mask_neg = ((seg_patch != target_anchor) & patch_valid).int()
-
     # Calculate filtered output (depth) values given the mask
     # N x C x P x 5 x 5
     output_pos = dep_patch * mask_pos

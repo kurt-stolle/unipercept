@@ -46,7 +46,6 @@ class WeightedStuffDiceLoss(StableLossMixin, ScaledLossMixin, nn.Module):
 
         return self._dice(x, y, y_mask, None)
 
-    @torch.jit.export
     def _dice(
         self,
         x: torch.Tensor,

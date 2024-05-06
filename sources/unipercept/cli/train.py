@@ -10,9 +10,7 @@ import unipercept as up
 from unipercept.cli._command import command, logger
 from unipercept.cli._config import ConfigFileContentType as config_t
 
-
 KEY_SESSION_ID = "session_id"
-
 
 
 @command(help="trian a model", description=__doc__)

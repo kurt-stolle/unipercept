@@ -682,7 +682,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]:
+        ...
 
     @T.overload
     def build_training_dataloader(
@@ -690,7 +691,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]:
+        ...
 
     def build_training_dataloader(
         self,
@@ -832,7 +834,9 @@ class Engine:
 
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
-        self._edge(Event.ON_TRAIN_BEGIN, model=model, optimizer=optimizer, scheduler=scheduler)
+        self._edge(
+            Event.ON_TRAIN_BEGIN, model=model, optimizer=optimizer, scheduler=scheduler
+        )
 
         total_session_samples = 0
         total_session_steps = 0
@@ -854,7 +858,12 @@ class Engine:
             # Set the epoch iterator to the original dataloader
             epoch_iterator = loader
 
-            self._edge(Event.ON_TRAIN_EPOCH_BEGIN, model=model, optimizer=optimizer, scheduler=scheduler)
+            self._edge(
+                Event.ON_TRAIN_EPOCH_BEGIN,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+            )
 
             steps_skipped = 0
             if steps_trained_in_current_epoch > 0:
@@ -890,7 +899,12 @@ class Engine:
                     steps_trained_progress_bar = None
 
                 if step % self._state.gradient_accumulation == 0:
-                    self._edge(Event.ON_TRAIN_STEP_BEGIN, model=model, optimizer=optimizer, scheduler=scheduler)
+                    self._edge(
+                        Event.ON_TRAIN_STEP_BEGIN,
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                    )
 
                 with self.xlr.accumulate(model):
                     tr_loss_step = self.run_training_step(model, inputs)

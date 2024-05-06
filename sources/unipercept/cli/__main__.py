@@ -8,6 +8,7 @@ import sys
 
 from unipercept.cli import (
     backbones,
+    check,
     datasets,
     echo,
     evaluate,
@@ -15,7 +16,6 @@ from unipercept.cli import (
     path,
     profile,
     train,
-    check,
 )
 
 from ._command import command

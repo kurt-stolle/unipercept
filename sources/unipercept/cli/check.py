@@ -3,19 +3,22 @@ Run a sanity check on a configuration file.
 """
 
 from __future__ import annotations
-import typing as T
+
 import argparse
+import contextlib
 import functools
 import os
 import sys
-import contextlib
+import typing as T
+
 import torch
 import typing_extensions as TX
+
 import unipercept as up
 from unipercept.cli._command import command, logger
 from unipercept.cli._config import ConfigFileContentType as config_t
-from unipercept.engine.callbacks import CallbackDispatcher, CallbackProtocol, Signal
 from unipercept.engine import Interval
+from unipercept.engine.callbacks import CallbackDispatcher, CallbackProtocol, Signal
 from unipercept.log import create_table
 from unipercept.model import ModelBase
 
@@ -127,6 +130,41 @@ def register_hooks(model, show_forward: bool, show_backward: bool):
     return hooks
 
 
+def human_readable_size(size: int) -> str:
+    size = float(size)
+    for unit in ["k", "M", "G", "T"]:
+        size /= 1000
+        if size < 1000:
+            return f"{size:.1f} {unit}"
+
+
+def show_parameters(model):
+    table = {
+        "name": [],
+        "shape": [],
+        "params": [],
+        "dtype": [],
+        "requires_grad": [],
+    }
+    n_params = 0
+    n_params_grad = 0
+    for name, param in model.named_parameters():
+        numel = param.numel()
+        table["name"].append(name)
+        table["shape"].append(tuple(param.shape))
+        table["params"].append(human_readable_size(numel))
+        table["dtype"].append(param.dtype)
+        table["requires_grad"].append(param.requires_grad)
+
+        n_params += numel
+        if param.requires_grad:
+            n_params_grad += numel
+    table_str = create_table(table, format="wide")
+    logger.info(
+        f"Model parameters (trainable {human_readable_size(n_params_grad)}/{human_readable_size(n_params)}):\n{table_str}"
+    )
+
+
 class CheckCallback(CallbackDispatcher):
     def __init__(
         self, *, show_parameters: bool, show_forward: bool, show_backward: bool
@@ -145,10 +183,7 @@ class CheckCallback(CallbackDispatcher):
         self.hooks.extend(hooks)
 
         if self.show_parameters:
-            param_shapes = {}
-            for name, param in model.named_parameters():
-                param_shapes[name] = param.shape
-            logger.info(f"Model parameters:\n{create_table(param_shapes)}")
+            show_parameters(model)
 
     @TX.override
     def on_train_step_end(self, params, state, control: Signal, **kwargs):

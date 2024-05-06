@@ -7,10 +7,11 @@ The original implementation can be found here:
 
 from __future__ import annotations
 
+import math
 import typing as T
 from collections import OrderedDict
+
 import numpy as np
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

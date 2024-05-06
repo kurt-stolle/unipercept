@@ -30,9 +30,9 @@ def scale_invariant_logarithmic_error(
     r"""
     Scale invariant logarithmic error.
     """
-    log_err =  x.log() - y.log()
+    log_err = x.log() - y.log()
     sile_1 = torch.mean(log_err**2)
-    sile_2 = (torch.sum(log_err) ** 2) / (num*num)
+    sile_2 = (torch.sum(log_err) ** 2) / (num * num)
     return sile_1 - sile_2
 
 
@@ -447,8 +447,5 @@ class ScaleAndShiftInvariantLoss(nn.Module):
 
         total = self.mse(self.ssi, target, mask)
         if self.alpha > 0:
-            total += self.alpha * self.gradient(
-                self.ssi, target, mask
-            )
+            total += self.alpha * self.gradient(self.ssi, target, mask)
         return total
-

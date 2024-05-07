@@ -5,15 +5,16 @@ Model profiling entry point.
 from __future__ import annotations
 
 import argparse
-import typing as T
 import inspect
+import typing as T
+
 import torch
 import torch.autograd
 import torch.autograd.profiler
 import torch.nn as nn
-from tensordict import TensorDictBase
 import torch.utils.data
 from omegaconf.errors import ConfigAttributeError
+from tensordict import TensorDictBase
 from tqdm import tqdm
 
 from unipercept import create_dataset, create_engine, create_model, file_io

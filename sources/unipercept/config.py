@@ -27,7 +27,7 @@ from typing_extensions import override
 import unipercept.file_io as file_io
 from unipercept.log import get_logger
 from unipercept.utils.inspect import generate_path, locate_object
-
+import functools 
 if T.TYPE_CHECKING:
     from unipercept.utils.typings import Pathable
 
@@ -35,6 +35,7 @@ _logger = get_logger(__name__)
 
 __all__ = [
     "apply_overrides",
+    "partial",
     "as_dict",
     "as_list",
     "as_set",
@@ -809,3 +810,21 @@ def as_tuple(*args):
 
 def as_list(*args):
     return call(make_list)(items=args)
+
+def partial(*, func: T.Callable[..., T.Any], **kwargs) -> T.Callable[..., T.Any]:
+    """
+    Partially apply a function with keyword arguments.
+
+    Parameters
+    ----------
+    func : callable
+        The function to partially apply.
+    kwargs : dict
+        The keyword arguments to apply to the function.
+
+    Returns
+    -------
+    callable
+        A partially applied function.
+    """
+    return functools.partial(func, **kwargs)

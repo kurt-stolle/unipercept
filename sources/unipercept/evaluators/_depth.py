@@ -272,8 +272,8 @@ def _align_and_promote(pred: Tensor, true: Tensor):
         raise TypeError(msg)
     pred_dtype = pred.dtype
     true_dtype = true.dtype
-    #pred = pred.to(dtype=pred_dtype).to(dtype=_FLOAT_DTYPE)
-    #true = true.to(dtype=true_dtype).to(dtype=_FLOAT_DTYPE)
+    # pred = pred.to(dtype=pred_dtype).to(dtype=_FLOAT_DTYPE)
+    # true = true.to(dtype=true_dtype).to(dtype=_FLOAT_DTYPE)
 
     pred = pred.to(dtype=_FLOAT_DTYPE)
     true = true.to(dtype=_FLOAT_DTYPE)

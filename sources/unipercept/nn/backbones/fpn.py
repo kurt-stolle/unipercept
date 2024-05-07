@@ -21,7 +21,6 @@ from fvcore.nn.weight_init import c2_xavier_fill
 from unipercept.nn.backbones._base import Backbone
 from unipercept.nn.layers import conv, weight
 from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec
-from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
 from unipercept.nn.layers.utils import to_2tuple
 from unipercept.utils.inspect import locate_object
 
@@ -93,7 +92,7 @@ class FeaturePyramidNetwork(nn.Module):
         norm: T.Optional[T.Callable[..., nn.Module]] = None,
         extra_blocks: T.Optional[ExtraFPNBlock] = None,
         freeze: bool = False,
-        squeeze_excite: bool = False,
+        squeeze_excite: T.Callable[[int], nn.Module] | None = None,
         conv_module: type[conv.Conv2d] | tuple[type[conv.Conv2d], ...] = conv.Conv2d,
         interpolate_mode: T.Literal["nearest", "nearest-exact", "bilinear"] = "nearest",
         activation: ActivationSpec = None,
@@ -150,9 +149,9 @@ class FeaturePyramidNetwork(nn.Module):
             )
             weight.init_xavier_fill_(inner_conv)
 
-            if squeeze_excite:
+            if squeeze_excite is not None:
                 inner_block_module = nn.Sequential(
-                    SqueezeExcite2d(feature_info.channels), inner_conv
+                    squeeze_excite(feature_info.channels), inner_conv
                 )
 
             else:

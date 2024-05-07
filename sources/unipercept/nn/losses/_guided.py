@@ -25,13 +25,18 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     """
 
     tau: T.Final[int]
-    patch_size: T.Final[int]
+    patch_size: T.Final[T.Tuple[int, int]]
+    patch_stride: T.Final[T.Tuple[int, int]]
 
-    def __init__(self, *, tau=10, patch_size=5, **kwargs):
+    def __init__(self, *, tau=10,
+        patch_size: T.Tuple[int, int] = (5, 5),
+        patch_stride: T.Tuple[int, int] | None = None,
+                 **kwargs):
         super().__init__(**kwargs)
 
         self.tau = tau
         self.patch_size = patch_size
+        self.patch_stride = patch_stride or patch_size
 
     @override
     @autocast(enabled=False)
@@ -39,7 +44,7 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         seg_feat = seg_feat.float()
         dep_true = dep_true.float()
         loss, mask = depth_guided_segmentation_loss(
-            seg_feat, dep_true, self.eps, self.tau, self.patch_size
+            seg_feat, dep_true, self.eps, self.tau, self.patch_size, self.patch_stride
         )
         loss = torch.masked_select(loss, mask).mean()
 
@@ -51,21 +56,23 @@ def depth_guided_segmentation_loss(
     dep_true: torch.Tensor,
     eps: float,
     tau: int,
-    patch_size: int,
+    patch_size: T.Tuple[int,int],
+    patch_stride: T.Tuple[int,int],
 ) -> T.Tuple[torch.Tensor, torch.Tensor]:
-    center_idx = patch_size // 2
+    c_x = patch_size[0] // 2
+    c_y = patch_size[1] // 2
 
     # Depth ground truths
     with torch.no_grad():
-        dep_patch = split_into_patches(dep_true, (patch_size, patch_size))
+        dep_patch = split_into_patches(dep_true, patch_size, patch_stride)
         dep_valid = dep_patch > eps
-        depth_center = dep_patch[:, :, :, center_idx, center_idx].contiguous()
+        depth_center = dep_patch[:, :, :, c_x, c_y].contiguous()
         depth_center.unsqueeze_(-1).unsqueeze_(-1)
         dep_diff = torch.abs(depth_center - dep_patch)  # .clamp_(min=eps)
 
     # Segmentation features
-    seg_patch = split_into_patches(seg_feat, (patch_size, patch_size))
-    seg_center = seg_patch[:, :, :, center_idx, center_idx].contiguous()
+    seg_patch = split_into_patches(seg_feat, patch_size, patch_stride)
+    seg_center = seg_patch[:, :, :, c_x, c_y].contiguous()
     seg_center.unsqueeze_(-1).unsqueeze_(-1)
     seg_diff = torch.norm(seg_center - seg_patch, dim=1)  # .clamp(min=eps)
 
@@ -76,7 +83,7 @@ def depth_guided_segmentation_loss(
     # Compute the mask for which the loss function is valid
     with torch.no_grad():
         mask = (dep_diff > eps) & (seg_diff > eps) & dep_valid
-        mask[:, :, :, center_idx, center_idx] = False
+        mask[:, :, :, c_x, c_y] = False
 
     return loss, mask
 
@@ -88,17 +95,23 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     Paper: https://arxiv.org/abs/2210.07577
     """
 
-    patch_width: T.Final[int]
-    patch_height: T.Final[int]
+    patch_size: T.Final[T.Tuple[int, int]]
+    patch_stride: T.Final[T.Tuple[int, int]]
     margin: T.Final[float]
     threshold: T.Final[int]
 
     def __init__(
-        self, *, patch_size: T.Tuple[int, int] = (5, 5), margin=0.33, **kwargs
+        self,
+        *,
+        patch_size: T.Tuple[int, int] = (5, 5),
+        patch_stride: T.Tuple[int, int] | None = None,
+        margin=0.3,
+        **kwargs,
     ):
         super().__init__(**kwargs)
 
-        self.patch_width, self.patch_height = patch_size
+        self.patch_size = patch_size
+        self.patch_stride = patch_stride or patch_size
         self.margin = margin
         self.threshold = max(1, min(self.patch_width, self.patch_height) // 2)
 
@@ -111,8 +124,8 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
             seg_true,
             self.margin,
             self.threshold,
-            self.patch_height,
-            self.patch_width,
+            self.patch_size,
+            self.patch_stride,
         )
         loss = torch.masked_select(loss, mask)  # N x C x P'
 
@@ -125,8 +138,8 @@ def segmentation_guided_triplet_loss(
     seg_true: torch.Tensor,
     margin: float,
     threshold: int,
-    patch_height: int,
-    patch_width: int,
+    patch_size: T.Tuple[int, int],
+    patch_stride: T.Tuple[int, int],
 ) -> T.Tuple[torch.Tensor, torch.Tensor]:
     if seg_true.ndim != dep_feat.ndim:
         seg_true = seg_true.unsqueeze(1)
@@ -145,7 +158,7 @@ def segmentation_guided_triplet_loss(
             mode="nearest-exact",
         )
         seg_patch = split_into_patches(
-            seg_true, (patch_height, patch_width)  # , (patch_height, patch_width)
+            seg_true, patch_size, patch_stride  # , (patch_height, patch_width)
         )  # B x 1 x P x 5 x 5
 
         # Discard patches that have a panoptic value below 0 (ignore) or that all have the same class (no panoptic contours)

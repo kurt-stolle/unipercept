@@ -194,7 +194,7 @@ class ConfigLoad(argparse.Action):
         return cfg
 
 
-class ConfigDebugMode(argparse.Action):
+class ConfigPatch(argparse.Action):
     def __init__(self, option_strings, dest, **kwargs):
         super().__init__(option_strings, dest, type=None, nargs=0, **kwargs)
 
@@ -202,18 +202,58 @@ class ConfigDebugMode(argparse.Action):
 
     @override
     def __call__(self, parser, namespace, values, option_string=None):
-        from unipercept.engine.debug import DebugMode
-
         cfg = getattr(namespace, self.key)
 
         if cfg is None:
             msg = "Cannot apply debug mode when configuration is not loaded!"
             raise RuntimeError(msg)
 
+        self.apply_patch(cfg)
+
+    def apply_patch(self, cfg: ConfigFileContentType):
+        raise NotImplementedError()
+
+    FLAGS: T.ClassVar[tuple[str] | None] = None
+    HELP: T.ClassVar[str | None] = None
+
+    def __init_subclass__(cls, *, flags: str | T.Iterable[str], help: str, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.FLAGS = (flags,) if isinstance(flags, str) else tuple(flags)
+        cls.HELP = help
+
+    @classmethod
+    def apply_parser(cls, parser):
+        if cls.FLAGS is None:
+            msg = "No flags specified for the configuration patch!"
+            raise ValueError(msg)
+        parser.add_argument(
+            *cls.FLAGS,
+            action=cls,
+            help=cls.HELP,
+        )
+
+
+class ConfigDebugMode(
+    ConfigPatch, flags="--debug", help="patches the configuration for model debugging"
+):
+    @override
+    def apply_patch(self, cfg):
+        from unipercept.engine.debug import DebugMode
+
         os.environ["WANDB_OFFLINE"] = "true"
         torch.autograd.set_detect_anomaly(True)
         cfg.ENGINE.params.full_determinism = True
         cfg.ENGINE.params.debug = DebugMode.UNDERFLOW_OVERFLOW
+
+
+class ConfigDisableTrackers(
+    ConfigPatch,
+    flags="--disable-trackers",
+    help="patches the configuration to disable all experiment trackers",
+):
+    @override
+    def apply_patch(self, cfg):
+        cfg.ENGINE.params.trackers = []
 
 
 def add_config_args(
@@ -243,9 +283,5 @@ def add_config_args(
         **kwargs_add_argument,
     )
 
-    parser.add_argument(
-        "--debug",
-        action=ConfigDebugMode,
-        dest="debug",
-        help="optimizes the configuration for model debugging",
-    )
+    ConfigDebugMode.apply_parser(parser)
+    ConfigDisableTrackers.apply_parser(parser)

@@ -633,7 +633,7 @@ class ProgressCallback(CallbackDispatcher):
 
     @TX.override
     def on_predict(self, params: EngineParams, state: State, control: Signal, **kwargs):
-        if state.check_main_process(True):
+        if check_main_process(True):
             if self.prediction_bar is not None:
                 self.prediction_bar.close()
             self.prediction_bar = None
@@ -650,7 +650,7 @@ class ProgressCallback(CallbackDispatcher):
     def on_train_end(
         self, params: EngineParams, state: State, control: Signal, **kwargs
     ):
-        if state.check_main_process(True):
+        if check_main_process(True):
             if self.training_bar is not None:
                 self.training_bar.close()
             self.training_bar = None

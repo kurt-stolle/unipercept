@@ -272,8 +272,11 @@ def _align_and_promote(pred: Tensor, true: Tensor):
         raise TypeError(msg)
     pred_dtype = pred.dtype
     true_dtype = true.dtype
-    pred = pred.to(dtype=pred_dtype).to(dtype=_FLOAT_DTYPE)
-    true = true.to(dtype=true_dtype).to(dtype=_FLOAT_DTYPE)
+    #pred = pred.to(dtype=pred_dtype).to(dtype=_FLOAT_DTYPE)
+    #true = true.to(dtype=true_dtype).to(dtype=_FLOAT_DTYPE)
+
+    pred = pred.to(dtype=_FLOAT_DTYPE)
+    true = true.to(dtype=_FLOAT_DTYPE)
 
     return pred, true
 
@@ -314,10 +317,10 @@ def compute_depth_metrics(
 
     return DepthMetrics(
         valid=px_amt,
-        abs_rel=((true - pred).abs_() / true).mean(),
-        sq_rel=((true - pred).square_() / true).mean(),
-        rmse=((true - pred) ** 2).mean().sqrt_(),
-        rmse_log=((torch.log1p(true) - torch.log1p(pred)) ** 2).mean().sqrt_(),
+        abs_rel=((true - pred).abs() / true).mean(),
+        sq_rel=((true - pred).square() / true).mean(),
+        rmse=(true - pred).square().mean().sqrt(),
+        rmse_log=((torch.log(true) - torch.log(pred)) ** 2).mean().sqrt(),
         accuracy={
             _threshold_to_key(t_base, n): (max_rel < (t_base**n)).double().mean()
             for n in t_n

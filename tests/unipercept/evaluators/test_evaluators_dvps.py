@@ -20,7 +20,7 @@ from unipercept.evaluators import DVPSEvaluator, DVPSWriter
 from unipercept.engine.writer import MemmapTensorDictWriter
 
 @pytest.fixture
-def cityscapes_storage(tmp_path) -> TensorDictBase:
+def cityscapes_results(tmp_path) -> TensorDictBase:
     """
     Write depth and panoptic predictions to a temporary directory and return the path
     to that directory
@@ -48,11 +48,7 @@ def cityscapes_storage(tmp_path) -> TensorDictBase:
     tmp_path.rmdir()
     zip_path.unlink()
 
+def test_dvpq_evaluator_cityscapes(cityscapes_results):
+    print(cityscapes_results)
 
-
-
-    
-
-
-def test_dvpq_evaluator_cityscapes():
     

@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import argparse
 import typing as T
-
+import inspect
 import torch
 import torch.autograd
 import torch.autograd.profiler
 import torch.nn as nn
+from tensordict import TensorDictBase
 import torch.utils.data
 from omegaconf.errors import ConfigAttributeError
 from tqdm import tqdm
@@ -18,7 +19,7 @@ from tqdm import tqdm
 from unipercept import create_dataset, create_engine, create_model, file_io
 from unipercept.cli._command import command
 from unipercept.log import get_logger
-from unipercept.model import ModelAdapter
+from unipercept.model import ModelAdapter, ModelBase
 from unipercept.utils.time import get_timestamp
 
 
@@ -113,18 +114,71 @@ def _analyse_params(model: nn.Module, **kwargs) -> None:
 
 
 def _analyse_flops(
-    model: nn.Module, loader: torch.utils.data.DataLoader, device: torch.types.Device
+    model: ModelBase,
+    loader: torch.utils.data.DataLoader,
+    device: torch.types.Device,
+    backend="pytorch",
+    verbose=False,
+    print_per_layer_stat=True,
 ) -> None:
-    from fvcore.nn import FlopCountAnalysis
+    from ptflops import get_model_complexity_info
 
-    inputs = next(iter(loader))
-    inputs = inputs.to(device)
-    model_adapter = ModelAdapter(model, inputs, allow_non_tensor=True)
+    # from fvcore.nn import FlopCountAnalysis
+    # inputs = next(iter(loader))
+    # inputs = inputs.to(device)
+    # model_adapter = ModelAdapter(model, inputs, allow_non_tensor=True)
+    # flops = FlopCountAnalysis(model_adapter, inputs=model_adapter.flattened_inputs)
+    # _logger.info("Running FLOP analysis...")
+    # _logger.info("Total FLOPs:\n%s", flops.total())
 
-    flops = FlopCountAnalysis(model_adapter, inputs=model_adapter.flattened_inputs)
+    model = model.to(device)
 
-    _logger.info("Running FLOP analysis...")
-    _logger.info("Total FLOPs:\n%s", flops.total())
+    # Get a single batch of data to use as a template
+    inputs = next(iter(loader))[:1].to(device)
+    inputs_shape = tuple(inputs.captures.images.shape)
+    inputs = model.select_inputs(inputs, device)
+
+    # Determine the forward arguments such that we can provide inputs as keywords
+    forward_args = inspect.signature(model.forward).parameters
+
+    def randomize(value):
+        try:
+            return torch.rand_like(value)
+        except RuntimeError:
+            return torch.rand_like(value.float()).to(value.dtype)
+
+    def inputs_constructor(size: tuple[int, int]) -> dict[str, T.Any]:
+        res = {}
+        for param, value in zip(forward_args, inputs):
+            if isinstance(value, torch.Tensor):
+                res[param] = randomize(value)
+            elif isinstance(value, TensorDictBase):
+                res[param] = value.apply(randomize)
+            elif value is None:
+                res[param] = None
+            elif hasattr(value, "clone"):
+                res[param] = value.clone()
+            else:
+                res[param] = value
+
+        return res
+
+    verbose = False
+
+    with device:
+        macs, params = get_model_complexity_info(
+            model,
+            inputs_shape,
+            as_strings=True,
+            input_constructor=inputs_constructor,
+            backend=backend,
+            print_per_layer_stat=print_per_layer_stat,
+            verbose=verbose,
+        )
+        if macs is not None:
+            print("{:<30}  {:<8}".format("Computational complexity: ", macs))
+        if params is not None:
+            print("{:<30}  {:<8}".format("Number of parameters: ", params))
 
 
 def _analyse_memory(

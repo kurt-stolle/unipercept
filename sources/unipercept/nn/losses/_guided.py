@@ -28,10 +28,14 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     patch_size: T.Final[T.Tuple[int, int]]
     patch_stride: T.Final[T.Tuple[int, int]]
 
-    def __init__(self, *, tau=10,
+    def __init__(
+        self,
+        *,
+        tau=10,
         patch_size: T.Tuple[int, int] = (5, 5),
         patch_stride: T.Tuple[int, int] | None = None,
-                 **kwargs):
+        **kwargs,
+    ):
         super().__init__(**kwargs)
 
         self.tau = tau
@@ -56,8 +60,8 @@ def depth_guided_segmentation_loss(
     dep_true: torch.Tensor,
     eps: float,
     tau: int,
-    patch_size: T.Tuple[int,int],
-    patch_stride: T.Tuple[int,int],
+    patch_size: T.Tuple[int, int],
+    patch_stride: T.Tuple[int, int],
 ) -> T.Tuple[torch.Tensor, torch.Tensor]:
     c_x = patch_size[0] // 2
     c_y = patch_size[1] // 2
@@ -113,7 +117,7 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.patch_size = patch_size
         self.patch_stride = patch_stride or patch_size
         self.margin = margin
-        self.threshold = max(1, min(self.patch_width, self.patch_height) // 2)
+        self.threshold = max(1, min(*patch_size) // 2)
 
     @override
     @autocast(enabled=False)
@@ -168,8 +172,8 @@ def segmentation_guided_triplet_loss(
         # patch_max = seg_patch.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]
         patch_valid = (patch_min >= 0) & (patch_min != patch_max)  # N x C x P x 1 x 1
 
-        patch_center_i = patch_height // 2
-        patch_center_j = patch_width // 2
+        patch_center_i = patch_size[0] // 2
+        patch_center_j = patch_size[1] // 2
         # Calculate anchors of output and target
         # N x C x P x 1 x 1
         target_anchor = (
@@ -182,7 +186,7 @@ def segmentation_guided_triplet_loss(
 
     # Split depth features into patches
     dep_patch = split_into_patches(
-        dep_feat, (patch_height, patch_width)  # , (patch_height, patch_width)
+        dep_feat, patch_size, patch_stride
     )  # B x C x P x 5 x 5
     output_anchor = (
         dep_patch[..., patch_center_i, patch_center_j].unsqueeze(-1).unsqueeze(-1)

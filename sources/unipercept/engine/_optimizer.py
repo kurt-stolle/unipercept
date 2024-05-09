@@ -184,6 +184,7 @@ class OptimPackage(enum.StrEnum):
     APEX = enum.auto()
     BNB = enum.auto()
     BNB_8BIT = enum.auto()
+    SCHEDULE_FREE = enum.auto()
 
 
 class OptimizerFactory:
@@ -313,6 +314,8 @@ def create_optimizer(
             optimizer = _create_bnb_optimizer(
                 opt, True, parameters, momentum=momentum, **opt_args
             )
+        case OptimPackage.SCHEDULE_FREE:
+            optimizer = _create_schedule_free_optimizer(opt, parameters, **opt_args)
         case _:
             raise ValueError(f"Invalid optimizer package: {pkg}")
 
@@ -329,8 +332,8 @@ def _create_default_optimizer(
     opt: OptimType, parameters: Params, /, momentum: float, **opt_args
 ) -> torch.optim.Optimizer:
     """
-    Use ``torch.optim`` or ``timm.optim`` to create an optimizer. PyTorch is the preferred choice, but Timm
-    implements many more cutting edge optimizers.
+    Use ``torch.optim`` or ``timm.optim`` to create an optimizer.
+    PyTorch is the preferred choice, but Timm implements many more cutting edge optimizers.
     """
     match opt:
         case OptimType.SGD:
@@ -433,7 +436,7 @@ def _create_default_optimizer(
         case OptimType.ADAHESSIAN:
             optimizer = timm.optim.Adahessian(parameters, **opt_args)
         case _:
-            raise ValueError(f"Optimizer {opt} not supported in default dispatch.")
+            _error_unsupported_optimizer(opt, OptimPackage.DEFAULT)
 
     return optimizer
 
@@ -476,10 +479,7 @@ def _create_apex_optimizer(
     ValueError
         If an invalid optimizer type is specified.
     """
-    try:
-        import apex.optimizers  # pyright: ignore[reportMissingImports]
-    except ImportError:
-        raise ImportError("apex optimizers require the 'apex' package to be installed.")
+    import apex.optimizers  # pyright: ignore[reportMissingImports]
 
     if not torch.cuda.is_available():
         raise RuntimeError("apex optimizers require CUDA to be available.")
@@ -511,9 +511,7 @@ def _create_apex_optimizer(
             opt_args.setdefault("betas", (0.95, 0.98))
             optimizer = apex.optimizers.FusedNovoGrad(parameters, **opt_args)
         case _:
-            raise NotImplementedError(
-                f"Optimizer {opt} not supported in 'apex' package."
-            )
+            _error_unsupported_optimizer(opt, OptimPackage.APEX)
     return optimizer
 
 
@@ -557,12 +555,7 @@ def _create_bnb_optimizer(
     ValueError
         If an invalid optimizer type is specified.
     """
-    try:
-        import bitsandbytes as bnb  # pyright: ignore[reportMissingImports]
-    except ImportError:
-        raise ImportError(
-            "bitsandbytes optimizers require the 'bitsandbytes' package to be installed."
-        )
+    import bitsandbytes as bnb  # pyright: ignore[reportMissingImports]
 
     if not torch.cuda.is_available():
         raise RuntimeError("bitsandbytes optimizers require CUDA to be available.")
@@ -592,10 +585,36 @@ def _create_bnb_optimizer(
             cls = bnb.optim.Lion if not eight else bnb.optim.Lion8bit
             optimizer = cls(parameters, **opt_args)
         case _:
-            raise NotImplementedError(
-                f"Optimizer {opt} not supported in 'bitsandbytes' package."
-            )
+            _error_unsupported_optimizer(opt, OptimPackage.BNB)
     return optimizer
+
+
+def _create_schedule_free_optimizer(
+    opt: OptimType, parameters: Params, /, **opt_args
+) -> torch.optim.Optimizer:
+    """
+    Create an optimizer using the the schedulefree package
+
+    See Also
+    --------
+    - `GitHub <https://github.com/facebookresearch/schedule_free>`_ repository
+
+    """
+    import schedulefree  # pyright: ignore[reportMissingImports]
+
+    match opt:
+        case OptimType.ADAMW:
+            optimizer = schedulefree.AdamWScheduleFree(parameters, **opt_args)
+        case OptimType.SGD:
+            optimizer = schedulefree.SGDScheduleFree(parameters, **opt_args)
+        case _:
+            _error_unsupported_optimizer(opt, OptimPackage.SCHEDULE_FREE)
+    return optimizer
+
+
+def _error_unsupported_optimizer(opt: OptimType, pkg: OptimPackage) -> T.NoReturn:
+    msg = f"Optimizer {str(opt)!r} not supported in package {str(pkg)!r}."
+    raise NotImplementedError(msg)
 
 
 def get_optimizer_params(
@@ -642,7 +661,9 @@ def get_optimizer_params(
     memo: set[torch.nn.parameter.Parameter] = set()
     for module_name, module in model.named_modules():
         for module_param_name, value in module.named_parameters(recurse=False):
+            qualified_name = f"{module_name}.{module_param_name}"
             if not value.requires_grad:
+                _logger.debug("Skipping parameter (frozen): %s", qualified_name)
                 continue
             # Avoid duplicating parameters
             if value in memo:
@@ -664,16 +685,12 @@ def get_optimizer_params(
                 )
                 if param_specifc_overrides is None:
                     value.requires_grad_(False)
-                    _logger.debug(
-                        f"Skipping parameter '{module_name}.{module_param_name}', as it was filtered out by the "
-                        "parameter function"
-                    )
+                    _logger.debug("Skipping parameter (filtered): %s", qualified_name)
                     continue  # skip this parameter
                 elif len(param_specifc_overrides) > 0:
                     _logger.debug(
-                        "Overriding hyperparameters for parameter '%s.%s': %s",
-                        module_name,
-                        module_param_name,
+                        "Overriding parameter: '%s' <- %s",
+                        qualified_name,
                         str(param_specifc_overrides),
                     )
                     hyperparams.update(param_specifc_overrides)

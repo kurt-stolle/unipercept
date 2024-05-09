@@ -33,7 +33,7 @@ ORDER_CHW = DimensionOrder.CHW
 ORDER_HWC = DimensionOrder.HWC
 
 
-class WrapperBase(Backbone, metaclass=abc.ABCMeta):
+class WrapperBase(Backbone):
     """
     Baseclass for a backbone, which is a feature extractor that returns a dict of features.
 

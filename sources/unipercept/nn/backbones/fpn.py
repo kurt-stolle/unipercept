@@ -23,8 +23,12 @@ from unipercept.nn.layers import conv, weight
 from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec
 from unipercept.nn.layers.utils import to_2tuple
 from unipercept.utils.inspect import locate_object
+from unipercept.log import get_logger
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
+
+
+_logger = get_logger(__name__)
 
 
 class ExtraFPNBlock(nn.Module):
@@ -179,12 +183,7 @@ class FeaturePyramidNetwork(nn.Module):
                 )
 
         self.extra_blocks = extra_blocks
-
-        # Extrator
         self.bottom_up = bottom_up
-        if freeze:
-            for p in self.bottom_up.parameters():
-                p.requires_grad_(False)
 
     def _forward_fpn(
         self, inputs: T.Dict[str, torch.Tensor]

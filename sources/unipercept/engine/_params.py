@@ -66,7 +66,10 @@ class TrainingStage:
     loader: DataLoaderFactory
     batch_size: int
     optimizer: OptimizerFactory
-    scheduler: SchedulerFactory
+    scheduler: SchedulerFactory | None = D.field(
+        default=None,
+        metadata={"help": "Scheduler to use. If None, no scheduler is used."},
+    )
     iterations: Interval = D.field(default=Interval(1, "epochs"), metadata={})
     gradient_accumulation: int = 1
     model_config: T.Dict[str, T.Any] = D.field(
@@ -120,12 +123,6 @@ class EngineParams:
 
     full_determinism: bool = False
     seed: int = 42
-    max_grad_norm: float | None = D.field(
-        default=15, metadata={"help": "Max gradient norm."}
-    )
-    max_grad_value: float | None = D.field(
-        default=35, metadata={"help": "Max gradient value."}
-    )
 
     # Memory tracker
     memory_tracker: bool = D.field(

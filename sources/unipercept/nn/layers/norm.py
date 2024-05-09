@@ -11,11 +11,14 @@ import typing as T
 import torch
 import torch.nn as nn
 from typing_extensions import override
-
+from torchvision.ops.misc import FrozenBatchNorm2d as _FrozenBatchNorm2d
+from torch.nn.modules.batchnorm import BatchNorm2d, SyncBatchNorm
 from unipercept.utils.inspect import locate_object
 
 NormFactory: T.TypeAlias = T.Callable[[int], nn.Module]
 NormSpec: T.TypeAlias = str | NormFactory | nn.Module | None
+
+_M = T.TypeVar("_M", bound=nn.Module)
 
 
 def get_norm(spec: NormSpec, num_channels: int, **kwargs) -> nn.Module:
@@ -158,3 +161,36 @@ class GlobalResponseNorm2d(GlobalResponseNorm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, channels_last=False, **kwargs)
+
+
+class FrozenBatchNorm2d(_FrozenBatchNorm2d):
+    @classmethod
+    def convert_from(cls, module: _M, recursive=True) -> _M | T.Self:
+        """
+        Converts BatchNorm2d or SyncBatchNorm modules.
+
+        See Also
+        --------
+        - Based on `SyncBatchNorm <https://github.com/pytorch/pytorch/blob/master/torch/nn/modules/batchnorm.py>`_.
+        """
+        res = module
+        if isinstance(module, (BatchNorm2d, SyncBatchNorm)):
+            res = cls(module.num_features)
+            if module.affine:
+                res.weight.data = module.weight.data.clone().detach()
+                res.bias.data = module.bias.data.clone().detach()
+            res.running_mean.data = module.running_mean.data
+            res.running_var.data = module.running_var.data
+            res.eps = module.eps
+            res.num_batches_tracked = module.num_batches_tracked
+        elif recursive:
+            for name, child in module.named_children():
+                new_child = cls.convert_from(child, recursive=True)
+                if new_child is not child:
+                    res.add_module(name, new_child)
+        else:
+            msg = f"Cannot convert {module.__class__.__name__} to {cls.__name__}."
+            raise ValueError(msg)
+
+        del module
+        return res

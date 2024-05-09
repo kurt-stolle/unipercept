@@ -247,4 +247,4 @@ def create_scheduler(
         else:
             epochs = t_with_cycles_and_cooldown / updates_per_epoch
 
-    return lr_scheduler, epochs
+    return lr_scheduler, float(epochs)

@@ -26,9 +26,7 @@ import torch.utils.data
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image as pil_image
 from tensordict import TensorDict, TensorDictBase, pad_sequence
-from timm.scheduler.scheduler import Scheduler as TimmScheduler
 from torch import Tensor, nn
-from torch.utils._pytree import tree_flatten
 from typing_extensions import override
 
 from unipercept import file_io
@@ -64,6 +62,8 @@ if T.TYPE_CHECKING:
     from unipercept.evaluators import Evaluator as Evaluator
     from unipercept.model import ModelFactory
     from unipercept.nn.smooth import SmoothingObserverModule
+    from accelerate.optimizer import AcceleratedOptimizer
+    from timm.scheduler.scheduler import Scheduler as TimmScheduler
 
 MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
 
@@ -117,7 +117,6 @@ class Engine:
         "_config",
         "_dataloaders",
         "_stages",
-        "_grad_norm_smoother",
         "__dict__",
     )
 
@@ -132,7 +131,6 @@ class Engine:
         ) = None,
         log_events: bool = False,
         dry_run: bool = False,
-        grad_norm_smoother: SmoothingObserverModule | None = None,
         find_batch_size: bool = False,
     ):
         self._default_setup()
@@ -152,7 +150,6 @@ class Engine:
         self._xlr = None
         self._root = None
         self._config = None
-        self._grad_norm_smoother = grad_norm_smoother
         self.find_batch_size = find_batch_size
 
         self._stages = list(stages) if stages is not None else []
@@ -227,9 +224,6 @@ class Engine:
 
         xlr = Accelerator.from_engine_params(self._params, self.session_dir)
         xlr.register_for_checkpointing(self._state)
-        if self._grad_norm_smoother is not None:
-            xlr.register_for_checkpointing(self._grad_norm_smoother)
-
         self._edge(Event.ON_ACCELERATOR_SETUP, accelerator=xlr)
 
         self._xlr = xlr
@@ -369,6 +363,7 @@ class Engine:
         """
 
         if model is not None:
+            self._edge(Event.ON_MODEL_SETUP, model=model, training=False)
             self.xlr.prepare_model(model, evaluation_mode=True).to(self.xlr.device)
 
         if checkpoint is not None:
@@ -528,15 +523,20 @@ class Engine:
             loader, steps_per_epoch, updates_per_epoch = self.build_training_dataloader(
                 stage.loader, batch_size, gradient_accumulation
             )
+
             model = model_factory(overrides=trial.config, weights=trial.weights)
             scheduled_epochs = stage.get_epochs(steps_per_epoch)
             assert (
                 scheduled_epochs > 0
             ), "Expected scheduled epochs to be greater than 0"
             optimizer = stage.optimizer(model, stage.batch_size)
-            scheduler, train_epochs = stage.scheduler(
-                optimizer, scheduled_epochs, updates_per_epoch
-            )
+            if stage.scheduler is not None:
+                scheduler, train_epochs = stage.scheduler(
+                    optimizer, scheduled_epochs, updates_per_epoch
+                )
+            else:
+                scheduler = None
+                train_epochs = float(scheduled_epochs)
             assert train_epochs > 0, "Expected train epochs to be greater than 0"
 
             _logger.info(
@@ -603,6 +603,7 @@ class Engine:
         suites: T.Collection[str] | None = None,
         prefix: str = "evaluation",
         path: Pathable | None = None,
+        optimizer: AcceleratedOptimizer | None = None,
     ) -> dict[str, float]:
         if self.dry_run:
             _logger.info("Dry run: skipping evaluation")
@@ -656,6 +657,7 @@ class Engine:
                 prefix=prefix_suite,
                 handlers=suite.handlers,
                 path=path_suite,
+                optimizer=optimizer,
             )
 
             self._edge(Event.ON_EVALUATE, metrics=metrics)
@@ -755,12 +757,13 @@ class Engine:
         return dl, steps_per_epoch, updates_per_epoch
 
     def run_training_step(
-        self, model: ModelBase, inputs: InputType
+        self, model: ModelBase, inputs: InputType, optimizer: AcceleratedOptimizer
     ) -> T.Dict[str, Tensor]:
         """
         A single training step (forward + backward + update).
         """
         model.train()
+        optimizer.train()
 
         args = self.select_inputs(model, inputs)
         outputs: ModelOutput = model(*args)
@@ -786,7 +789,7 @@ class Engine:
         loader: torch.utils.data.DataLoader,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
-        scheduler: TimmScheduler,
+        scheduler: TimmScheduler | None,
         **kwargs,
     ) -> nn.Module:
         """
@@ -801,12 +804,15 @@ class Engine:
         if self._params.convert_sync_batchnorm:
             _logger.info("Train loop: converting BatchNorm to SyncBatchNorm")
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        self._edge(Event.ON_MODEL_SETUP, model=model, training=True)
         model = self.xlr.prepare_model(model).to(self.xlr.device)
-        loader, scheduler, optimizer = self.xlr.prepare(loader, scheduler, optimizer)
 
-        # Reset grad norm smoother before loading state
-        if self._grad_norm_smoother is not None:
-            self._grad_norm_smoother.reset()
+        if scheduler is not None:
+            loader, optimizer, scheduler = self.xlr.prepare(
+                loader, optimizer, scheduler
+            )
+        else:
+            loader, optimizer = self.xlr.prepare(loader, optimizer)
 
         # First load the initial weights, then the state
         try:
@@ -830,10 +836,6 @@ class Engine:
 
         # Create a loss tensor to avoid synchronization of TPUs through .item()
         tr_loss: T.Dict[str, Tensor] | None = None
-        tr_norm: Tensor | None = None
-
-        # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
-        self._total_loss_scalar = 0.0
         self._edge(
             Event.ON_TRAIN_BEGIN, model=model, optimizer=optimizer, scheduler=scheduler
         )
@@ -907,19 +909,16 @@ class Engine:
                     )
 
                 with self.xlr.accumulate(model):
-                    tr_loss_step = self.run_training_step(model, inputs)
+                    tr_loss_step = self.run_training_step(model, inputs, optimizer)
 
                 # Add the losses individually
                 if total_session_steps == 0:
                     # If this is the first step in the current session, the tensordict keys have not yet been
                     # initialized.
                     assert tr_loss is None
-                    assert tr_norm is None
                     tr_loss = {k: torch.tensor(0.0, device=self.xlr.device) for k in tr_loss_step.keys()}  # type: ignore
-                    tr_norm = torch.tensor(0.0, device=self.xlr.device)
                 else:
                     assert tr_loss is not None
-                    assert tr_norm is not None
 
                 for k, tr_loss_value in tr_loss.items():
                     tr_loss_step_value = tr_loss_step.get(
@@ -947,10 +946,14 @@ class Engine:
                     # last step in epoch but step is always smaller than gradient_accumulation
                     is_last_step_and_steps_less_than_grad_acc
                 ):
-                    tr_norm += self._train_clip_gradients(model)
+                    if self.xlr.sync_gradients:
+                        self.xlr.unscale_gradients()
+                        self._edge(Event.ON_TRAIN_GRADIENTS, model=model, losses=tr_loss)
+
                     optimizer.step()
                     if not self.xlr.optimizer_step_was_skipped:
-                        scheduler.step_update(self._state.step, metric=None)
+                        if scheduler is not None:
+                            scheduler.step_update(self._state.step, metric=None)
                     else:
                         _logger.debug("Step was skipped")
                     optimizer.zero_grad()
@@ -961,14 +964,14 @@ class Engine:
                         steps_in_epoch=steps_in_epoch,
                     )
                     self._edge(
-                        Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer
+                        Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer, losses=tr_loss
                     )
-                    self._train_handle_signals(
-                        tr_loss, tr_norm, model, optimizer, **kwargs
-                    )
+                    self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
                 else:
-                    tr_norm += tr_norm / (1 + self._state.step - self._step_last_logged)
-                    self._edge(Event.ON_TRAIN_SUBSTEP_END)
+                    self._edge(
+                        Event.ON_TRAIN_SUBSTEP_END,
+                        step_last_logged=self._step_last_logged,
+                    )
 
                 total_session_steps += 1
 
@@ -985,10 +988,11 @@ class Engine:
             else:
                 assert tr_loss is not None
 
-            scheduler.step(round(self._state.epoch), metric=None)
+            if scheduler is not None:
+                scheduler.step(round(self._state.epoch), metric=None)
 
             self._edge(Event.ON_TRAIN_EPOCH_END)
-            self._train_handle_signals(tr_loss, tr_norm, model, optimizer, **kwargs)
+            self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
 
             epochs_trained += 1
 
@@ -999,7 +1003,7 @@ class Engine:
 
         self._signal.should_save = True
         self._signal.should_evaluate = True
-        self._train_handle_signals(None, None, model, optimizer, **kwargs)
+        self._train_handle_signals(None, model, optimizer, **kwargs)
 
         # Compute flops
         self._state.total_flops += self._flops
@@ -1027,66 +1031,20 @@ class Engine:
 
         return model
 
-    def _train_clip_gradients(self, model: nn.Module) -> Tensor:
-        self.xlr.unscale_gradients()
-
-        params = list(model.parameters())
-        for p in params:
-            if p is None or p.grad is None:
-                continue
-            torch.nan_to_num(p.grad, nan=0.0, posinf=1e8, neginf=-1e8, out=p.grad)
-
-        self._edge(
-            Event.ON_TRAIN_GRADIENTS,
-            model=model,
-            sync_gradients=self.xlr.sync_gradients,
-        )
-
-        if self._params.max_grad_value is not None:
-            nn.utils.clip_grad_value_(model.parameters(), self._params.max_grad_value)
-
-        if self._params.max_grad_norm is not None:
-            max_norm: float
-            # Read the max norm value (from smoother or directly from params)
-            if self._grad_norm_smoother is not None:
-                assert self._params.max_grad_norm is not None
-
-                max_norm_obs = self._grad_norm_smoother.observe()
-                if not torch.isfinite(max_norm_obs):
-                    max_norm = self._params.max_grad_norm
-                else:
-                    max_norm = max_norm_obs.item()
-                    max_norm = min(max_norm, self._params.max_grad_norm)
-            else:
-                max_norm = self._params.max_grad_norm
-
-            # Skip gradient clipping if max_norm is None or when sync_gradients is disabled
-            if not self.xlr.sync_gradients or max_norm is None:
-                return torch.tensor(torch.nan, device=self.xlr.device)
-
-            # Apply gradient clipping
-            total_norm = torch.nn.utils.clip_grad_norm_(
-                model.parameters(), max_norm, norm_type=2
-            )
-
-            # Smooth the gradient norm
-            if self._grad_norm_smoother is not None and torch.isfinite(total_norm):
-                self._grad_norm_smoother(total_norm)
-        else:
-            total_norm = torch.tensor(torch.nan, device=self.xlr.device)
-
-        return total_norm
-
     def run_inference_step(
         self,
         model: nn.Module,
         inputs: TensorDict,
+        optimizer: AcceleratedOptimizer | None = None,
     ) -> TensorDictBase:
         """
         Perform an evaluation step on `model` using `inputs`.
         """
         model = model.to(self.xlr.device)
         model.eval()
+
+        if optimizer is not None:
+            optimizer.eval()
 
         inputs_device = inputs.device or torch.device("cpu")
         inputs_shape = inputs.batch_size
@@ -1138,6 +1096,7 @@ class Engine:
         path: T.Optional[file_io.PathLike] = None,
         *,
         weights: T.Optional[file_io.PathLike] = None,
+        optimizer: AcceleratedOptimizer | None = None,
     ) -> tuple[dict[str, T.Any], int]:
         """
         Evaluation loop, which roughly follows the folowing procedure:
@@ -1177,6 +1136,7 @@ class Engine:
                 _logger.debug(
                     "Inference loop: preparing model (%s)", model.__class__.__name__
                 )
+                self._edge(Event.ON_MODEL_SETUP, model=model, training=False)
                 model = self.xlr.prepare_model(model, evaluation_mode=True).to(
                     self.xlr.device
                 )
@@ -1226,7 +1186,7 @@ class Engine:
                         with profile(timings, "copy"):
                             inputs = inputs.to(self.xlr.device, non_blocking=True)
                         with profile(timings, "model"):
-                            outputs = self.run_inference_step(model, inputs)
+                            outputs = self.run_inference_step(model, inputs, optimizer)
                         with profile(timings, "update"):
                             samples_in_batch = inputs.batch_size[0]
                             results_merged = TensorDict(
@@ -1443,9 +1403,8 @@ class Engine:
     def _train_handle_signals(
         self,
         tr_loss: T.Dict[str, Tensor] | None,
-        tr_norm: Tensor | None,
         model: nn.Module,
-        optimizer: torch.optim.Optimizer,
+        optimizer: AcceleratedOptimizer,
         *,
         trial: Trial | None,
     ) -> None:
@@ -1457,7 +1416,6 @@ class Engine:
         # SIGNAL: logging
         if self._signal.should_log and not self._logged_in_last_step:
             assert tr_loss is not None
-            assert tr_norm is not None
 
             self.status &= ~EngineStatus.FINDING_BATCH_SIZE
 
@@ -1465,11 +1423,6 @@ class Engine:
 
             logs: dict[str, float] = {}
             logs["optimizer/lr"] = _get_learning_rate(optimizer)
-            if tr_norm is not None:
-                logs["optimizer/total_norm"] = tr_norm.item() / steps_passed
-            if self._grad_norm_smoother is not None:
-                smooth_norm = self._grad_norm_smoother.observe().item()
-                logs["optimizer/smooth_norm"] = smooth_norm
 
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {
@@ -1480,7 +1433,6 @@ class Engine:
             # reset tr_loss to zero
             for k in tr_loss.keys():
                 tr_loss[k].zero_()
-            tr_norm.zero_()
 
             for k, v in tr_loss_scalar.items():
                 logs["losses/" + k] = round(v / steps_passed, 4)
@@ -1509,7 +1461,9 @@ class Engine:
                 self._state.epoch,
             )
 
-            self.run_evaluation(lambda *args, **kwargs: model, trial=trial)
+            self.run_evaluation(
+                lambda *args, **kwargs: model, trial=trial, optimizer=optimizer
+            )
             self._step_last_evaluated = self._state.step
 
     def _push_logs(self, logs: dict[str, T.Any]) -> None:

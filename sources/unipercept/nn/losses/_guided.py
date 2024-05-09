@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 from einops import reduce
 from torch import nn
-from torch.cuda.amp import autocast
 from typing_extensions import override
 
 from unipercept.nn.losses.functional import split_into_patches
@@ -43,7 +42,7 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.patch_stride = patch_stride or patch_size
 
     @override
-    @autocast(enabled=False)
+    @torch.autocast("cuda", enabled=False)
     def forward(self, seg_feat: torch.Tensor, dep_true: torch.Tensor):
         seg_feat = seg_feat.float()
         dep_true = dep_true.float()
@@ -120,9 +119,10 @@ class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.threshold = max(1, min(*patch_size) // 2)
 
     @override
-    @autocast(enabled=False)
+    @torch.autocast("cuda", enabled=False)
     def forward(self, dep_feat: torch.Tensor, seg_true: torch.Tensor):
         dep_feat = dep_feat.float()
+        seg_true = seg_true.int()
         loss, mask = segmentation_guided_triplet_loss(
             dep_feat,
             seg_true,

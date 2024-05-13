@@ -61,10 +61,15 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self,
         *,
         weight_sile=5.0,
-        weight_are=1.0,
-        weight_sre=1.0,
+        weight_are=None,
+        weight_sre=None,
         **kwargs,
     ):
+        if weight_are is None:
+            weight_are = kwargs.pop("weight_arse", 1.0)
+        if weight_sre is None:
+            weight_sre = kwargs.pop("weight_srse", 1.0) * kwargs.pop("weight_rsqe", 1.0)
+
         super().__init__(**kwargs)
 
         self.weight_sile = weight_sile

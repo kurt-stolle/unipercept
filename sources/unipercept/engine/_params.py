@@ -336,8 +336,18 @@ class EngineParams:
         metadata={"help": "Whether the `metric` should be maximized or not."},
     )
 
+    ################################################
+    # Backwards compatibility & deprecation warnings
+    ################################################
+    max_grad_norm: D.InitVar[float | None] = D.field(
+        default=None, metadata={"help": "No-op (DEPRECATED)"}
+    )
+    max_grad_value: D.InitVar[float | None] = D.field(
+        default=None, metadata={"help": "No-op (DEPRECATED)"}
+    )
+
     ###############################################
-    # Post-initialization defaults and sanitization
+    # Post-initialization defaults & sanitization
     ###############################################
 
     def __setup_interactive(self, **kwds) -> None:
@@ -347,8 +357,18 @@ class EngineParams:
             interactive = self.interactive
         self.interactive = interactive
 
-    def __post_init__(self, **init_vars):
+    def __post_init__(self, max_grad_norm=None, max_grad_value=None, **init_vars):
         self.__setup_interactive(**init_vars)
+
+        if max_grad_norm is not None or max_grad_value is not None:
+            # Note: BW compat is not injected due to the complexity involved in
+            #       handling the injection of callbacks at the current scope.
+            _logger.warning(
+                "The `max_grad_norm` and `max_grad_value` parameters are deprecated "
+                "and will be removed in the next version. "
+                "Use the `callbacks.GradientClippingCallback` instead. "
+                "No backwards compatability is injected for these parameters!"
+            )
 
     ################################################
     # Representation and state
@@ -386,3 +406,5 @@ class EngineParams:
             return check_main_process(local=True)
         else:
             return check_main_process(local=False)
+
+    #

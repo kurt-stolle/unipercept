@@ -21,9 +21,11 @@ from fvcore.nn.weight_init import c2_xavier_fill
 from unipercept.nn.backbones._base import Backbone
 from unipercept.nn.layers import conv, weight
 from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec
+from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
 from unipercept.nn.layers.utils import to_2tuple
 from unipercept.utils.inspect import locate_object
 from unipercept.log import get_logger
+from unipercept.nn.wrappers import freeze_parameters
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
 
@@ -95,13 +97,20 @@ class FeaturePyramidNetwork(nn.Module):
         out_features: T.Optional[T.List[str]] = None,
         norm: T.Optional[T.Callable[..., nn.Module]] = None,
         extra_blocks: T.Optional[ExtraFPNBlock] = None,
-        freeze: bool = False,
         squeeze_excite: T.Callable[[int], nn.Module] | None = None,
         conv_module: type[conv.Conv2d] | tuple[type[conv.Conv2d], ...] = conv.Conv2d,
         interpolate_mode: T.Literal["nearest", "nearest-exact", "bilinear"] = "nearest",
         activation: ActivationSpec = None,
+        **kwargs,
     ):
-        super().__init__()
+        # NOTE: The following patches are added for backwards compatability.
+        #       Each option may be deprecated in the future.
+        if kwargs.pop("freeze", None) is True:
+            bottom_up = freeze_parameters(bottom_up)
+        if isinstance(squeeze_excite, bool):
+            squeeze_excite = SqueezeExcite2d
+
+        super().__init__(**kwargs)
 
         self.inner_blocks = nn.ModuleDict()
         self.layer_blocks = nn.ModuleDict()

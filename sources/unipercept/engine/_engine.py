@@ -132,6 +132,7 @@ class Engine:
         log_events: bool = False,
         dry_run: bool = False,
         find_batch_size: bool = False,
+        **kwargs,
     ):
         self._default_setup()
 
@@ -168,12 +169,19 @@ class Engine:
 
         self._signal = Signal()
         self._delegate = Delegate(callbacks, verbose=log_events)
-
         self._flops = 0
         self._step_last_logged = -1
         self._step_last_saved = -1
         self._step_last_evaluated = -1
         self._recover_path = None  # See: `recover` method
+
+        # Handle keyword arguments
+        if kwargs.pop("grad_norm_smoother", None) is not None:
+            _logger.warning(
+                "The `grad_norm_smoother` keyword is no longer supported and will "
+                "be removed in a future version. "
+                "Use `callbacks.GradientClippingCallback` instead."
+            )
 
         self._edge(Event.ON_CREATE)
         self._mem_tracker.stop_and_update_metrics("init")
@@ -948,7 +956,9 @@ class Engine:
                 ):
                     if self.xlr.sync_gradients:
                         self.xlr.unscale_gradients()
-                        self._edge(Event.ON_TRAIN_GRADIENTS, model=model, losses=tr_loss)
+                        self._edge(
+                            Event.ON_TRAIN_GRADIENTS, model=model, losses=tr_loss
+                        )
 
                     optimizer.step()
                     if not self.xlr.optimizer_step_was_skipped:
@@ -964,7 +974,10 @@ class Engine:
                         steps_in_epoch=steps_in_epoch,
                     )
                     self._edge(
-                        Event.ON_TRAIN_STEP_END, model=model, optimizer=optimizer, losses=tr_loss
+                        Event.ON_TRAIN_STEP_END,
+                        model=model,
+                        optimizer=optimizer,
+                        losses=tr_loss,
                     )
                     self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
                 else:

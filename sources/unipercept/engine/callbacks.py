@@ -16,16 +16,16 @@ from torch import Tensor, nn
 from tqdm.auto import tqdm
 
 from unipercept.log import create_table, get_logger
-from unipercept.state import check_main_process
 from unipercept.model import ModelBase, ModelInput, ModelOutput
+from unipercept.state import check_main_process
 
 if T.TYPE_CHECKING:
+    from accelerate.optimizer import AcceleratedOptimizer
+    from timm.scheduler import Scheduler as TimmScheduler
     from torch.utils.data import DataLoader
 
     from unipercept.engine import EngineParams, Interval, OptimizerFactory
     from unipercept.engine.accelerate import Accelerator
-    from accelerate.optimizer import AcceleratedOptimizer
-    from timm.scheduler import Scheduler as TimmScheduler
 
 _logger = get_logger(__name__)
 

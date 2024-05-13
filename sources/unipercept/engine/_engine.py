@@ -58,12 +58,13 @@ from unipercept.utils.ulid import ULID
 torch._dynamo.config.suppress_errors = True
 
 if T.TYPE_CHECKING:
+    from accelerate.optimizer import AcceleratedOptimizer
+    from timm.scheduler.scheduler import Scheduler as TimmScheduler
+
     import unipercept as up
     from unipercept.evaluators import Evaluator as Evaluator
     from unipercept.model import ModelFactory
     from unipercept.nn.smooth import SmoothingObserverModule
-    from accelerate.optimizer import AcceleratedOptimizer
-    from timm.scheduler.scheduler import Scheduler as TimmScheduler
 
 MaybeTensorType = T.TypeVar("MaybeTensorType", bound=torch.Tensor | None)
 

@@ -18,14 +18,14 @@ import torch.nn.functional as F
 import typing_extensions as TX
 from fvcore.nn.weight_init import c2_xavier_fill
 
+from unipercept.log import get_logger
 from unipercept.nn.backbones._base import Backbone
 from unipercept.nn.layers import conv, weight
 from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec
 from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
 from unipercept.nn.layers.utils import to_2tuple
-from unipercept.utils.inspect import locate_object
-from unipercept.log import get_logger
 from unipercept.nn.wrappers import freeze_parameters
+from unipercept.utils.inspect import locate_object
 
 __all__ = ["FeaturePyramidNetwork", "LastLevelMaxPool", "LastLevelP6P7"]
 

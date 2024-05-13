@@ -4,12 +4,11 @@ Implements wrapper functions for modifying models on the fly.
 
 from __future__ import annotations
 
-import torch.nn as nn
-import torch
+import typing as T
 
 import regex as re
-
-import typing as T
+import torch
+import torch.nn as nn
 
 _M = T.TypeVar("_M", bound=nn.Module)
 

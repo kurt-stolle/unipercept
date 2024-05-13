@@ -10,9 +10,10 @@ import typing as T
 
 import torch
 import torch.nn as nn
-from typing_extensions import override
-from torchvision.ops.misc import FrozenBatchNorm2d as _FrozenBatchNorm2d
 from torch.nn.modules.batchnorm import BatchNorm2d, SyncBatchNorm
+from torchvision.ops.misc import FrozenBatchNorm2d as _FrozenBatchNorm2d
+from typing_extensions import override
+
 from unipercept.utils.inspect import locate_object
 
 NormFactory: T.TypeAlias = T.Callable[[int], nn.Module]

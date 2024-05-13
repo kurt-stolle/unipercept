@@ -130,7 +130,9 @@ class MapMLP(nn.Sequential):
             # Dropout
             layer_dropout = final_dropout if is_final else dropout
             if layer_dropout > 0.0:
-                self.add_module(f"drop{n}", nn.Dropout(layer_dropout, inplace=False)) #(not is_final)))
+                self.add_module(
+                    f"drop{n}", nn.Dropout(layer_dropout, inplace=False)
+                )  # (not is_final)))
 
             # Normalization
             if norm is not None and not is_final:

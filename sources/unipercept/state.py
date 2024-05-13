@@ -6,8 +6,9 @@ The Accelerate library is adopted to handle distributed training and inference.
 from __future__ import annotations
 
 import dataclasses as D
-import os
 import functools as F
+import os
+import sys
 import typing as T
 
 import accelerate.utils
@@ -15,7 +16,6 @@ import torch
 import torch.distributed
 import torch.types
 import torch.utils.data
-import sys
 from tensordict import TensorDict, TensorDictBase
 
 __all__ = []

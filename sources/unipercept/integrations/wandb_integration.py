@@ -127,7 +127,7 @@ class WandBCallback(CallbackDispatcher):
 
     watch_model: WandBWatchMode | None | str = D.field(
         default_factory=lambda: get_env(
-            str, "UNIPERCEPT_WANDB_WATCH_ENABLED", default=WandBWatchMode.ALL.value
+            str, "UP_WANDB_WATCH_ENABLED", default=WandBWatchMode.ALL.value
         )
     )
     watch_steps: int | None = D.field(
@@ -140,14 +140,10 @@ class WandBCallback(CallbackDispatcher):
         },
     )
     upload_config: bool = D.field(
-        default_factory=lambda: get_env(
-            bool, "UNIPERCEPT_WANDB_UPLOAD_CONFIG", default=True
-        )
+        default_factory=lambda: get_env(bool, "UP_WANDB_UPLOAD_CONFIG", default=True)
     )
     upload_code: bool = D.field(
-        default_factory=lambda: get_env(
-            bool, "UNIPERCEPT_WANDB_UPLOAD_CODE", default=True
-        )
+        default_factory=lambda: get_env(bool, "UP_WANDB_UPLOAD_CODE", default=True)
     )
     model_history: int = 1
     state_history: int = 1

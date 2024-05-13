@@ -8,14 +8,17 @@ import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
 from torch.types import Device
-from torchvision.transforms.v2 import functional as tvfn
+from torchvision.transforms.v2.functional import resize_image, register_kernel, InterpolationMode
+from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 from torchvision.tv_tensors import Mask
+from torch import Tensor
+from einops import rearrange
 
 from unipercept.data.tensors.helpers import get_kwd, read_pixels, write_png_l16
 from unipercept.data.tensors.registry import pixel_maps
 from unipercept.utils.typings import Pathable
 
-__all__ = ["DepthMap", "DepthFormat"]
+__all__ = ["DepthMap", "DepthFormat", "downsample_depthmap", "resize_depthmap"]
 
 DEFAULT_DEPTH_DTYPE: T.Final = torch.float32
 
@@ -160,22 +163,40 @@ class DepthMap(Mask):
         return cls(depth)
 
 
-# @tvfn.register_kernel(functional="resize", tv_tensor_cls=DepthMap)
+def downsample_depthmap(x: Tensor, size: tuple[int, int]) -> Tensor:
+    """
+    Downsampling of depth maps via median pooling.
+    """
+    x = rearrange(x, "b (h1 h2) (w1 w2) -> b h1 w1 (h2 w2)", h1=size[0], w1=size[1])
+    x[x <= 0] = torch.nan
+    x = torch.nanmedian(x, dim=-1).values
+    x[~torch.isfinite(x)] = 0
+
+    return x
+
+@register_kernel(functional="resize", tv_tensor_cls=DepthMap)
 def resize_depthmap(
-    inpt: DepthMap,
+    image: DepthMap,
     size: T.List[int],
     interpolation: T.Any = None,  # noqa: U100
     max_size: int | None = None,
     antialias: T.Any = True,  # noqa: U100
+    use_rescale: bool = False,
 ) -> torch.Tensor:
-    d_min = inpt.min()
-    d_max = inpt.max()
+    shape = image.shape
+    h_old, w_old = shape[-2:]
+    h_new, w_new = _compute_resized_output_size((h_old, w_old), size=size, max_size=max_size)
 
-    res = tvfn.resize_image(inpt, size, interpolation, max_size, antialias=antialias)
+    if h_new <= h_old and w_new <= w_old:
+        res = downsample_depthmap(image, (h_new, w_new))
+    else:
+        res = resize_image(image, size, interpolation=InterpolationMode.NEAREST_EXACT, max_size=max_size, antialias=antialias)
+    
+    if use_rescale:
+        d_min = image.min()
+        d_max = image.max()
+        scale = (h_old / h_new + w_old / w_new) / 2
 
-    h_i, w_i = inpt.shape[-2:]
-    h_o, w_o = res.shape[-2:]
+        res = (res * scale).clamp(d_min, d_max)
 
-    scale = (h_i / h_o + w_i / w_o) / 2
-
-    return (res * scale).clamp(d_min, d_max).as_subclass(DepthMap)
+    return res.as_subclass(DepthMap)

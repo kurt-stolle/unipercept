@@ -17,7 +17,7 @@ from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
 from unipercept.log import get_logger
-from unipercept.state import check_main_process
+from unipercept.state import check_main_process, get_interactive
 
 if T.TYPE_CHECKING:
     from ..model import TensorDictBase
@@ -49,7 +49,9 @@ class Evaluator(metaclass=abc.ABCMeta):
     Implements an evaluator for a given task.
     """
 
-    show_progress: bool = D.field(default=True, metadata={"help": "Show progress bar"})
+    show_progress: bool = D.field(
+        default_factory=get_interactive, metadata={"help": "Show progress bar"}
+    )
 
     def update(
         self,

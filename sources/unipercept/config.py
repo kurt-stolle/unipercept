@@ -27,7 +27,7 @@ from typing_extensions import override
 import unipercept.file_io as file_io
 from unipercept.log import get_logger
 from unipercept.utils.inspect import generate_path, locate_object
-import functools 
+
 if T.TYPE_CHECKING:
     from unipercept.utils.typings import Pathable
 
@@ -810,6 +810,7 @@ def as_tuple(*args):
 
 def as_list(*args):
     return call(make_list)(items=args)
+
 
 def partial(*, func: T.Callable[..., T.Any], **kwargs) -> T.Callable[..., T.Any]:
     """

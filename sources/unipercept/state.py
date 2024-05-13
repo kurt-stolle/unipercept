@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses as D
 import os
+import functools as F
 import typing as T
 
 import accelerate.utils
@@ -14,29 +15,31 @@ import torch
 import torch.distributed
 import torch.types
 import torch.utils.data
+import sys
 from tensordict import TensorDict, TensorDictBase
 
-from unipercept.log import get_logger
-
 __all__ = []
-
-
-@D.dataclass(kw_only=True, slots=True)
-class _ProcessStateManager:
-    interactive: bool = False
-
-
-_state_backend = accelerate.PartialState()
-_state_unipercept = _ProcessStateManager()
-
+_xlr_state = accelerate.PartialState()
 
 ####################
 # Unipercept state #
 ####################
 
 
+@F.lru_cache()
 def get_interactive():
-    return _state_unipercept.interactive
+    from unipercept.config import get_env
+
+    def default_interative_closure():
+        if sys.stdin.isatty():  # Terminal
+            return True
+        if hasattr(sys, "ps1"):  # IPython, Python shell, etc.
+            return True
+        if sys.flags.interactive:  # Python launched with -i
+            return True
+        return os.isatty(sys.stdout.fileno())  # Redirected output
+
+    return get_env(bool, "UP_INTERACTIVE", default=default_interative_closure)
 
 
 ##################################
@@ -67,53 +70,49 @@ def get_total_batchsize(
 
 
 def get_process_index(local=False):
-    return _state_backend.local_process_index if local else _state_backend.process_index
+    return _xlr_state.local_process_index if local else _xlr_state.process_index
 
 
 def get_process_count() -> int:
-    return _state_backend.num_processes
+    return _xlr_state.num_processes
 
 
 def check_main_process(local=False):
-    return (
-        _state_backend.is_local_main_process
-        if local
-        else _state_backend.is_main_process
-    )
+    return _xlr_state.is_local_main_process if local else _xlr_state.is_main_process
 
 
 def check_debug_enabled():
-    return _state_backend.debug
+    return _xlr_state.debug
 
 
 def barrier(msg: str | None = None):
-    return _state_backend.wait_for_everyone()
+    return _xlr_state.wait_for_everyone()
 
 
 def main_process_first(local: bool = False):
     if local:
-        return _state_backend.local_main_process_first()
+        return _xlr_state.local_main_process_first()
     else:
-        return _state_backend.main_process_first()
+        return _xlr_state.main_process_first()
 
 
-print = _state_backend.print
+print = _xlr_state.print
 
 
 def check_distributed() -> bool:
-    return _state_backend.use_distributed
+    return _xlr_state.use_distributed
 
 
 def on_process():
-    return _state_backend.on_process
+    return _xlr_state.on_process
 
 
 def on_last_process():
-    return _state_backend.on_last_process
+    return _xlr_state.on_last_process
 
 
 def on_main_process():
-    return _state_backend.on_main_process
+    return _xlr_state.on_main_process
 
 
 ###############

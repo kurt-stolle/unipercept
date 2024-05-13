@@ -20,7 +20,7 @@ from tqdm import tqdm
 from typing_extensions import override
 
 from unipercept.log import create_table, get_logger
-from unipercept.state import check_main_process, cpus_available
+from unipercept.state import check_main_process, cpus_available, get_interactive
 
 from ._base import Evaluator, PlotMode
 
@@ -140,8 +140,7 @@ _KEY_VALID_PX = "valid"
 
 @D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
-    show_progress: bool = True
-
+    show_progress: bool = D.field(default_factory=get_interactive)
     show_summary: bool = True
 
     @classmethod

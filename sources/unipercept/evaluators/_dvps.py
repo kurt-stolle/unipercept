@@ -37,7 +37,7 @@ from unipercept.evaluators._panoptic import (
     _preprocess_mask,
 )
 from unipercept.log import create_table, get_logger
-from unipercept.state import check_main_process, cpus_available
+from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (
     defaultdict_recurrent,
     defaultdict_recurrent_to_dict,
@@ -94,7 +94,7 @@ class DVPSEvaluator(DVPSWriter):
     Computes (D)VPQ and (D)STQ metrics.
     """
 
-    show_progress: bool = True
+    show_progress: bool = D.field(default_factory=get_interactive)
     show_summary: bool = True
     show_details: bool = False
     report_details: bool = False

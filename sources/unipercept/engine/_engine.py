@@ -693,8 +693,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
 
     @T.overload
     def build_training_dataloader(
@@ -702,8 +701,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
 
     def build_training_dataloader(
         self,
@@ -772,7 +770,10 @@ class Engine:
         A single training step (forward + backward + update).
         """
         model.train()
-        optimizer.train()
+        try:
+            optimizer.train()
+        except AttributeError:
+            pass  # not all optimizers have a train method
 
         args = self.select_inputs(model, inputs)
         torch.compiler.cudagraph_mark_step_begin()
@@ -1060,7 +1061,10 @@ class Engine:
         model.eval()
 
         if optimizer is not None:
-            optimizer.eval()
+            try:
+                optimizer.eval()
+            except AttributeError:
+                pass  # not all optimizers have an eval method
 
         inputs_device = inputs.device or torch.device("cpu")
         inputs_shape = inputs.batch_size

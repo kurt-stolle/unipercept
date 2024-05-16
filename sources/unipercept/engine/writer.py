@@ -510,6 +510,24 @@ class LazyStackedMemmapTensorDict(TensorDictBase):
     def to(self, *args, **kwargs):
         return NotImplementedError("Method to is not supported!")
 
+    def __ge__(self, *args, **kwargs):
+        return NotImplementedError("Method __ge__ is not supported!")
+
+    def __gt__(self, *args, **kwargs):
+        return NotImplementedError("Method __gt__ is not supported!")
+
+    def __le__(self, *args, **kwargs):
+        return NotImplementedError("Method __le__ is not supported!")
+
+    def __lt__(self, *args, **kwargs):
+        return NotImplementedError("Method __lt__ is not supported!")
+
+    def _cast_reduction(self, *args, **kwargs):
+        return NotImplementedError("Method _cast_reduction is not supported!")
+
+    def popitem(self, *args, **kwargs):
+        return NotImplementedError("Method popitem is not supported!")
+
 
 class MemmapTensordictWriter:
     """

@@ -12,6 +12,10 @@ import unipercept as up
 class SemSegModel(nn.Module):
     def __init__(self, in_channels, out_classes):
         super().__init__()
+        
+        self.backbone = up.nn.backbones.fpn.FPN(
+            
+
         self.conv = nn.Conv2d(in_channels, out_classes, 1)
 
     def forward(self, x):

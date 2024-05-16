@@ -57,18 +57,23 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
     plot_samples: int = D.field(
         default=1, metadata={"help": "Number of samples to plot"}
     )
-    plot_true: PlotMode = PlotMode.ONCE
-    plot_pred: PlotMode = PlotMode.ALWAYS
+    plot_true_segmentation: PlotMode = PlotMode.ONCE
+    plot_pred_segmentation: PlotMode = PlotMode.ALWAYS
 
-    true_key: tuple[str, ...] = D.field(
-        default=("captures", "segmentations"),
-        metadata={"help": "The key for the ground truth in the input TensorDict"},
-    )
-    true_group_index: int = -1  # the most recent index [batch, group, ...] dimensions
-    pred_key: str = D.field(
+    pred_key_segmentation: str = D.field(
         default="segmentations",
-        metadata={"help": "The key for the predictions in the output TensorDict"},
+        metadata={
+            "help": "The key for the segmentation predictions in the output TensorDict"
+        },
     )
+    true_key_segmentation: tuple[str, ...] = D.field(
+        default=("captures", "segmentations"),
+        metadata={
+            "help": "The key for the ground truth segmentation in the input TensorDict"
+        },
+    )
+
+    true_group_index: int = -1  # the most recent index [batch, group, ...] dimensions
 
     coco_export: bool = D.field(
         default=False,
@@ -99,16 +104,18 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
         ):
             return
 
-        pred = outputs.get(self.pred_key)
+        pred = outputs.get(self.pred_key_segmentation)
         if pred is None:
             msg = f"Panoptic segmentation output not found in {outputs=}"
             raise RuntimeError(msg)
+        assert pred.ndim == 3, f"Expected 3D tensor, got {pred.shape=}"
 
-        true: torch.Tensor = inputs.get(self.true_key, default=None)
+        true: torch.Tensor = inputs.get(self.true_key_segmentation, default=None)
         if true is None:  # Generate dummy values for robust evaluation downstream
             true = torch.full_like(pred, PanopticMap.IGNORE, dtype=torch.long)
         else:
             true = true[:, self.true_group_index, ...]
+        assert true.ndim == 3, f"Expected 3D tensor, got {true.shape=}"
 
         valid = (true != PanopticMap.IGNORE).any(dim=(-1)).any(dim=-1)
 
@@ -127,8 +134,8 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
 
         plot_keys = []
         for key, mode_attr in (
-            (TRUE_PANOPTIC, "plot_true"),
-            (PRED_PANOPTIC, "plot_pred"),
+            (TRUE_PANOPTIC, "plot_true_segmentation"),
+            (PRED_PANOPTIC, "plot_pred_segmentation"),
         ):
             mode = getattr(self, mode_attr)
             if mode == PlotMode.NEVER:
@@ -373,23 +380,23 @@ class PanopticEvaluator(PanopticWriter):
             n_masked = n_valid[mask].sum().item()
             if n_masked == 0:
                 summary[name] = {
-                    "PQ": 1.0,
-                    "SQ": 1.0,
-                    "RQ": 1.0,
-                    "IoU": 0.0,
-                    "TP": 0.0,
-                    "FP": 0.0,
-                    "FN": 0.0,
+                    "PQ": 0.0,
+                    # "SQ": 0.0,
+                    # "RQ": 0.0,
+                    # "IoU": 0.0,
+                    # "TP": 0.0,
+                    # "FP": 0.0,
+                    # "FN": 0.0,
                 }
             else:
                 summary[name] = {
                     "PQ": metrics.pq[mask].mean().item(),
-                    "SQ": metrics.sq[mask].mean().item(),
-                    "RQ": metrics.rq[mask].mean().item(),
-                    "IoU": metrics.iou[mask].mean().item(),
-                    "TP": metrics.tp[mask].sum().item() / n_masked,
-                    "FP": metrics.fp[mask].sum().item() / n_masked,
-                    "FN": metrics.fn[mask].sum().item() / n_masked,
+                    # "SQ": metrics.sq[mask].mean().item(),
+                    # "RQ": metrics.rq[mask].mean().item(),
+                    # "IoU": metrics.iou[mask].mean().item(),
+                    # "TP": metrics.tp[mask].sum().item() / n_masked,
+                    # "FP": metrics.fp[mask].sum().item() / n_masked,
+                    # "FN": metrics.fn[mask].sum().item() / n_masked,
                 }
         if self.show_summary:
             df = _tabulate(summary)
@@ -417,23 +424,23 @@ class PanopticEvaluator(PanopticWriter):
             n_masked = n_valid[i].sum().item()
             if n_masked == 0:
                 details[name] = {
-                    "PQ": 1.0,
-                    "SQ": 1.0,
-                    "RQ": 1.0,
-                    "IoU": 0.0,
-                    "TP": 0.0,
-                    "FP": 0.0,
-                    "FN": 0.0,
+                    "PQ": 0.0,
+                    #"SQ": 0.0,
+                    #"RQ": 0.0,
+                    # "IoU": 0.0,
+                    # "TP": 0.0,
+                    # "FP": 0.0,
+                    # "FN": 0.0,
                 }
             else:
                 details[name] = {
                     "PQ": metrics.pq[i].mean().item(),
-                    "SQ": metrics.sq[i].mean().item(),
-                    "RQ": metrics.rq[i].mean().item(),
-                    "IoU": metrics.iou[i].mean().item(),
-                    "TP": metrics.tp[i].sum().item() / n_masked,
-                    "FP": metrics.fp[i].sum().item() / n_masked,
-                    "FN": metrics.fn[i].sum().item() / n_masked,
+                    #"SQ": metrics.sq[i].mean().item(),
+                    #"RQ": metrics.rq[i].mean().item(),
+                    # "IoU": metrics.iou[i].mean().item(),
+                    # "TP": metrics.tp[i].sum().item() / n_masked,
+                    # "FP": metrics.fp[i].sum().item() / n_masked,
+                    # "FN": metrics.fn[i].sum().item() / n_masked,
                 }
         if self.show_details:
             df = _tabulate(details)

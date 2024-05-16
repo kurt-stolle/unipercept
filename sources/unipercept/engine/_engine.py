@@ -775,6 +775,7 @@ class Engine:
         optimizer.train()
 
         args = self.select_inputs(model, inputs)
+        torch.compiler.cudagraph_mark_step_begin()
         outputs: ModelOutput = model(*args)
         assert outputs.losses is not None
 
@@ -1045,6 +1046,7 @@ class Engine:
 
         return model
 
+    @torch.inference_mode()
     def run_inference_step(
         self,
         model: nn.Module,
@@ -1070,6 +1072,7 @@ class Engine:
             raise ValueError(msg)
 
         args = self.select_inputs(model, inputs)
+        torch.compiler.cudagraph_mark_step_begin()
         outputs: ModelOutput = model(*args)
         assert outputs.predictions is not None
 
@@ -1078,6 +1081,9 @@ class Engine:
             predictions.rename_key_("masks", "valid")
         else:
             predictions = outputs.predictions
+
+        if not isinstance(predictions, TensorDictBase):
+            predictions = TensorDict(predictions, batch_size=inputs_shape)
 
         if len(inputs_shape) == 0:
             predictions = predictions[0]

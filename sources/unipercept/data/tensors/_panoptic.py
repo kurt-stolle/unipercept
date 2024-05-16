@@ -79,6 +79,7 @@ class PanopticMap(_Mask):
                 divisor = info["label_divisor"]
                 ignore_label = info["ignore_label"]
                 img = read_pixels(path, color=True)
+                assert img.ndim == 3, f"Expected 3D tensor, got {img.ndim}D tensor"
 
                 map_ = (
                     img[:, :, 0]
@@ -98,6 +99,8 @@ class PanopticMap(_Mask):
                 ignore_label = info["ignore_label"]
 
                 img = read_pixels(path, color=False)
+                assert img.ndim == 2, f"Expected 2D tensor, got {img.ndim}D tensor"
+
                 has_instance = img >= divisor
 
                 ids = torch.where(has_instance, (img % divisor) + 1, 0)
@@ -179,6 +182,7 @@ class PanopticMap(_Mask):
 
         labels.remove_instances_(info.background_ids)
 
+        assert labels.ndim == 2, f"Expected 2D tensor, got {labels.ndim}D tensor"
         return labels
 
     def save(self, path: Pathable, format: LabelsFormat | str | None = None) -> None:
@@ -290,21 +294,20 @@ class PanopticMap(_Mask):
     @classmethod
     def from_parts(
         cls, semantic: torch.Tensor | T.Any, instance: torch.Tensor | T.Any
-    ) -> T.Self:
+    ) -> PanopticMap:
         """
         Create an instance from a semantic segmentation and instance segmentation map by combining them
         using the global ``LABEL_DIVISOR``.
         """
+        if not torch.compiler.is_compiling():
+            semantic = torch.as_tensor(semantic)
+            instance = torch.as_tensor(instance)
 
-        semantic = torch.as_tensor(semantic)
-        instance = torch.as_tensor(instance)
-
-        if semantic.shape != instance.shape:
-            msg = f"Expected tensors of the same shape, got {semantic.shape} and {instance.shape}"
-            raise ValueError(msg)
-
-        cls.must_be_semantic_map(semantic)
-        cls.must_be_instance_map(instance)
+            if semantic.shape != instance.shape:
+                msg = f"Expected tensors of the same shape, got {semantic.shape} and {instance.shape}"
+                raise ValueError(msg)
+            cls.must_be_semantic_map(semantic)
+            cls.must_be_instance_map(instance)
 
         semantic = semantic.to(dtype=torch.long, non_blocking=True)
         instance = instance.to(dtype=torch.long, non_blocking=True)
@@ -313,7 +316,7 @@ class PanopticMap(_Mask):
         panoptic = instance + semantic * cls.DIVISOR
         panoptic[ignore_mask] = cls.IGNORE
 
-        return panoptic.as_subclass(cls)
+        return panoptic.as_subclass(PanopticMap)
 
     @classmethod
     def from_combined(cls, encoded_map: torch.Tensor | T.Any, divisor: int) -> T.Self:

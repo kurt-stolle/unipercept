@@ -36,6 +36,7 @@ from unipercept.evaluators._panoptic import (
     _panoptic_quality_update_sample,
     _preprocess_mask,
 )
+from unipercept.data.tensors import PanopticMap
 from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (
@@ -121,7 +122,9 @@ class DVPSEvaluator(DVPSWriter):
         return self.info.background_ids
 
     @TX.override
-    def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
+    def compute(
+        self, storage: TensorDictBase, return_dataframe: bool = False, **kwargs
+    ) -> dict[str, T.Any]:
         num_samples: int = storage.batch_size[0]
         indices_per_sequence: dict[int, list[int]] = {}
         for i in range(num_samples):
@@ -146,6 +149,7 @@ class DVPSEvaluator(DVPSWriter):
                 indices_per_sequence,
                 self.dvpq_windows,
                 None,
+                return_dataframe=return_dataframe,
                 **kwargs,
             ),
             "dvpq": self._compute_dvpq(
@@ -153,9 +157,15 @@ class DVPSEvaluator(DVPSWriter):
                 indices_per_sequence,
                 self.dvpq_windows,
                 self.dvpq_thresholds,
+                return_dataframe=return_dataframe,
                 **kwargs,
             ),
-            "dstq": self._compute_dstq(storage, indices_per_sequence, **kwargs),
+            "dstq": self._compute_dstq(
+                storage,
+                indices_per_sequence,
+                return_dataframe=return_dataframe,
+                **kwargs,
+            ),
         }
 
     def _compute_dvpq(
@@ -166,6 +176,7 @@ class DVPSEvaluator(DVPSWriter):
         thresholds: list[float] | None,
         *,
         device: torch.types.Device,
+        return_dataframe: bool = False,
         **kwargs,
     ) -> dict[str, T.Any]:
         if len(windows) == 0:
@@ -216,14 +227,17 @@ class DVPSEvaluator(DVPSWriter):
 
         # Combine summarie
         df = pd.concat(summaries, ignore_index=True)
+
+        if return_dataframe:
+            return df
+
         result = defaultdict_recurrent()
         supercats = ["all", "thing", "stuff"]
 
         for definition, df_d in df.groupby("definition"):
             for win, df_w in df_d.groupby("window"):
                 win_key = _format_summary_number(int(win), "w")
-                # Compute mean over all thresholds
-                win_mean = result[definition][win_key]["t_mean"] = {
+                win_mean = {
                     c: {
                         metric: df_m[c].mean()
                         for metric, df_m in df_w.groupby("metric")
@@ -232,7 +246,7 @@ class DVPSEvaluator(DVPSWriter):
                 }
 
                 if thresholds is not None:
-                    # Compute at each threshold
+                    # Compute at each threshold (DVPQ)
                     for th, df_t in df_w.groupby("threshold"):
                         th_key = _format_summary_number(float(th), "t")
                         result[definition][win_key][th_key] = {
@@ -243,14 +257,19 @@ class DVPSEvaluator(DVPSWriter):
                             for c in supercats
                         }
 
-                    result[definition][win_key]["t_all"] = win_mean
+                    result[definition][win_key]["t_mean"] = win_mean
                 else:
+                    # No thresholds (VPQ)
                     result[definition][win_key] = win_mean
 
-            # Compute mean over all windows
+            win_mean = {
+                c: {metric: df_m[c].mean() for metric, df_m in df_d.groupby("metric")}
+                for c in supercats
+            }
             if thresholds is not None:
+                # Compute mean over all windows (DVPQ)
                 for th, df_t in df_d.groupby("threshold"):
-                    result[definition]["w_all"][
+                    result[definition]["w_mean"][
                         _format_summary_number(int(th), "t")
                     ] = {
                         c: {
@@ -259,15 +278,12 @@ class DVPSEvaluator(DVPSWriter):
                         }
                         for c in supercats
                     }
+                result[definition]["w_mean"]["t_mean"] = win_mean
+            else:
+                # No thresholds (VPQ)
+                result[definition]["w_mean"] = win_mean
 
-        for definition, df_d in df.groupby("definition"):
-            # Compute mean over all windows and thresholds
-            for metric, df_m in df_d.groupby("metric"):
-                for c in supercats:
-                    c_metric = df_m[c].mean()
-                    result[definition]["overall"][c][metric] = c_metric
         metrics = defaultdict_recurrent_to_dict(result)
-
         if self.show_summary:
             _logger.info("(D)VPQ metrics:\n%s", create_table(metrics, format="wide"))
 
@@ -282,21 +298,21 @@ class DVPSEvaluator(DVPSWriter):
         *,
         device: torch.types.Device,
         allow_stuff_instances: bool,
-        allow_unknown_category=False,
+        allow_unknown_category=True,
     ) -> pd.DataFrame:
         """
         Computes DVPQ for a sequence of frames.
         """
 
         # Make groups of length `window` and compute PQ for each group
-        indices = indices[: len(indices) - window + 1]
         void_color = _get_void_color(self.object_ids, self.background_ids)
 
         num_categories = len(self.object_ids) + len(self.background_ids)
         iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
-        tp = torch.zeros(num_categories, dtype=torch.int, device=device)  # type: ignore
+        tp = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
         fp = torch.zeros_like(iou)
         fn = torch.zeros_like(fp)
+        abs_rel = torch.tensor(0, device=device, dtype=torch.double)
 
         # Loop over each sample independently: segments must not be matched across frames.
         compute_dvpq_at_group = functools.partial(
@@ -313,16 +329,18 @@ class DVPSEvaluator(DVPSWriter):
         )
         sample_amt = len(indices)
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(cpus_available(), 8)
+            max_workers=min(cpus_available(), 16)
         ) as pool:
             for result in pool.map(
                 compute_dvpq_at_group,
-                (indices[i : i + window] for i in range(sample_amt)),
+                (indices[i : i + window] for i in range(sample_amt - window + 1)),
             ):
-                iou += result[0]
-                tp += result[1]
-                fp += result[2]
-                fn += result[3]
+                iou += result[0][:-1]
+                tp += result[1][:-1]
+                fp += result[2][:-1]
+                fn += result[3][:-1]
+                abs_rel += result[4]
+        abs_rel /= sample_amt - window + 1
         # for i in range(sample_amt):
         #     group = indices[i : i + window]
         #     result = compute_dvpq_at_group(group)
@@ -336,11 +354,6 @@ class DVPSEvaluator(DVPSWriter):
         sq = H.stable_divide(iou, tp)
         rq = H.stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
         pq = sq * rq
-
-        # Convert to percentages
-        sq *= 100
-        rq *= 100
-        pq *= 100
 
         # Total valid values
         n_valid = tp + fp + fn
@@ -364,9 +377,9 @@ class DVPSEvaluator(DVPSWriter):
         ]:
             # n_masked = n_valid[mask].sum().item()
             summary[name] = {
-                "PQ": pq[mask].mean().item(),
-                "SQ": rq[mask].mean().item(),
-                "RQ": fp[mask].mean().item(),
+                "PQ": pq[mask].mean().item() * 100,
+                # "SQ": rq[mask].mean().item() * 100,
+                # "RQ": fp[mask].mean().item() * 100,
                 # "IoU": iou[mask].mean().item(),
                 # "TP": tp[mask].sum().item() / n_masked,
                 # "FP": fp[mask].sum().item() / n_masked,
@@ -376,6 +389,7 @@ class DVPSEvaluator(DVPSWriter):
         summary_df = self._tabulate(summary)
         summary_df["window"] = window
         summary_df["threshold"] = threshold
+        summary_df["abs_rel"] = abs_rel.item()
 
         return summary_df
 
@@ -385,11 +399,12 @@ class DVPSEvaluator(DVPSWriter):
         indices_per_sequence: dict[int, list[int]],
         *,
         device: torch.types.Device,
+        return_dataframe: bool = False,
         **kwargs,
     ) -> dict[str, T.Any]:
         if len(self.dstq_thresholds) == 0:
-            return {}
-        return {}
+            return {} if not return_dataframe else pd.DataFrame()
+        return {} if not return_dataframe else pd.DataFrame()
 
     @TX.override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
@@ -440,40 +455,45 @@ def _compute_dvpq_at_group(
     pred_seg = storage.get_at(PRED_PANOPTIC, group).to(device, non_blocking=True)
     true_dep = storage.get_at(TRUE_DEPTH, group).to(device, non_blocking=True)
     pred_dep = storage.get_at(PRED_DEPTH, group).to(device, non_blocking=True)
-    assert pred_dep.shape == true_dep.shape
-    assert pred_seg.shape == true_seg.shape
-    assert true_dep.dtype == torch.float32
-    assert pred_dep.dtype == torch.float32
+    assert pred_dep.shape == true_dep.shape, (pred_dep.shape, true_dep.shape)
+    assert pred_seg.shape == true_seg.shape, (pred_seg.shape, true_seg.shape)
+    assert true_dep.dtype == torch.float32, true_dep.dtype
+    assert pred_dep.dtype == torch.float32, pred_dep.dtype
 
     invalid_depth_id = max(*object_ids, *background_ids) + 1
 
-    # Mask out invalid depths
     if threshold > 0:
+        # Apply same conversion as the reference implementation (ViP-DeepLab)
+        true_dep = (true_dep * 256).int().float()
+        pred_dep = (pred_dep * 256).int().float()
         valid_dep = true_dep > 0
-        valid_dep = torch.where(true_seg >= 0, valid_dep, False)
-        true_dep = true_dep[valid_dep]
-        pred_dep = pred_dep[valid_dep]
-
-        # Compute absolute relative error
-        abs_rel = torch.full_like(pred_seg, threshold + 1, dtype=pred_dep.dtype)
-        abs_rel[valid_dep] = torch.abs(true_dep - pred_dep) / true_dep
-
-        # Determine which pixels meet the threshold
-        thres_mask = abs_rel < threshold
-
-        pred_seg = torch.where(~thres_mask, invalid_depth_id, pred_seg)
+        # valid_dep = torch.where(true_seg >= 0, valid_dep, False)
+        abs_rel = torch.abs(pred_dep - true_dep) / true_dep
+        abs_rel[~valid_dep] = 0.0
+        pred_seg = torch.where(
+            abs_rel > threshold,
+            invalid_depth_id * PanopticMap.DIVISOR,
+            pred_seg,
+        )
+        abs_rel_mean = abs_rel[valid_dep].mean()
+    else:
+        abs_rel_mean = torch.tensor(0, dtype=torch.float32, device=device)
 
     # Stack the group into one large image
     true_seg = rearrange(true_seg, "b h w -> (b h) w")
     pred_seg = rearrange(pred_seg, "b h w -> (b h) w")
 
     # Compute PQ
+    background_ids = frozenset(
+        list(background_ids) + [invalid_depth_id]
+    )  # if not allow_unknown_category else background_ids,
+
     pred_seg = _preprocess_mask(
         object_ids,
-        frozenset(list(background_ids) + [invalid_depth_id]),
+        background_ids,
         pred_seg,
         void_color=void_color,
-        allow_unknown_category=True,
+        allow_unknown_category=allow_unknown_category,
     )
     true_seg = _preprocess_mask(
         object_ids,
@@ -483,10 +503,13 @@ def _compute_dvpq_at_group(
         allow_unknown_category=True,
     )
 
-    return _panoptic_quality_update_sample(
-        pred_seg,
-        true_seg,
-        void_color=void_color,
-        background_ids=(background_ids if not allow_stuff_instances else None),
-        num_categories=num_categories,
+    return (
+        *_panoptic_quality_update_sample(
+            pred_seg,
+            true_seg,
+            void_color=void_color,
+            background_ids=(background_ids if not allow_stuff_instances else None),
+            num_categories=num_categories + 1,
+        ),
+        abs_rel_mean,
     )

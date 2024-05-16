@@ -14,11 +14,14 @@ import torch.types
 import torch.utils.data
 import typing_extensions as TX
 
+from unipercept.log import get_logger
 from unipercept import file_io
 
 if T.TYPE_CHECKING:
     from unipercept.engine import EngineParams
 __all__ = ["Accelerator", "find_executable_batch_size", "StatefulObject"]
+
+_logger = get_logger(__name__)
 
 
 class StatefulObect(T.Protocol):
@@ -103,9 +106,18 @@ class Accelerator(accelerate.Accelerator):
         """
         Prepares the model for training. See ``accelerate.Accelerator.prepare_model`` for more information.
         """
-        model = super().prepare_model(model, *args, **kwargs)
+        prepared_model = super().prepare_model(model, *args, **kwargs)
 
-        return model
+        compile_kwargs = kwargs.get(
+            "compile_kwargs",
+            {
+                "backend": "inductor",
+            },
+        )
+        _logger.debug("Compiling model with: " + str(compile_kwargs))
+        prepared_model.compile(**compile_kwargs)
+
+        return prepared_model
 
     @TX.override
     def register_for_checkpointing(self, obj: StatefulObject) -> None:

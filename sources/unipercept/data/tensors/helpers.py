@@ -61,27 +61,19 @@ def write_png(*args, **kwargs):
 
 def write_png_rgb(path: Pathable, tensor: torch.Tensor):
     """Write a tensor to a PNG file (RGB)"""
-    import cv2
-
     assert tensor.ndim == 3
     assert tensor.shape[0] == 3
 
     path = get_local_path(path)
-    mat = tensor.cpu().numpy().astype(np.uint8)
-
-    # CV2 expects BGR input
-    mat = mat[..., ::-1]
-
-    cv2.imwrite(path, mat)
+    image = tensor.to(device="cpu", dtype=torch.uint8).numpy().transpose(1, 2, 0)
+    pil_image.fromarray(image).save(path)
 
 
 def write_png_l16(path: Pathable, tensor: torch.Tensor):
     """Write a tensor to a PNG file (L; 16-bit)"""
-
     path = get_local_path(path)
-    mat = tensor.cpu().numpy().astype(np.uint16)
-
-    cv2.imwrite(path, mat)
+    image = tensor.to(device="cpu", dtype=torch.uint16).numpy()
+    pil_image.fromarray(image).save(path)
 
 
 _KeywordType = TypeVar("_KeywordType")

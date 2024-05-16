@@ -19,7 +19,11 @@ import typing_extensions as TX
 from fvcore.nn.weight_init import c2_xavier_fill
 
 from unipercept.log import get_logger
-from unipercept.nn.backbones._base import Backbone
+from unipercept.nn.backbones._base import (
+    Backbone,
+    BackboneFeatures,
+    BackboneFeatureInfo,
+)
 from unipercept.nn.layers import conv, weight
 from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec
 from unipercept.nn.layers.squeeze_excite import SqueezeExcite2d
@@ -126,6 +130,7 @@ class FeaturePyramidNetwork(nn.Module):
             out_levels += [
                 in_levels[-1] + i + 1 for i in range(extra_blocks.out_levels)
             ]
+        self.out_levels = out_levels
         if out_features is None:
             out_features = ["fpn_" + str(i) for i in out_levels]
 
@@ -141,6 +146,8 @@ class FeaturePyramidNetwork(nn.Module):
         assert len(set(self.out_indices)) == len(
             out_features
         ), "Duplicate output indices"
+
+        self.out_channels = out_channels
 
         conv_module_inner, conv_module_layer = to_2tuple(conv_module)
 
@@ -194,6 +201,18 @@ class FeaturePyramidNetwork(nn.Module):
         self.extra_blocks = extra_blocks
         self.bottom_up = bottom_up
 
+    def get_backbone_features(self) -> BackboneFeatures:
+        """
+        Returns a ``BackboneFeatures`` mapping for the outputs of this FPN.
+        """
+        return {
+            name: BackboneFeatureInfo(
+                channels=self.out_channels,
+                stride=2**level,
+            )
+            for name, level in zip(self.out_features, self.out_levels, strict=True)
+        }
+
     def _forward_fpn(
         self, inputs: T.Dict[str, torch.Tensor]
     ) -> T.Dict[str, torch.Tensor]:
@@ -210,9 +229,11 @@ class FeaturePyramidNetwork(nn.Module):
         for name in reversed(self.in_features):
             # Select feature map at named nevel
             f_in = features[name]
+            inner = self.inner_blocks[name]
+            layer = self.layer_blocks[name]
 
             # Compute inner mapping (feature to fpn channels)
-            x = self.inner_blocks[name](f_in)
+            x = inner(f_in)
 
             # Upscale and merge previous level (if exists)
             if x_mem is not None:
@@ -223,7 +244,7 @@ class FeaturePyramidNetwork(nn.Module):
                 x_mem = x
 
             # Forward to next layer
-            y = self.layer_blocks[name](x_mem)
+            y = layer(x_mem)
 
             # Insert result
             results.insert(0, y)

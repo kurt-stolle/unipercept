@@ -8,7 +8,11 @@ import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
 from torch.types import Device
-from torchvision.transforms.v2.functional import resize_image, register_kernel, InterpolationMode
+from torchvision.transforms.v2.functional import (
+    resize_image,
+    register_kernel,
+    InterpolationMode,
+)
 from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 from torchvision.tv_tensors import Mask
 from torch import Tensor
@@ -167,12 +171,27 @@ def downsample_depthmap(x: Tensor, size: tuple[int, int]) -> Tensor:
     """
     Downsampling of depth maps via median pooling.
     """
-    x = rearrange(x, "b (h1 h2) (w1 w2) -> b h1 w1 (h2 w2)", h1=size[0], w1=size[1])
+    # Check that the shape is actually divisible by the target size, else do NN downsample first to the closest size
+    h_old, w_old = x.shape[-2:]
+    h_new, w_new = size
+
+    if h_old % h_new != 0 or w_old % w_new != 0:
+        h_new = h_old // round(h_old / h_new)
+        w_new = w_old // round(w_old / w_new)
+        x = resize_image(
+            x, (h_new, w_new), interpolation=InterpolationMode.NEAREST_EXACT
+        )
+
+    # Perform median pooling
+    x = rearrange(x, "... (h1 h2) (w1 w2) -> ... h1 w1 (h2 w2)", h1=h_new, w1=w_new)
     x[x <= 0] = torch.nan
     x = torch.nanmedian(x, dim=-1).values
+
+    # Set invalid depth values to 0
     x[~torch.isfinite(x)] = 0
 
     return x
+
 
 @register_kernel(functional="resize", tv_tensor_cls=DepthMap)
 def resize_depthmap(
@@ -180,18 +199,26 @@ def resize_depthmap(
     size: T.List[int],
     interpolation: T.Any = None,  # noqa: U100
     max_size: int | None = None,
-    antialias: T.Any = True,  # noqa: U100
+    antialias: T.Any = False,  # noqa: U100
     use_rescale: bool = False,
 ) -> torch.Tensor:
     shape = image.shape
     h_old, w_old = shape[-2:]
-    h_new, w_new = _compute_resized_output_size((h_old, w_old), size=size, max_size=max_size)
+    h_new, w_new = _compute_resized_output_size(
+        (h_old, w_old), size=size, max_size=max_size
+    )
 
     if h_new <= h_old and w_new <= w_old:
         res = downsample_depthmap(image, (h_new, w_new))
     else:
-        res = resize_image(image, size, interpolation=InterpolationMode.NEAREST_EXACT, max_size=max_size, antialias=antialias)
-    
+        res = resize_image(
+            image,
+            size,
+            interpolation=InterpolationMode.NEAREST_EXACT,
+            max_size=max_size,
+            antialias=False,
+        )
+
     if use_rescale:
         d_min = image.min()
         d_max = image.max()

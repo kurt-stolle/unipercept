@@ -27,7 +27,7 @@ from typing_extensions import override
 from unipercept.log import get_logger
 from unipercept.utils.pickle import as_picklable
 
-from .tensors import BoundingBoxes, BoundingBoxFormat, PanopticMap
+from .tensors import BoundingBoxes, BoundingBoxFormat, PanopticMap, Image, DepthMap
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData
@@ -37,16 +37,19 @@ _logger = get_logger(__name__)
 
 __disable_warning()
 
+FILL_VALUES = {
+    PanopticMap: PanopticMap.IGNORE,
+    Image: 127,
+}
 
-__all__ = [
-    "apply_dataset",
-    "Op",
-    "CloneOp",
-    "TorchvisionOp",
-    "BoxesFromMasks",
-    "PseudoMotion",
-    "GuidedRandomCrop",
-]
+
+def get_fill_values():
+    """
+    Get the fill values for the different types of tensors when padding.
+    This function is useful for configuration files, where the keys may not be
+    passed as a Python object.
+    """
+    return FILL_VALUES
 
 
 ########################################################################################
@@ -357,7 +360,7 @@ class PseudoMotion(Op):
 
 
 ########################################################################################
-# PAD TO DIVISIBLE
+# COMPOSITION
 ########################################################################################
 
 
@@ -388,12 +391,21 @@ class PadToDivisible(Op):
             if type(x) not in pixel_maps:
                 return x
 
-            if isinstance(x, PanopticMap):
-                value = PanopticMap.IGNORE
-            else:
-                value = 0.0
             return torchvision.transforms.v2.functional.pad(
-                x, [0, 0, pad_w, pad_h], fill=value
+                x,
+                [0, 0, pad_w, pad_h],
+                fill=next(
+                    pad_value
+                    for pad_value in (
+                        FILL_VALUES.get(type(x)),
+                        next(
+                            (v for t, v in FILL_VALUES.items() if isinstance(x, t)),
+                            None,
+                        ),
+                        0,
+                    )
+                    if pad_value is not None
+                ),
             )
 
         inputs.captures = inputs.captures.fix_subtypes_().apply(

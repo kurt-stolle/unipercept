@@ -11,7 +11,6 @@ from dataclasses import field
 
 import torch
 import typing_extensions as TX
-from tabulate import tabulate
 from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
 from torch import Tensor, nn
 from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
@@ -23,7 +22,17 @@ from unipercept.utils.typings import Pathable
 
 _logger = get_logger(__name__)
 
-__all__ = []
+__all__ = [
+    "CaptureData",
+    "CameraModel",
+    "MotionData",
+    "InputData",
+    "ModelInput",
+    "ModelAdapter",
+    "ModelBase",
+    "ModelFactory",
+    "ModelOutput",
+]
 
 #########################
 # STRUCTURED INPUT DATA #

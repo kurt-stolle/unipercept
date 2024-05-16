@@ -96,7 +96,7 @@ DEPTH_FORMAT = "tiff"
 PANOPTIC_FORMAT = "safetensors"
 
 
-class PascalVOCDataset(PerceptionDataset, id="voc", info=get_info):
+class PascalVOCDataset(PerceptionDataset, id="pascal-voc", info=get_info):
     """
     Pascal VOC w/ panoptic segmentation.
 

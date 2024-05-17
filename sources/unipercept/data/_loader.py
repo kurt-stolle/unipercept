@@ -8,6 +8,7 @@ import enum
 import functools
 import itertools
 import math
+import random
 import operator
 import typing as T
 import warnings
@@ -193,29 +194,27 @@ class DataLoaderFactory:
             #     interface_kwargs["shard_sampler"] = self.shard_sampler
             # if self.config.shard_chunk_size is not None:
             #     interface_kwargs["shared_chunk_size"] = self.shard_chunk_size
-
             if isinstance(pipe, IterableDataset):
                 raise ValueError(
                     f"Dataset {self.dataset} is already an iterable dataset, cannot wrap it in another iterable dataset!"
                 )
-
             interface = DatasetInterface(pipe, sampler, **interface_kwargs)
-
             _logger.debug(
                 "Transformed map-style dataset to iterable-style dataset: %s",
                 str(interface),
             )
-
             loader_kwargs["sampler"] = None
         else:
             interface = pipe
-
             loader_kwargs["sampler"] = sampler
 
         # Loader
         loader_kwargs["batch_size"] = batch_size
-        loader_kwargs.setdefault("collate_fn", InputData.collate)
-
+        loader_kwargs["collate_fn"] = functools.partial(
+            self.wrap_collate_with_replacement,
+            collate_fn=loader_kwargs.get("collate_fn", InputData.collate),
+            dataset=interface,
+        )
         if loader_kwargs["num_workers"] > 0:
             loader_kwargs.setdefault("worker_init_fn", _worker_init_fn)
         elif "worker_init_fn" in loader_kwargs:
@@ -232,6 +231,45 @@ class DataLoaderFactory:
         )
 
         return DataLoader(interface, **loader_kwargs)
+
+    @staticmethod
+    def wrap_collate_with_replacement(
+        batch, *, collate_fn: T.Callable, dataset: Dataset
+    ):
+        """
+        Collate function that replaces missing items (``None``) with a random item in
+        the dataset.
+
+        This only applies to map-style datasets (where the sample cannot be skipped
+        during iteration).
+
+        Parameters
+        ----------
+        batch
+            The batch to collate.
+        dataset
+            The **map-style** dataset to use, e.g. with a ``__getitem__`` and
+            a ``__len__`` method.
+
+        Returns
+        -------
+        dict
+            The collated batch.
+        """
+        batch = [
+            (
+                item
+                if item is not None
+                else dataset[
+                    random.randint(
+                        0,
+                        len(dataset) - 1,  # type: ignore
+                    )
+                ]
+            )
+            for item in batch
+        ]
+        return collate_fn(batch)
 
 
 #######################
@@ -333,7 +371,10 @@ class DatasetInterface(IterableDataset):
             # discard ids in workers.
             sampler = self._worker(self.sampler, chunk_size=self.shard_chunk_size)
         for idx in sampler:
-            yield self.dataset[idx]
+            item = self.dataset[idx]
+            if item is None:
+                continue
+            yield item
 
     def __len__(self) -> int:
         return len(self.sampler)  # type: ignore
@@ -489,18 +530,15 @@ class BaseSampler(Sampler[_I], T.Generic[_I], metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def indices(self) -> T.Iterator[_I]:
-        ...
+    def indices(self) -> T.Iterator[_I]: ...
 
     @property
     @abc.abstractmethod
-    def sample_count(self) -> int:
-        ...
+    def sample_count(self) -> int: ...
 
     @property
     @abc.abstractmethod
-    def total_count(self) -> int:
-        ...
+    def total_count(self) -> int: ...
 
     @property
     def generator(self) -> torch.Generator:

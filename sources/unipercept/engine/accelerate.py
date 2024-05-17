@@ -19,12 +19,13 @@ from unipercept import file_io
 
 if T.TYPE_CHECKING:
     from unipercept.engine import EngineParams
+
 __all__ = ["Accelerator", "find_executable_batch_size", "StatefulObject"]
 
 _logger = get_logger(__name__)
 
 
-class StatefulObect(T.Protocol):
+class StatefulObject(T.Protocol):
     """
     Protocol for classes that have a ``state_dict()`` and ``load_state_dict()`` method.
     """
@@ -106,17 +107,20 @@ class Accelerator(accelerate.Accelerator):
         """
         Prepares the model for training. See ``accelerate.Accelerator.prepare_model`` for more information.
         """
-        prepared_model = super().prepare_model(model, *args, **kwargs)
+        from unipercept.config import get_env
 
-        compile_kwargs = kwargs.get(
-            "compile_kwargs",
-            {
-                # "backend": "inductor",
-                "mode": "max-autotune",
-            },
-        )
-        _logger.debug("Compiling model with: " + str(compile_kwargs))
-        prepared_model.compile(**compile_kwargs)
+        prepared_model = super().prepare_model(model, *args, **kwargs)
+        if not get_env(bool, "UP_ENGINE_DISABLE_COMPILE", default=False):
+            compile_kwargs = kwargs.get(
+                "compile_kwargs",
+                {
+                    "mode": "max-autotune",
+                },
+            )
+            _logger.debug("Compiling model with: " + str(compile_kwargs))
+            prepared_model.compile(**compile_kwargs)
+        else:
+            _logger.debug("Compile flag is set to False. Skipping model compilation.")
 
         return prepared_model
 

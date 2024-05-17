@@ -111,7 +111,8 @@ class Accelerator(accelerate.Accelerator):
         compile_kwargs = kwargs.get(
             "compile_kwargs",
             {
-                "backend": "inductor",
+                # "backend": "inductor",
+                "mode": "max-autotune",
             },
         )
         _logger.debug("Compiling model with: " + str(compile_kwargs))

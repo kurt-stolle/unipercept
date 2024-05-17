@@ -65,14 +65,14 @@ class DataLoaderConfig:
             int,
             "UP_DATALOADER_WORKERS",
             "SLURM_CPUS_PER_GPU",
-            default=min(cpus_available(), 16),
+            default=min(cpus_available() // 2, 8),
         )
     )
     prefetch_factor: int | None = D.field(
         default_factory=lambda: get_env(
             int,
             "UP_DATALOADER_PREFETCH_FACTOR",
-            default=4,
+            default=8,
         )
     )
     persistent_workers: bool | None = False

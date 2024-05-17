@@ -143,7 +143,8 @@ class Op(torch.nn.Module):
     if T.TYPE_CHECKING:
 
         @override
-        def __call__(self, inputs: InputData) -> InputData: ...
+        def __call__(self, inputs: InputData) -> InputData:
+            ...
 
 
 class CloneOp(Op):
@@ -314,14 +315,10 @@ class GuidedRandomCrop(Op):
                     continue
 
             return top, left
-        else:
-            if self._verbose:
-                _logger.warning(
-                    f"Failed to find a valid crop after {self.max_iterations} iterations!"
-                )
-            return random.choice(top_choices), random.choice(left_choices)
-
-        raise RuntimeError("Failed to find a valid crop!")
+        msg = f"Failed to find a valid crop after {self.max_iterations} iterations!"
+        if self._verbose:
+            _logger.warning(msg)
+        raise OpReject(msg)
 
     @override
     def _run(self, inputs: InputData) -> InputData:
@@ -332,7 +329,9 @@ class GuidedRandomCrop(Op):
         if inputs.captures.segmentations is None:
             raise ValueError("Expected a panoptic segmentation map!")
 
-        top, left = self._find_crop(inputs.captures.segmentations)
+        top, left = self._find_crop(
+            inputs.captures.segmentations, inputs.captures.depths
+        )
 
         def apply_crop(x: torch.Tensor) -> torch.Tensor:
             if type(x) not in pixel_maps:

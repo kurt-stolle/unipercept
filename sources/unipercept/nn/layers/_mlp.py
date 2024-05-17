@@ -21,7 +21,7 @@ EPS = torch.finfo(torch.float32).eps
 
 class MapMLP(nn.Sequential):
     """
-    Straightforward MLP that maps the multipurpose kernel to a task-specific kernel.
+    Straightforward MLP.
 
     Taken from VisionTransformer
 
@@ -41,8 +41,6 @@ class MapMLP(nn.Sequential):
         Whether to add a bias term.
     activation
         Activation function to use. If `None`, no activation is applied. Default: `nn.GELU`.
-    eps
-        Epsilon value for normalization layers. Defaults to the machine epsilom for float32.
     """
 
     def __init__(

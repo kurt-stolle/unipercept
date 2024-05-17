@@ -24,6 +24,7 @@ import torchvision.transforms.v2.functional
 from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
 
+from unipercept.config import get_env
 from unipercept.log import get_logger
 from unipercept.utils.pickle import as_picklable
 
@@ -56,32 +57,35 @@ def get_fill_values():
 # BASE CLASS FOR OPS
 ########################################################################################
 
-
-class Op(torch.nn.Module, metaclass=abc.ABCMeta):
+class Op(torch.nn.Module):
     """
     Base class for input operations. All operations are applied in-place.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, *, verbose: bool | None = None, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        if verbose is None:
+            verbose = get_env(bool, "UP_DATA_OPS_VERBOSE", default=False)
+
+        self._verbose = verbose
 
     @override
-    def forward(self, inputs: InputData) -> InputData:
+    @torch.no_grad()
+    def forward(self, inputs: InputData) -> InputData | None:
         # assert len(inputs.batch_size) == 0, f"Expected a single batched data point, got {inputs.batch_size}!"
-        inputs = self._run(inputs)
-        return inputs
+        if self._verbose:
+            _logger.debug("Running %s op...", self.__class__.__name__)
+        return self._run(inputs)
 
     @abc.abstractmethod
-    def _run(self, inputs: InputData) -> InputData:
-        raise NotImplementedError(
-            f"{self.__class__.__name__} is missing required implemention!"
-        )
+    def _run(self, inputs: InputData) -> InputData | None:
+        msg = f"{self.__class__.__name__} is missing required implemention!"
+        raise NotImplementedError(msg)
 
     if T.TYPE_CHECKING:
-
         @override
-        def __call__(self, inputs: InputData) -> InputData:
-            ...
+        def __call__(self, inputs: InputData) -> InputData: ...
 
 
 class CloneOp(Op):
@@ -89,8 +93,7 @@ class CloneOp(Op):
 
     @override
     def _run(self, inputs: InputData) -> InputData:
-        inputs = inputs.clone(recurse=True)
-        return inputs
+        return inputs.clone(recurse=True)
 
 
 ########################################################################################
@@ -102,11 +105,9 @@ class TorchvisionOp(Op):
     """Wrap transforms from the torchvision library as an Op."""
 
     def __init__(
-        self, transforms: T.Sequence[tvt2.Transform] | tvt2.Transform, *, verbose=False
+        self, transforms: T.Sequence[tvt2.Transform] | tvt2.Transform, **kwargs
     ) -> None:
-        super().__init__()
-
-        self._verbose = verbose
+        super().__init__(**kwargs)
 
         if isinstance(transforms, tvt2.Compose):
             self._transforms = transforms
@@ -150,10 +151,11 @@ class GuidedRandomCrop(Op):
         min_unique_classes: int = 2,
         min_unique_instances: int = 1,
         min_instance_area: float = 1e-2,
-        min_valid_area: float = 0.70,
+        min_valid_segmentation_area: float = 0.70,
+        min_valid_depth_area: float = 0.50,
         max_iterations: int = 40,
         step_factor: int = 4,
-        verbose=False,
+        **kwargs
     ) -> None:
         """
         Parameters
@@ -169,21 +171,23 @@ class GuidedRandomCrop(Op):
         assert min_unique_classes >= 0
         assert min_unique_instances >= 0
         assert min_instance_area >= 0
-        assert min_valid_area >= 0
+        assert min_valid_segmentation_area >= 0
         assert max_iterations >= 0
 
-        super().__init__()
+        super().__init__(**kwargs)
 
-        self._verbose = verbose
         self._size = to_2tuple(size)
         self._step_factor = step_factor
-        self._min_unique_classes = min_unique_classes
-        self._min_unique_instances = min_unique_instances
-        self._min_instance_area = min_instance_area
-        self._min_valid_area = min_valid_area
-        self._max_iterations = max_iterations
+        self.min_unique_classes = min_unique_classes
+        self.min_unique_instances = min_unique_instances
+        self.min_instance_area = min_instance_area
+        self.min_valid_segmentation_area = min_valid_segmentation_area
+        self.min_valid_depth_area = min_valid_depth_area
+        self.max_iterations = max_iterations
 
-    def _find_crop(self, panoptic: PanopticMap) -> tuple[int, int]:
+    def _find_crop(
+        self, panoptic: PanopticMap, depth: DepthMap | None
+    ) -> tuple[int, int]:
         # TODO: what if only some conditions are met?
 
         assert (
@@ -209,8 +213,8 @@ class GuidedRandomCrop(Op):
 
         # Create random crops until the conditions are met or the maximum number of iterations is reached
         for top, left in zip(
-            random.choices(top_choices, k=self._max_iterations),
-            random.choices(left_choices, k=self._max_iterations),
+            random.choices(top_choices, k=self.max_iterations),
+            random.choices(left_choices, k=self.max_iterations),
         ):
             # Randomly select a crop
             crop = torchvision.transforms.v2.functional.crop_mask(
@@ -223,31 +227,39 @@ class GuidedRandomCrop(Op):
 
             # Compute the area of the ignore regions in the crop
             valid_area = (crop_valid).float().sum() / total_area
-            if valid_area < self._min_valid_area:
+            if valid_area < self.min_valid_segmentation_area:
                 continue
 
             # Compute the number of unique classes and instances in the crop
             unique_classes = torch.unique(crop_sem[crop_valid]).numel()
-            if unique_classes < self._min_unique_classes:
+            if unique_classes < self.min_unique_classes:
                 continue
 
             has_instances = crop_ins > 0
 
             unique_instances = torch.unique(crop_ins[has_instances]).numel()
-            if unique_instances < self._min_unique_instances:
+            if unique_instances < self.min_unique_instances:
                 continue
 
             # Compute the area of the instances in the crop
             instance_area = (has_instances).float().sum() / total_area
 
-            if instance_area < self._min_instance_area:
+            if instance_area < self.min_instance_area:
                 continue
+
+            if depth is not None:
+                crop_depth = torchvision.transforms.v2.functional.crop(
+                    depth, top, left, height, width
+                ).as_subclass(DepthMap)
+                valid_depth_area = (crop_depth > 0).float().sum() / total_area
+                if valid_depth_area < self.min_valid_depth_area:
+                    continue
 
             return top, left
         else:
             if self._verbose:
                 _logger.warning(
-                    f"Failed to find a valid crop after {self._max_iterations} iterations!"
+                    f"Failed to find a valid crop after {self.max_iterations} iterations!"
                 )
             return random.choice(top_choices), random.choice(left_choices)
 
@@ -272,6 +284,42 @@ class GuidedRandomCrop(Op):
         inputs.captures = inputs.captures.fix_subtypes_().apply(
             apply_crop, batch_size=inputs.captures.batch_size
         )
+        return inputs
+
+
+class RequireValidContent(Op):
+    """
+    Removes samples that do not meet the specified criteria.
+    """
+    def __init__(self, valid_segmentation: bool = True, valid_depth: bool = True):
+        super().__init__()
+        self._valid_segmentation = valid_segmentation
+        self._valid_depth = valid_depth
+
+    @override
+    def _run(self, inputs: InputData) -> InputData | None:
+        if self._valid_segmentation:
+            if inputs.captures.segmentations is None:
+                if self._verbose:
+                    msg = f"Skipping {inputs.ids} because no segmentation is available!"
+                    _logger.warning(msg)
+                return None
+            if not (inputs.captures.segmentations != PanopticMap.IGNORE).any():
+                if self._verbose:
+                    msg = f"Skipping {inputs.ids} because all segments are ignored!"
+                    _logger.warning(msg)
+                return None
+        if self._valid_depth:
+            if inputs.captures.depths is None:
+                if self._verbose:
+                    msg = f"Skipping {inputs.ids} because no depth map is available!"
+                    _logger.warning(msg)
+                return None
+            if not (inputs.captures.depths > 0).any():
+                if self._verbose:
+                    msg = f"Skipping {inputs.ids} because all depth is invalid!"
+                    _logger.warning(msg)
+                return None
         return inputs
 
 

@@ -247,7 +247,7 @@ class PanopticMap(_Mask):
 
                 write_png_rgb(path, img)
             case LabelsFormat.VISTAS:
-                divisor = self.DIVISOR
+                divisor = PanopticMap.DIVISOR
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
                 img[:, :, 0] = self % BYTE_OFFSET
                 img[:, :, 1] = self // BYTE_OFFSET
@@ -255,8 +255,8 @@ class PanopticMap(_Mask):
 
                 write_png_rgb(path, img)
             case LabelsFormat.WILD_DASH:
-                divisor = self.DIVISOR
-                ignore_label = self.IGNORE
+                divisor = PanopticMap.DIVISOR
+                ignore_label = PanopticMap.IGNORE
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
                 img[:, :, 0] = self // (BYTE_OFFSET * BYTE_OFFSET)
                 img[:, :, 1] = (self // BYTE_OFFSET) % BYTE_OFFSET
@@ -330,12 +330,10 @@ class PanopticMap(_Mask):
         return cls.from_parts(encoded_map // divisor, encoded_map % divisor)
 
     @T.overload
-    def to_parts(self, as_tuple=False) -> torch.Tensor:
-        ...
+    def to_parts(self, as_tuple=False) -> torch.Tensor: ...
 
     @T.overload
-    def to_parts(self, as_tuple=True) -> T.Tuple[torch.Tensor, torch.Tensor]:
-        ...
+    def to_parts(self, as_tuple=True) -> T.Tuple[torch.Tensor, torch.Tensor]: ...
 
     def to_parts(
         self, as_tuple: bool = False
@@ -346,22 +344,24 @@ class PanopticMap(_Mask):
         id that is NOT UNIQUE for each class.
         """
         ignore_mask = self == PanopticMap.IGNORE
-        sem = torch.floor_divide(self, self.DIVISOR).as_subclass(_Mask)
-        ins = torch.remainder(self, self.DIVISOR).as_subclass(_Mask)
+        sem = torch.floor_divide(self, PanopticMap.DIVISOR).as_subclass(_Mask)
+        ins = torch.remainder(self, PanopticMap.DIVISOR).as_subclass(_Mask)
         ins[ignore_mask] = 0
         if as_tuple:
             return sem, ins
         return torch.stack((sem, ins), dim=-1)
 
     def get_semantic_map(self) -> _Mask:
-        return torch.floor_divide(self, self.DIVISOR).as_subclass(_Mask)
+        return torch.floor_divide(self, PanopticMap.DIVISOR).as_subclass(_Mask)
 
     def get_semantic_masks(self) -> T.Iterator[tuple[int, _Mask]]:
         """Return a list of masks, one for each semantic class."""
         sem_map = self.get_semantic_map()
         uq = torch.unique(sem_map)
         yield from (
-            (int(u), (sem_map == u).as_subclass(_Mask)) for u in uq if u != self.IGNORE
+            (int(u), (sem_map == u).as_subclass(_Mask))
+            for u in uq
+            if u != PanopticMap.IGNORE
         )
 
     def get_semantic_mask(self, class_id: int) -> _Mask:
@@ -375,7 +375,7 @@ class PanopticMap(_Mask):
 
     def get_instance_map(self) -> _Mask:
         # old: does not support same sub-id for different classes
-        ins_ids = torch.remainder(self, self.DIVISOR)
+        ins_ids = torch.remainder(self, PanopticMap.DIVISOR)
         return torch.where(
             (ins_ids > 0) & (self != PanopticMap.IGNORE), self, 0
         ).as_subclass(_Mask)
@@ -393,14 +393,12 @@ class PanopticMap(_Mask):
     @T.overload
     def get_masks(
         self, with_void=False, return_label=True
-    ) -> T.List[T.Tuple[int, _Mask]]:
-        ...
+    ) -> T.List[T.Tuple[int, _Mask]]: ...
 
     @T.overload
     def get_masks(
         self, with_void=False, return_label=False
-    ) -> T.List[T.Tuple[int, int, _Mask]]:
-        ...
+    ) -> T.List[T.Tuple[int, int, _Mask]]: ...
 
     def get_masks(
         self, with_void: bool = False, return_label: bool = False
@@ -412,14 +410,14 @@ class PanopticMap(_Mask):
         result = []
 
         for pan_id in pan_map:
-            sem_id = pan_id // self.DIVISOR
+            sem_id = pan_id // PanopticMap.DIVISOR
 
-            if sem_id == self.IGNORE:
+            if sem_id == PanopticMap.IGNORE:
                 if not with_void:
                     continue
                 ins_id = 0
             else:
-                ins_id = torch.remainder(pan_id, self.DIVISOR)
+                ins_id = torch.remainder(pan_id, PanopticMap.DIVISOR)
 
             mask = (self == pan_id).as_subclass(_Mask)
 
@@ -443,7 +441,7 @@ class PanopticMap(_Mask):
 
         # Set all pixels that are not in the semantic list to 0
         for class_ in semantic_list:
-            self[can_map == class_] = class_ * self.DIVISOR
+            self[can_map == class_] = class_ * PanopticMap.DIVISOR
 
     def translate_semantic_(
         self, translation: dict[int, int], inverse: bool = False
@@ -455,7 +453,7 @@ class PanopticMap(_Mask):
 
         sem_map, ins_map = self.to_parts(as_tuple=True)
 
-        self.fill_(self.IGNORE)
+        self.fill_(PanopticMap.IGNORE)
 
         for (
             old_id,
@@ -465,11 +463,11 @@ class PanopticMap(_Mask):
                 old_id, new_id = new_id, old_id
 
             mask = sem_map == old_id
-            self[mask] = new_id * self.DIVISOR + ins_map[mask]
+            self[mask] = new_id * PanopticMap.DIVISOR + ins_map[mask]
 
     def get_nonempty(self) -> _Mask:
         """Return a new instance with only the non-empty pixels."""
-        return self[self != self.IGNORE * self.DIVISOR].as_subclass(_Mask)
+        return self[self >= 0].as_subclass(_Mask)
 
     def to_coco(self) -> tuple[pil_image.Image, list[COCOResultPanopticSegment]]:
         segm = torch.zeros_like(self, dtype=torch.int32)

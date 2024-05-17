@@ -28,10 +28,14 @@ from unipercept.config import get_env
 from unipercept.log import get_logger
 from unipercept.utils.pickle import as_picklable
 
-from .tensors import BoundingBoxes, BoundingBoxFormat, PanopticMap, Image, DepthMap
-
-if T.TYPE_CHECKING:
-    from unipercept.model import InputData
+from unipercept.data.tensors import (
+    BoundingBoxes,
+    BoundingBoxFormat,
+    PanopticMap,
+    Image,
+    DepthMap,
+)
+from unipercept.model import InputData
 
 _logger = get_logger(__name__)
 
@@ -57,10 +61,63 @@ def get_fill_values():
 # BASE CLASS FOR OPS
 ########################################################################################
 
+
+class OpReject(Exception):
+    """
+    Exception that is raised when a operation fails to modify the input data in a way
+    that is acceptable.
+
+    The current data point is discarded and the loader will continue with the next one.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+class OpSkip(Exception):
+    """
+    Exception that is raised when a operation flags itself to be skipped.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 class Op(torch.nn.Module):
     """
     Base class for input operations. All operations are applied in-place.
     """
+
+    @staticmethod
+    def transform_inputs(inputs, ops: T.Iterable[Op]) -> T.Iterator[InputData]:
+        for fn in ops:
+            try:
+                inputs = fn(inputs)
+            except OpSkip as e:
+                if fn._verbose:
+                    _logger.debug("Operation was skipped: %s", e)
+                continue
+            except OpReject as e:
+                if fn._verbose:
+                    _logger.warning("Operation rejected sample: %s", e, stacklevel=2)
+                break
+            if inputs is None:
+                _logger.warning("Transformed data is None, skipping!", stacklevel=2)
+                break
+            if not isinstance(inputs, InputData):
+                if isinstance(inputs, T.Sequence):
+                    if fn._verbose:
+                        _logger.debug(
+                            "Operation returned a sequence of %d items, splitting...",
+                            len(inputs),
+                        )
+                    for item in inputs:
+                        yield from Op.transform_inputs(item, ops)
+                else:
+                    msg = f"Expected an InputData object, got {inputs}!"
+                    raise ValueError(msg)
+        else:
+            yield inputs
 
     def __init__(self, *, verbose: bool | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -84,6 +141,7 @@ class Op(torch.nn.Module):
         raise NotImplementedError(msg)
 
     if T.TYPE_CHECKING:
+
         @override
         def __call__(self, inputs: InputData) -> InputData: ...
 
@@ -155,7 +213,7 @@ class GuidedRandomCrop(Op):
         min_valid_depth_area: float = 0.50,
         max_iterations: int = 40,
         step_factor: int = 4,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Parameters
@@ -291,6 +349,7 @@ class RequireValidContent(Op):
     """
     Removes samples that do not meet the specified criteria.
     """
+
     def __init__(self, valid_segmentation: bool = True, valid_depth: bool = True):
         super().__init__()
         self._valid_segmentation = valid_segmentation
@@ -545,13 +604,7 @@ class _TransformedIterable(torch_data.IterableDataset["InputData"], T.Generic[_D
                 inputs = next(it)
             except StopIteration:
                 return
-
-            for fn in self._fns:
-                inputs = fn(inputs)
-                if inputs is None:
-                    warnings.warn("Transformed data is None, skipping!", stacklevel=2)
-                    break
-            else:
+            for inputs in Op.transform_inputs(inputs, self._fns):
                 yield inputs
 
 
@@ -586,22 +639,19 @@ class _TransformedMap(torch_data.Dataset["InputData"], T.Generic[_D]):
         return f"<{repr(self._set)} x {len(self._fns)} transforms>"
 
     @override
-    def __getitem__(self, idx: int | str) -> tuple[InputData]:
+    def __getitem__(self, idx: int | str) -> InputData:
         for _ in range(self._retry):
             inputs = self._set[idx]
-            assert (
-                len(inputs.batch_size) == 0
-            ), f"Expected a single batched data point, got {inputs.batch_size}!"
-            for fn in self._fns:
-                inputs = fn(inputs)
-                if inputs is None:
-                    warnings.warn("Transformed data is None, skipping!", stacklevel=2)
-                    break
+            inputs = next(Op.transform_inputs(inputs, self._fns), None)
+            if inputs is None:
+                self._fallback_candidates.discard(idx)
+                if len(self._fallback_candidates) == 0:
+                    idx = self._random.randint(0, len(self) - 1)
+                else:
+                    idx = self._random.sample(list(self._fallback_candidates), k=1)[0]
             else:
                 self._fallback_candidates.add(idx)
                 return inputs
-            self._fallback_candidates.discard(idx)
-            idx = self._random.sample(list(self._fallback_candidates), k=1)[0]
 
         raise RuntimeError(f"Failed to apply transforms after {self._retry} retries!")
 

@@ -612,7 +612,7 @@ class _TransformedMap(torch_data.Dataset["InputData"], T.Generic[_D]):
 
     __slots__ = ("_set", "_fns", "_retry", "_fallback_candidates")
 
-    def __init__(self, dataset: _D, fns: T.Sequence[Op], *, max_retry: int = 3):
+    def __init__(self, dataset: _D, fns: T.Sequence[Op], *, max_retry: int = 100):
         self._set = dataset
         self._fns = list(as_picklable(fn) for fn in fns)
 

@@ -143,11 +143,17 @@ class WandBCallback(CallbackDispatcher):
         default_factory=lambda: get_env(bool, "UP_WANDB_UPLOAD_CONFIG", default=True)
     )
     upload_code: bool = D.field(
-        default_factory=lambda: get_env(bool, "UP_WANDB_UPLOAD_CODE", default=True)
+        default_factory=lambda: get_env(bool, "UP_WANDB_UPLOAD_CODE", default=False)
     )
-    model_history: int = 1
-    state_history: int = 0
-    inference_history: int = 0
+    model_history: int = D.field(
+        default_factory=lambda: get_env(int, "UP_WANDB_MODEL_HISTORY", default=1)
+    )
+    state_history: int = D.field(
+        default_factory=lambda: get_env(int, "UP_WANDB_STATE_HISTORY", default=0)
+    )
+    inference_history: int = D.field(
+        default_factory=lambda: get_env(int, "UP_WANDB_INFERENCE_HISTORY", default=0)
+    )
     tabulate_inference_timings: bool = False
 
     _session_id: str | None = D.field(

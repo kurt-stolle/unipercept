@@ -146,7 +146,7 @@ class WandBCallback(CallbackDispatcher):
         default_factory=lambda: get_env(bool, "UP_WANDB_UPLOAD_CODE", default=True)
     )
     model_history: int = 1
-    state_history: int = 1
+    state_history: int = 0
     inference_history: int = 0
     tabulate_inference_timings: bool = False
 

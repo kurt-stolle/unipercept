@@ -2,18 +2,21 @@ r"""
 Toy models for use in tutorials and testing.
 """
 
-import typing_extensions as TX
+from __future__ import annotations
+
 import typing as T
+
 import numpy as np
-from ._base import ModelBase, InputData, ModelOutput
+import typing_extensions as TX
+from torch import Tensor, nn, stack, zeros_like
 
 from unipercept.data.tensors import PanopticMap
-from unipercept.nn.layers.norm import NormSpec, GroupNorm32, get_norm
-from unipercept.nn.layers.activation import ActivationSpec, InplaceReLU, get_activation
 from unipercept.nn.backbones import BackboneFeatureInfo
+from unipercept.nn.layers.activation import ActivationSpec, InplaceReLU, get_activation
 from unipercept.nn.layers.conv import Separable2d
+from unipercept.nn.layers.norm import GroupNorm32, NormSpec, get_norm
 
-from torch import nn, Tensor, stack, zeros_like
+from ._base import InputData, ModelBase, ModelOutput
 
 
 class _SegmenterEncoder(nn.Module):
@@ -130,7 +133,7 @@ class Segmenter(ModelBase):
                 dims,
                 kernel_size=7,
                 stride=1,
-                padding=7//2,
+                padding=7 // 2,
                 norm=GroupNorm32,
                 activation=InplaceReLU,
             ),
@@ -139,7 +142,7 @@ class Segmenter(ModelBase):
                 dims,
                 kernel_size=3,
                 stride=1,
-                padding=3//2,
+                padding=3 // 2,
                 norm=GroupNorm32,
                 activation=InplaceReLU,
             ),
@@ -148,7 +151,7 @@ class Segmenter(ModelBase):
                 dims,
                 kernel_size=3,
                 stride=1,
-                padding=3//2,
+                padding=3 // 2,
                 norm=GroupNorm32,
                 activation=InplaceReLU,
             ),
@@ -182,7 +185,7 @@ class Segmenter(ModelBase):
             predictions = None
         else:
             preds = logits.sigmoid()
-            #sem_map = preds.argmax(dim=1)
+            # sem_map = preds.argmax(dim=1)
             scores, sem_map = preds.max(dim=1)
             sem_map[scores < 0.01] = -1
             ins_map = zeros_like(sem_map)

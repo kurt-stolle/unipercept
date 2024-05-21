@@ -2,6 +2,8 @@ r"""
 Defines models using a standardized template with consistent I/O and configuration handling.
 """
 
+from __future__ import annotations
+
 from unipercept.utils.module import lazy_module_factory
 
 # Always import privates

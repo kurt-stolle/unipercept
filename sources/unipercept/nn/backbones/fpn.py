@@ -21,8 +21,8 @@ from fvcore.nn.weight_init import c2_xavier_fill
 from unipercept.log import get_logger
 from unipercept.nn.backbones._base import (
     Backbone,
-    BackboneFeatures,
     BackboneFeatureInfo,
+    BackboneFeatures,
 )
 from unipercept.nn.layers import conv, weight
 from unipercept.nn.layers.activation import ActivationFactory, ActivationSpec

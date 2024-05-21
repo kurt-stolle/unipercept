@@ -59,10 +59,9 @@ class DepthWriter(Evaluator):
     plot_true_depth: PlotMode = PlotMode.ONCE
     plot_pred_depth: PlotMode = PlotMode.ALWAYS
 
-
     pred_key_depth = "depths"
     true_key_depth = ("captures", "depths")
-    
+
     true_group_index = -1  # the most recent group, assuming temporal ordering
 
     @classmethod
@@ -94,7 +93,9 @@ class DepthWriter(Evaluator):
         assert pred.dtype == torch.float32, pred.dtype
         if pred is None:
             raise RuntimeError(f"Missing key {self.pred_key_depth} in {outputs=}")
-        assert pred.ndim == 3, f"Expected 3D tensor for {self.pred_key_depth}, got {pred.shape=}"
+        assert (
+            pred.ndim == 3
+        ), f"Expected 3D tensor for {self.pred_key_depth}, got {pred.shape=}"
 
         true = inputs.get(self.true_key_depth, None)
         assert true.dtype == torch.float32
@@ -120,7 +121,10 @@ class DepthWriter(Evaluator):
         from unipercept.render import draw_image_depth
 
         plot_keys = []
-        for key, mode_attr in ((TRUE_DEPTH, "plot_true_depth"), (PRED_DEPTH, "plot_pred_depth")):
+        for key, mode_attr in (
+            (TRUE_DEPTH, "plot_true_depth"),
+            (PRED_DEPTH, "plot_pred_depth"),
+        ):
             mode = getattr(self, mode_attr)
             if mode == PlotMode.NEVER:
                 continue

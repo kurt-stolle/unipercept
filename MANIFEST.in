@@ -1,0 +1,4 @@
+include sources/**/*.cpp
+include sources/**/*.h
+include sources/**/*.cu
+include sources/**/*.cuh

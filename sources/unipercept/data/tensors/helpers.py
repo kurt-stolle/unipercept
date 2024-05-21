@@ -20,9 +20,8 @@ import cv2
 import numpy as np
 import PIL.Image as pil_image
 import torch
-from typing_extensions import deprecated
-
 from torch import Tensor
+from typing_extensions import deprecated
 
 from unipercept.file_io import get_local_path
 from unipercept.utils.typings import Pathable

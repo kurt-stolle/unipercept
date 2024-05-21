@@ -28,7 +28,7 @@ def stable_divide(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     tensor([1.0000, 2.0000, 1.5000], dtype=torch.float64)
     """
 
-    return a.to(dtype=DTYPE_FLOAT) / (b.to(dtype=DTYPE_FLOAT) + EPS) # .clamp_min_(EPS)
+    return a.to(dtype=DTYPE_FLOAT) / (b.to(dtype=DTYPE_FLOAT) + EPS)  # .clamp_min_(EPS)
 
 
 def isin(arr: torch.Tensor, values: list) -> torch.Tensor:

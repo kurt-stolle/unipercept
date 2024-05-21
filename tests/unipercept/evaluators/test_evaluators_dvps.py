@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-import torch
-import safetensors.torch
 import pandas as pd
+import pytest
+import safetensors.torch
+import torch
 from tensordict import TensorDictBase
 
 from unipercept.evaluators import DVPSEvaluator
@@ -52,10 +52,11 @@ def results() -> dict[str, float]:
     to that directory
     """
 
+    from tensordict import TensorDict
+
     from unipercept.data import tensors
     from unipercept.data.sets import catalog
-    from unipercept.model import InputData, CaptureData
-    from tensordict import TensorDict
+    from unipercept.model import CaptureData, InputData
 
     evaluator = DVPSEvaluator.from_metadata(name="cityscapes-vps")
 

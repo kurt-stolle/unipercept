@@ -25,6 +25,7 @@ from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
 import unipercept.evaluators.helpers as H
+from unipercept.data.tensors import PanopticMap
 from unipercept.evaluators._depth import PRED_DEPTH, TRUE_DEPTH, DepthWriter
 from unipercept.evaluators._panoptic import (
     PRED_PANOPTIC,
@@ -36,7 +37,6 @@ from unipercept.evaluators._panoptic import (
     _panoptic_quality_update_sample,
     _preprocess_mask,
 )
-from unipercept.data.tensors import PanopticMap
 from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (

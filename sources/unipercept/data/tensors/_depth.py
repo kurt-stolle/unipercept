@@ -7,16 +7,16 @@ import cv2
 import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
+from einops import rearrange
+from torch import Tensor
 from torch.types import Device
 from torchvision.transforms.v2.functional import (
-    resize_image,
-    register_kernel,
     InterpolationMode,
+    register_kernel,
+    resize_image,
 )
 from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 from torchvision.tv_tensors import Mask
-from torch import Tensor
-from einops import rearrange
 
 from unipercept.data.tensors.helpers import get_kwd, read_pixels, write_png_l16
 from unipercept.data.tensors.registry import pixel_maps

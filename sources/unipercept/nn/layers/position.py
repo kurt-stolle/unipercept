@@ -1,10 +1,12 @@
 """
 Positional encoding modules.
 """
+from __future__ import annotations
+
 import math
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 
 class TrigonometricEmbed2d(nn.Module):

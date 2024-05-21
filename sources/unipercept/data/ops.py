@@ -25,17 +25,16 @@ from torchvision import disable_beta_transforms_warning as __disable_warning
 from typing_extensions import override
 
 from unipercept.config import get_env
-from unipercept.log import get_logger
-from unipercept.utils.pickle import as_picklable
-
 from unipercept.data.tensors import (
     BoundingBoxes,
     BoundingBoxFormat,
-    PanopticMap,
-    Image,
     DepthMap,
+    Image,
+    PanopticMap,
 )
+from unipercept.log import get_logger
 from unipercept.model import InputData
+from unipercept.utils.pickle import as_picklable
 
 _logger = get_logger(__name__)
 

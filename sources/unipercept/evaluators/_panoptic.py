@@ -425,8 +425,8 @@ class PanopticEvaluator(PanopticWriter):
             if n_masked == 0:
                 details[name] = {
                     "PQ": 0.0,
-                    #"SQ": 0.0,
-                    #"RQ": 0.0,
+                    # "SQ": 0.0,
+                    # "RQ": 0.0,
                     # "IoU": 0.0,
                     # "TP": 0.0,
                     # "FP": 0.0,
@@ -435,8 +435,8 @@ class PanopticEvaluator(PanopticWriter):
             else:
                 details[name] = {
                     "PQ": metrics.pq[i].mean().item(),
-                    #"SQ": metrics.sq[i].mean().item(),
-                    #"RQ": metrics.rq[i].mean().item(),
+                    # "SQ": metrics.sq[i].mean().item(),
+                    # "RQ": metrics.rq[i].mean().item(),
                     # "IoU": metrics.iou[i].mean().item(),
                     # "TP": metrics.tp[i].sum().item() / n_masked,
                     # "FP": metrics.fp[i].sum().item() / n_masked,

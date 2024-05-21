@@ -2,23 +2,26 @@
 This is a toy segmenter that uses the unipercept library to segment PASCAL VOC images.
 """
 
-from unipercept.config import call as L, make_dict, make_set
-from unipercept.nn import backbones, layers, smooth, wrappers
-from unipercept.engine import (
-    EngineParams,
-    Engine,
-    EvaluationSuite,
-    OptimizerFactory,
-    callbacks,
-    TrainingStage,
-    Interval,
-)
-from unipercept.integrations.wandb_integration import WandBCallback
-from unipercept.data import DataLoaderFactory, sets, ops, tensors
-from unipercept.evaluators import PanopticEvaluator
-from unipercept.model import toys
+from __future__ import annotations
 
 from torchvision.transforms import v2 as transforms
+
+from unipercept.config import call as L
+from unipercept.config import make_dict, make_set
+from unipercept.data import DataLoaderFactory, ops, sets, tensors
+from unipercept.engine import (
+    Engine,
+    EngineParams,
+    EvaluationSuite,
+    Interval,
+    OptimizerFactory,
+    TrainingStage,
+    callbacks,
+)
+from unipercept.evaluators import PanopticEvaluator
+from unipercept.integrations.wandb_integration import WandBCallback
+from unipercept.model import toys
+from unipercept.nn import backbones, layers, smooth, wrappers
 
 __all__ = ["ENGINE", "MODEL", "HYPERPARAMS"]
 

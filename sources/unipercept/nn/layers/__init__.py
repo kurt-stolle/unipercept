@@ -19,10 +19,10 @@ from . import (
     squeeze_excite,
     utils,
     weight,
+    mlp,
 )
 from ._coord import *
 from ._interpolate import *
-from ._mlp import *
 from ._sequential import *
 
 
@@ -33,6 +33,14 @@ def __getattr__(name: str):
 
     if name == "SqueezeExcite2d":
         msg = "The `SqueezeExcite2d` layer has been moved to `unipercept.nn.layers.squeeze_excite`."
-        warnings.warn(msg, stacklevel=0)
+        warnings.warn(msg, stacklevel=1)
 
         return squeeze_excite.SqueezeExcite2d
+    if name == "MapMLP":
+        msg = "The `MapMLP` layer has been moved to `unipercept.nn.layers.mlp.MLP`."
+        warnings.warn(msg, stacklevel=1)
+
+        return mlp.MLP
+
+    msg = f"Module {__name__} has no attribute {name}"
+    raise AttributeError(msg)

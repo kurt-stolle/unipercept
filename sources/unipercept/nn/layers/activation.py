@@ -23,9 +23,37 @@ def get_activation(spec: ActivationSpec) -> nn.Module:
     if spec is None:
         return nn.Identity()
 
-    # Check whether activation is provided as a path
+    # Check whether activation is provided as a string or module path
     if isinstance(spec, str):
-        spec = locate_object(spec)
+        match spec:
+            case "relu":
+                spec = nn.ReLU
+            case "relu-inplace":
+                spec = InplaceReLU
+            case "leaky-relu":
+                spec = nn.LeakyReLU
+            case "gelu":
+                spec = nn.GELU
+            case "silu":
+                spec = nn.SiLU
+            case "swish":
+                spec = nn.SiLU
+            case "mish":
+                spec = nn.Mish
+            case "sigmoid":
+                spec = nn.Sigmoid
+            case "tanh":
+                spec = nn.Tanh
+            case "softplus":
+                spec = nn.Softplus
+            case "softsign":
+                spec = nn.Softsign
+            case "identity":
+                spec = nn.Identity
+            case "none":
+                spec = nn.Identity
+            case _:
+                spec = locate_object(spec)
 
     # If already a module instance, return that instance directly
     if isinstance(spec, nn.Module):

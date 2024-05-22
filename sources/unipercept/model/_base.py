@@ -361,8 +361,7 @@ class ModelBase(nn.Module):
 
         @abc.abstractmethod
         @TX.override
-        def forward(self, *args: T.Any) -> ModelOutput:
-            ...
+        def forward(self, *args: T.Any) -> ModelOutput: ...
 
         __call__ = forward
 

@@ -38,9 +38,14 @@ Models can be trained and evalurated from the CLI or through the Python API.
 ### CLI
 To train a model with the CLI:
 ```bash
-unicli train --config <config path>
+unipercept train --config <config path> <overrides>
 ```
 Without a `<config name>`, an interactive prompt will be started to assist in finding a configuration file.
+
+To evaluate a model with the CLI:
+```bash
+unipercept evaluate --config <config path> <overrides>
+```
 
 ## Developer guidelines
 All tests can ran via `python -m pytest`. 
@@ -62,6 +67,23 @@ make coverage
 
 Last, we largely follow the same principles and methods as [Transformers](https://huggingface.co/docs/transformers) uses for testing. 
 For more information on using `pytest` for automated testing, check out [their documentation](https://huggingface.co/transformers/v3.4.0/testing.html).
+
+## F.A.Q.
+
+###### Building fais in Conda environemnts that ship their own GCC/G++ versions
+
+If you are using a Conda environment that ships its own GCC/G++ versions, you may encounter issues when building the
+torch extensions shipped with `unipercept`. To resolve this, you can set the `CC` and `CXX` environment variables to the
+active environment's GCC/G++ versions before running the installation command. 
+
+In your Conda environment, run the following commands:
+
+```bash
+conda env config vars set CC=$(which gcc)
+conda env config vars set CXX=$(which g++)
+```
+
+Then, reload the environment and install `unipercept` as usual.
 
 ## Acknowledgements
 

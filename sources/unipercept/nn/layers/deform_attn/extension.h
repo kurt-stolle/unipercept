@@ -1,11 +1,8 @@
 #pragma once
 
-#include "cpu/deform_attn_cpu.h"
-
 #ifdef WITH_CUDA
-#include "cuda/deform_attn_cuda.h"
+#include "cuda/deform_attn.h"
 #endif
-
 
 at::Tensor
 deform_attn_forward(

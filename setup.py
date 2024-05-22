@@ -27,7 +27,7 @@ def find_extension(name: str):
     }
     ext_define_macros = []
 
-    if cuda.is_available() and CUDA_HOME is not None:
+    if cuda.is_available():
         if CUDA_HOME is None:
             msg = (
                 "CUDA_HOME environment variable not set. Check your CUDA installation."
@@ -48,7 +48,7 @@ def find_extension(name: str):
         ext_cls = CppExtension
         ext_files = list(root.glob("cpu/*.cpp"))
     return ext_cls(
-        f"{name}._ext",
+        f"{name}.extension",
         sorted(map(str, ext_files)),  # sort for reproducibility
         include_dirs=[str(root)],
         define_macros=ext_define_macros,
@@ -59,6 +59,7 @@ def find_extension(name: str):
 setup(
     ext_modules=[
         find_extension("unipercept.nn.layers.deform_conv"),
+        find_extension("unipercept.nn.layers.deform_attn"),
         find_extension("unipercept.nn.layers.flash_attn"),
     ],
     cmdclass={"build_ext": BuildExtension},

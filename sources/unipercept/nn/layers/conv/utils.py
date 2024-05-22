@@ -30,15 +30,13 @@ _OUTPUT_CHANNEL_PROPERTIES = ["out_channels", "out_dims"]
 @T.overload
 def get_output_channels(
     mod: nn.Module, *, use_weight: bool = True, none_ok: bool = False
-) -> int:
-    ...
+) -> int: ...
 
 
 @T.overload
 def get_output_channels(
     mod: nn.Module, *, use_weight: bool = True, none_ok: bool = True
-) -> int | None:
-    ...
+) -> int | None: ...
 
 
 def get_output_channels(
@@ -82,13 +80,27 @@ def _init_sequential_norm_activation(
 
 
 def _init_sequential_norm(
-    cls, *args, norm: T.Optional[NormSpec], bias: T.Optional[bool] = None, **kwargs
+    cls, *args, norm: NormSpec | None, bias: bool | None = None, **kwargs
 ) -> nn.Sequential:
     """
-    Adds an optional ``norm`` parameter, which defaults to LayerNormCHW.
-    Setting the ``bias`` parameter to ``None`` will determine whether a bias should
-    be added based on the ``norm`` parameter. If ``norm`` is ``None``, ``bias`` will
-    be set to ``True``.
+    Adds an optional normalization layer to a module.
+
+    Parameters
+    ----------
+    *args : Any
+        Arguments to pass to the module constructor.
+    norm : NormSpec, optional
+        The normalization layer to add.
+    bias : bool, optional
+        Whether to add a bias layer. If ``None``, it will be determined based on the
+        ``norm`` parameter.
+    **kwargs : Any
+        Keyword arguments to pass to the module constructor.
+
+    Returns
+    -------
+    nn.Sequential
+        A sequential module with the normalization layer added.
     """
 
     bias = bias if bias is not None else norm is None
@@ -105,16 +117,32 @@ def _init_sequential_norm(
 
 
 def _init_sequential_activation(
-    cls, *args, activation: T.Optional[ActivationSpec] = None, **kwargs
+    cls, *args, activation: ActivationSpec | None = None, **kwargs
 ) -> nn.Sequential:
-    """Adds an optional `activation` parameter."""
+    """
+    Adds an optional activation layer.
+
+    Parameters
+    ----------
+    *args : Any
+        Arguments to pass to the module constructor.
+    activation : ActivationSpec, optional
+        The activation layer to add.
+    **kwargs : Any
+        Keyword arguments to pass to the module constructor.
+
+    Returns
+    -------
+    nn.Sequential
+        A sequential module with the activation layer added.
+    """
+
     mod = cls(*args, **kwargs)
     act = get_activation(activation)
 
     seq = nn.Sequential()
     seq.add_module(short_name(mod), mod)
     seq.add_module(short_name(act), act)
-
     return seq
 
 
@@ -122,7 +150,9 @@ _M = T.TypeVar("_M", bound=nn.Module)
 
 
 def with_norm_activation(cls: type[_M]) -> type[_M]:
-    """Augments a class with norm and activation helpers."""
+    """
+    Wrapper that adds normalization and activation layers to a module.
+    """
 
     cls.with_activation = classmethod(_init_sequential_activation)  # type: ignore
     cls.with_norm = classmethod(_init_sequential_norm)  # type: ignore
@@ -326,6 +356,7 @@ class PaddingMixin:
 # -------------------- #
 
 _Maybe2Int: T.TypeAlias = int | T.Tuple[int, int]
+
 # -------------------------------- #
 # Pooling for convolutional layers #
 # -------------------------------- #

@@ -469,8 +469,7 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None:
-        ...
+    ) -> Signal | None: ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]
@@ -1059,8 +1058,9 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
 
     def __init__(
         self,
-        tasks: T.Iterable[str | T.Iterable[str]]
-        | T.Mapping[str, T.Iterable[str] | str],
+        tasks: (
+            T.Iterable[str | T.Iterable[str]] | T.Mapping[str, T.Iterable[str] | str]
+        ),
         gamma: float = 0.5,
         window: int = 2,
         verbose: bool = False,

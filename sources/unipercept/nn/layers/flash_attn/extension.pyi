@@ -1,0 +1,6 @@
+from __future__ import annotations
+
+from torch import Tensor
+
+def flash_attn_backward(*args: Tensor) -> Tensor: ...
+def flash_attn_forward(*args: Tensor) -> Tensor: ...

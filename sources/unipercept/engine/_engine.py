@@ -693,8 +693,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
 
     @T.overload
     def build_training_dataloader(
@@ -702,8 +701,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
 
     def build_training_dataloader(
         self,

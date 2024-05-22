@@ -154,84 +154,77 @@ class MultiScaleDeformAttn(nn.Module):
     @TX.override
     def forward(
         self,
-        query,
-        reference_points,
-        input_flatten,
-        input_spatial_shapes,
-        input_level_start_index,
-        input_padding_mask=None,
+        q,
+        p,
+        v,
+        shapes,
+        level_index,
+        padding_mask=None,
     ):
         """
         Parameters
         ----------
-        query : Tensor[N, Q, C]
-            The input query tensor.
-        reference_points : Tensor[N, Q, L, 2] or Tensor[N, Q, L, 4]
-            The reference points for each query point.
-        input_flatten : Tensor[N, S, C]
-            The flattened input tensor.
-        input_spatial_shapes : List[Tuple[int, int]]
-            The spatial shapes of the input features.
-        input_level_start_index : List[int]
-            The start index of each level in the flattened input tensor.
-        input_padding_mask : Optional[Tensor[N, S]]
-            The padding mask of the input tensor.
+        q: Tensor[N, Q, C]
+            Query tensor
+        p: Tensor[N, Q, L, 2] | Tensor[N, Q, L, 4]
+            Reference points for each query point, in the format of (top-left, bottom-right) or (top, left, h, w)
+        v: Tensor[N, H*W, C]
+            Flattened input tensor
+        shapes: Tensor[L, 2]
+            Spatial shapes of each level
+        level_index: Tensor[L]
+            Start index of each level in the flattened input tensor
+        padding_mask: Tensor[N, H*W]
+            Padding mask for the input tensor
 
         Returns
         -------
         output : Tensor[N, Q, C]
             The output tensor.
         """
-        N, Len_q, _ = query.shape
-        N, Len_in, _ = input_flatten.shape
-        assert (input_spatial_shapes[:, 0] * input_spatial_shapes[:, 1]).sum() == Len_in
+        N, Len_q, _ = q.shape
+        N, Len_in, _ = v.shape
+        assert (shapes[:, 0] * shapes[:, 1]).sum() == Len_in
 
-        value = self.value_proj(input_flatten)
-        if input_padding_mask is not None:
-            value = value.masked_fill(input_padding_mask[..., None], float(0))
-        value = value.view(N, Len_in, self.heads, self.dims // self.heads)
-        sampling_offsets = self.sampling_offsets(query).view(
+        v = self.value_proj(v)
+        if padding_mask is not None:
+            v = v.masked_fill(padding_mask[..., None], float(0))
+        v = v.view(N, Len_in, self.heads, self.dims // self.heads)
+        sampling_offsets = self.sampling_offsets(q).view(
             N, Len_q, self.heads, self.levels, self.n_points, 2
         )
-        attention_weights = self.attention_weights(query).view(
+        attention_weights = self.attention_weights(q).view(
             N, Len_q, self.heads, self.levels * self.n_points
         )
         attention_weights = softmax(attention_weights, -1).view(
             N, Len_q, self.heads, self.levels, self.n_points
         )
         # N, Len_q, heads, levels, points, 2
-        if reference_points.shape[-1] == 2:
-            offset_normalizer = torch.stack(
-                [input_spatial_shapes[..., 1], input_spatial_shapes[..., 0]], -1
-            )
+        if p.shape[-1] == 2:
+            offset_normalizer = torch.stack([shapes[..., 1], shapes[..., 0]], -1)
             sampling_locations = (
-                reference_points[:, :, None, :, None, :]
+                p[:, :, None, :, None, :]
                 + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
             )
-        elif reference_points.shape[-1] == 4:
+        elif p.shape[-1] == 4:
             sampling_locations = (
-                reference_points[:, :, None, :, None, :2]
-                + sampling_offsets
-                / self.n_points
-                * reference_points[:, :, None, :, None, 2:]
-                * 0.5
+                p[:, :, None, :, None, :2]
+                + sampling_offsets / self.n_points * p[:, :, None, :, None, 2:] * 0.5
             )
         else:
-            msg = f"Last dim of reference_points must be 2 or 4, but get {reference_points.shape[-1]} instead."
+            msg = f"Last dim of points must be 2 or 4, but get {p.shape[-1]} instead."
             raise ValueError(msg)
         if torch.cuda.is_available():
             out = MultiScaleDeformAttnFunction.apply(
-                value,
-                input_spatial_shapes,
-                input_level_start_index,
+                v,
+                shapes,
+                level_index,
                 sampling_locations,
                 attention_weights,
                 self.im2col_step,
             )
         else:
-            out = deform_attn_fallback(
-                value, input_spatial_shapes, sampling_locations, attention_weights
-            )
+            out = deform_attn_fallback(v, shapes, sampling_locations, attention_weights)
         return self.output_proj(out)
 
     if T.TYPE_CHECKING:

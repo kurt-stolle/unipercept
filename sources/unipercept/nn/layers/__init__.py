@@ -13,13 +13,13 @@ from . import (
     deform_attn,
     deform_conv,
     flash_attn,
+    mlp,
     norm,
     position,
     projection,
     squeeze_excite,
     utils,
     weight,
-    mlp,
 )
 from ._coord import *
 from ._interpolate import *

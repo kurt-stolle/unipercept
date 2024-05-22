@@ -2,10 +2,13 @@
 Generic attention and variants.
 """
 
-from torch import Tensor, nn
+from __future__ import annotations
+
+import typing as T
+
 import torch
 import typing_extensions as TX
-import typing as T
+from torch import Tensor, nn
 
 
 class Attention(nn.Module):

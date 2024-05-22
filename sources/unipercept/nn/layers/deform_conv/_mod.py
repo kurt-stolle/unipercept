@@ -25,7 +25,7 @@ _BHWGCTuple: T.TypeAlias = T.Tuple[int, int, int, int, int]
 _STBTuple: T.TypeAlias = T.Tuple[int, int, int]
 _STBMapping: T.TypeAlias = T.MutableMapping[_BHWGCTuple, _STBTuple]
 
-TABLE: _STBMapping = {
+_FORWARD_LOOKUP: _STBMapping = {
     (64, 56, 56, 4, 16): (8, 448, 56),
     (64, 28, 28, 4, 16): (8, 448, 56),
     (64, 14, 14, 4, 16): (8, 32, 4),
@@ -162,7 +162,7 @@ TABLE: _STBMapping = {
     (1, 25, 40, 8, 64): (8, 512, 8),
     (1, 64, 64, 8, 64): (8, 512, 8),
 }
-BWDTABLE: _STBMapping = {
+_BACKWARD_LOOKUP: _STBMapping = {
     (64, 56, 56, 4, 16): (1, 256, 4),
     (64, 56, 56, 5, 16): (1, 320, 4),
     (64, 56, 56, 6, 16): (1, 192, 2),
@@ -309,13 +309,14 @@ def factors(N):
     return res
 
 
-def findspec(*key: int):
+def _lookup_forward_stride_thread(key: _BHWGCTuple):
     try:
-        S, T, B = TABLE[key]
-        return S, T
+        d_stride, n_thread, n_block = _FORWARD_LOOKUP[key]
+        return d_stride, n_thread
     except KeyError:
         pass
 
+    # Heuristic for choosing the forward stride and number of threads
     B, H, W, G, C = key
     d_stride = 8
     ms = factors(B * H * W)
@@ -324,13 +325,20 @@ def findspec(*key: int):
         if m <= 64 and (m * G * C // d_stride) <= 512:
             multiplier = m
     n_thread = multiplier * G * C // d_stride
-    TABLE[(B, H, W, G, C)] = (d_stride, n_thread)
+    n_block = (B * H * W + n_thread - 1) // n_thread
+
+    # Write the result into the lookup table
+    _FORWARD_LOOKUP[key] = (d_stride, n_thread, n_block)
+
     return d_stride, n_thread
 
 
-def find_spec_bwd(*key):
-    if key in BWDTABLE:
-        return BWDTABLE[key][0], BWDTABLE[key][1]
+def _lookup_backward_stride_thread(key: _BHWGCTuple):
+    if key in _BACKWARD_LOOKUP:
+        d_stride, n_thread, n_block = _BACKWARD_LOOKUP[key]
+        return d_stride, n_thread
+
+    # Heuristic for choosing the backward stride and number of threads
     B, H, W, G, C = key
     if C >= 64:
         d_stride = 2
@@ -343,6 +351,11 @@ def find_spec_bwd(*key):
         if m <= 64 and (m * G * C // d_stride) <= 256:
             multiplier = m
     n_thread = multiplier * G * C // d_stride
+    n_block = (B * H * W + n_thread - 1) // n_thread
+
+    # Write the result into the lookup table
+    _BACKWARD_LOOKUP[key] = (d_stride, n_thread, n_block)
+
     return d_stride, n_thread
 
 
@@ -363,17 +376,14 @@ class DeformConv2dFunction(Function):
         dilation_h,
         dilation_w,
         group,
-        group_channels,
+        group_dims,
         offset_scale,
         im2col_step,
         remove_center,
     ):
-        fwd_stride, fwd_block_thread = findspec(
-            input.shape[0], input.shape[1], input.shape[2], group, group_channels
-        )
-        bck_stride, bck_block_thread = find_spec_bwd(
-            input.shape[0], input.shape[1], input.shape[2], group, group_channels
-        )
+        key = (*input.shape[:3], group, group_dims)
+        fwd_stride, fwd_block_thread = _lookup_forward_stride_thread(key)
+        bck_stride, bck_block_thread = _lookup_backward_stride_thread(key)
 
         ctx.kernel_h = kernel_h
         ctx.kernel_w = kernel_w
@@ -384,7 +394,7 @@ class DeformConv2dFunction(Function):
         ctx.dilation_h = dilation_h
         ctx.dilation_w = dilation_w
         ctx.group = group
-        ctx.group_channels = group_channels
+        ctx.group_dims = group_dims
         ctx.offset_scale = offset_scale
         ctx.im2col_step = im2col_step
         ctx.remove_center = remove_center
@@ -403,7 +413,7 @@ class DeformConv2dFunction(Function):
             dilation_h,
             dilation_w,
             group,
-            group_channels,
+            group_dims,
             offset_scale,
             ctx.im2col_step,
             remove_center,
@@ -432,7 +442,7 @@ class DeformConv2dFunction(Function):
             ctx.dilation_h,
             ctx.dilation_w,
             ctx.group,
-            ctx.group_channels,
+            ctx.group_dims,
             ctx.offset_scale,
             ctx.im2col_step,
             grad_output.contiguous(),
@@ -466,40 +476,61 @@ class DeformConv2dFunction(Function):
         def apply(cls, *_: T.Any) -> Tensor: ...
 
 
-class CenterFeatureScaleModule(nn.Module):
+class CenterScale(nn.Module):
+    r"""
+    Simple wrapper around a linear layer for the purpose of having weight and bias
+    parameters that are not named "weight" and "bias" to prevent these parameters
+    from being picked up by the optimizer for applying weight decay or other
+    transformations.
+
+    The output is passed through a sigmoid function to ensure that the scale is
+    between 0 and 1.
+    """
+
+    def __init__(self, dims: int, group: int, **kwargs):
+        super().__init__(**kwargs)
+
+        self.scale_weight = nn.Parameter(torch.zeros((group, dims), dtype=torch.float))
+        self.scale_bias = nn.Parameter(
+            torch.tensor(0.0, dtype=torch.float)
+            .view((1,))
+            .repeat(
+                group,
+            )
+        )
+
     @TX.override
-    def forward(self, query: Tensor, weight: Tensor, bias: Tensor) -> Tensor:
-        center_feature_scale = F.linear(
+    def forward(self, query: Tensor) -> Tensor:
+        return F.linear(
             query,
-            weight=weight,
-            bias=bias,
+            weight=self.scale_weight,
+            bias=self.scale_bias,
         ).sigmoid()
-        return center_feature_scale
 
 
 class DeformConv2d(nn.Module):
     def __init__(
         self,
-        channels,
-        kernel_size=3,
+        dims,
+        kernel_size: int = 3,
         *,
-        stride=1,
-        pad=1,
-        dilation=1,
-        group=4,
-        offset_scale=1.0,
-        dw_kernel_size=None,
-        center_feature_scale=False,
-        remove_center=False,
-        output_bias=True,
-        without_pointwise=False,
+        stride: int = 1,
+        pad: int = 1,
+        dilation: int = 1,
+        group: int = 4,
+        offset_scale: float = 1.0,
+        dw_kernel_size: int | None = None,
+        center_feature_scale: bool = False,
+        remove_center: bool = False,
+        output_bias: bool = True,
+        proj: type[nn.Module] = nn.Linear,
         **kwargs,
     ):
         """
         Parameters
         ----------
-        channels : int
-            Number of input channels
+        dims : int
+            Number of input dims
         kernel_size : int
             Size of the convolving kernel
         stride : int
@@ -509,7 +540,7 @@ class DeformConv2d(nn.Module):
         dilation : int
             Spacing between kernel elements
         group : int
-            Number of blocked connections from input channels to output channels
+            Number of blocked connections from input dims to output dims
         offset_scale : float
             Scale of the offset
         dw_kernel_size : int
@@ -520,78 +551,66 @@ class DeformConv2d(nn.Module):
             Whether to remove the center of the kernel
         output_bias : bool
             Whether to use bias in the output projection
-        without_pointwise : bool
-            Whether to use pointwise projection
+        proj : nn.Module
+            Projection layer. Defaults to ``nn.Linear``.
         """
         super().__init__(**kwargs)
-        if channels % group != 0:
+        if dims % group != 0:
             raise ValueError(
-                f"channels must be divisible by group, but got {channels} and {group}"
+                f"dims must be divisible by group, but got {dims} and {group}"
             )
-        _d_per_group = channels // group
+        _d_per_group = dims // group
         assert _d_per_group % 16 == 0
 
         self.offset_scale = offset_scale
-        self.channels = channels
+        self.dims = dims
         self.kernel_size = kernel_size
         self.stride = stride
         self.dilation = dilation
         self.pad = pad
         self.group = group
-        self.group_channels = channels // group
+        self.group_dims = dims // group
         self.offset_scale = offset_scale
         self.dw_kernel_size = dw_kernel_size
         self.center_feature_scale = center_feature_scale
         self.remove_center = int(remove_center)
-        self.without_pointwise = without_pointwise
 
         self.K = group * (kernel_size * kernel_size - self.remove_center)
         if dw_kernel_size is not None:
             self.offset_mask_dw = nn.Conv2d(
-                channels,
-                channels,
+                dims,
+                dims,
                 dw_kernel_size,
                 stride=1,
                 padding=(dw_kernel_size - 1) // 2,
-                groups=channels,
+                groups=dims,
             )
-        self.offset_mask = nn.Linear(channels, int(math.ceil((self.K * 3) / 8) * 8))
+        self.offset_mask = nn.Linear(dims, int(math.ceil((self.K * 3) / 8) * 8))
 
-        if not without_pointwise:
-            self.value_proj = nn.Linear(channels, channels)
-            self.output_proj = nn.Linear(channels, channels, bias=output_bias)
+        if proj is not None:
+            self.proj_input = proj(dims, dims)
+            self.proj_output = proj(dims, dims, bias=output_bias)
         else:
-            self.register_module("value_proj", None)
-            self.register_module("output_proj", None)
+            self.register_module("proj_v", None)
+            self.register_module("proj_o", None)
 
         self._reset_parameters()
 
         if center_feature_scale:
-            self.center_scale_weight = nn.Parameter(
-                torch.zeros((group, channels), dtype=torch.float)
-            )
-            self.center_scale_bias = nn.Parameter(
-                torch.tensor(0.0, dtype=torch.float)
-                .view((1,))
-                .repeat(
-                    group,
-                )
-            )
-            self.center_scale = CenterFeatureScaleModule()
+            self.center_scale = CenterScale(dims, group)
         else:
-            self.register_parameter("center_scale_weight", None)
-            self.register_parameter("center_scale_bias", None)
             self.register_module("center_scale", None)
 
     def _reset_parameters(self):
         constant_(self.offset_mask.weight.data, 0.0)
         constant_(self.offset_mask.bias.data, 0.0)
-        if not self.without_pointwise:
-            xavier_uniform_(self.value_proj.weight.data)
-            constant_(self.value_proj.bias.data, 0.0)
-            xavier_uniform_(self.output_proj.weight.data)
-            if self.output_proj.bias is not None:
-                constant_(self.output_proj.bias.data, 0.0)
+        if self.proj_input is not None:
+            xavier_uniform_(self.proj_input.weight.data)
+            constant_(self.proj_input.bias.data, 0.0)
+        if self.proj_output is not None:
+            xavier_uniform_(self.proj_output.weight.data)
+            if self.proj_output.bias is not None:
+                constant_(self.proj_output.bias.data, 0.0)
 
     @TX.override
     def forward(self, input: Tensor, shape: torch.Size | None = None) -> Tensor:
@@ -599,26 +618,42 @@ class DeformConv2d(nn.Module):
         Parameters
         ----------
         input : Tensor[N, L, C] or Tensor[N, C, H, W]
-            The input tensor.
+            The input tensor. It is recommended to use Tensor[N, L, C] for better performance
+            wherever this is compatible within the larger architecture context.
         shape : tuple[H,W]
-            Shape of the input tensor if input is in the form of Tensor[N, L, C]
+            Shape of the input tensor if input is in the form of Tensor[N, L, C].
+            If None, the shape is inferred from the input tensor by assuming it is square.
+            When a shape is passed and the input is in the form of Tensor[N, C, H, W],
+            the shape is checked against the input shape through an assertion.
 
         Returns
         -------
         Tensor[N, L, C]
             Result of the deformable convolution
-
         """
-        N, L, C = input.shape
-        if shape is not None:
-            H, W = shape
-        else:
-            H, W = int(L**0.5), int(L**0.5)
 
-        x = input
-        if self.value_proj is not None:
-            x = self.value_proj(x)
-        x = x.reshape(N, H, W, -1)
+        # Input parsing and transformation
+        if input.ndim == 4:
+            N, C, H, W = input.shape
+            L = H * W
+            out = input.flatten(2).permute(0, 2, 1)
+            assert (
+                shape is None or (H, W) == shape
+            ), f"Shape {shape} does not match the input shape {H}x{W}"
+        else:
+            N, L, C = input.shape
+            if shape is not None:
+                H, W = shape
+            else:
+                H, W = int(L**0.5), int(L**0.5)
+            out = input
+
+        # Input projection
+        if self.proj_input is not None:
+            out = self.proj_input(out)
+
+        # Offset mask
+        out = out.reshape(N, H, W, -1)
         if self.dw_kernel_size is not None:
             offset_mask_input = self.offset_mask_dw(
                 input.view(N, H, W, C).permute(0, 3, 1, 2)
@@ -628,9 +663,10 @@ class DeformConv2d(nn.Module):
             offset_mask_input = input
         offset_mask = self.offset_mask(offset_mask_input).reshape(N, H, W, -1)
 
-        x_proj = x
-        x = DeformConv2dFunction.apply(
-            x,
+        # Deformable convolution
+        out_ante = out
+        out = DeformConv2dFunction.apply(
+            out,
             offset_mask,
             self.kernel_size,
             self.kernel_size,
@@ -641,27 +677,35 @@ class DeformConv2d(nn.Module):
             self.dilation,
             self.dilation,
             self.group,
-            self.group_channels,
+            self.group_dims,
             self.offset_scale,
             256,
             self.remove_center,
         )
 
+        # Center feature scale
         if self.center_scale is not None:
             center_feature_scale = self.center_scale(
-                x,
+                out,
                 self.center_scale_weight,
                 self.center_scale_bias,
             )
             center_feature_scale = (
                 center_feature_scale[..., None]
-                .repeat(1, 1, 1, 1, self.channels // self.group)
+                .repeat(1, 1, 1, 1, self.dims // self.group)
                 .flatten(-2)
             )
-            x = x * (1 - center_feature_scale) + x_proj * center_feature_scale
-        x = x.view(N, L, -1)
+            out = out * (1 - center_feature_scale) + out_ante * center_feature_scale
+        out = out.view(N, L, -1)
 
-        if self.output_proj is not None:
-            x = self.output_proj(x)
+        # Output projection
+        if self.proj_output is not None:
+            out = self.proj_output(out)
 
-        return x
+        if input.ndim == 4:
+            out = out.permute(0, 2, 1).reshape(N, -1, H, W)
+
+        return out
+
+    if T.TYPE_CHECKING:
+        __call__ = forward

@@ -390,6 +390,3 @@ class RadialKAN(nn.Module):
         for layer in self.layers:
             x = layer(x)
         return x
-
-
-

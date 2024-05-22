@@ -89,13 +89,13 @@ class MultiScaleDeformAttnFunction(Function):
 
 
 class MultiScaleDeformAttn(nn.Module):
-    def __init__(self, channels=256, levels=4, heads=8, points=4):
+    def __init__(self, dims=256, levels=4, heads=8, points=4):
         """
         Multi-Scale Deformable Attention
 
         Parameters
         ----------
-        d_model
+        dims
             amount of hidden dimension in the model
         levels
             number of feature levels
@@ -105,27 +105,27 @@ class MultiScaleDeformAttn(nn.Module):
             number of sampling points per attention head per feature level
         """
         super().__init__()
-        if channels % heads != 0:
-            msg = "d_model must be divisible by heads, but got {} and {}".format(
-                channels, heads
+        if dims % heads != 0:
+            msg = "dims must be divisible by heads, but got {} and {}".format(
+                dims, heads
             )
             raise ValueError(msg)
-        _d_per_head = channels // heads
+        _d_per_head = dims // heads
         if not _is_power_of_2(_d_per_head):
-            msg = "d_model / heads must be power of 2, but got {}.".format(_d_per_head)
+            msg = "dims / heads must be power of 2, but got {}.".format(_d_per_head)
             raise ValueError(msg)
 
         self.im2col_step = 128
 
-        self.d_model = channels
+        self.dims = dims
         self.levels = levels
         self.heads = heads
         self.n_points = points
 
-        self.sampling_offsets = nn.Linear(channels, heads * levels * points * 2)
-        self.attention_weights = nn.Linear(channels, heads * levels * points)
-        self.value_proj = nn.Linear(channels, channels)
-        self.output_proj = nn.Linear(channels, channels)
+        self.sampling_offsets = nn.Linear(dims, heads * levels * points * 2)
+        self.attention_weights = nn.Linear(dims, heads * levels * points)
+        self.value_proj = nn.Linear(dims, dims)
+        self.output_proj = nn.Linear(dims, dims)
 
         self._reset_parameters()
 
@@ -162,15 +162,25 @@ class MultiScaleDeformAttn(nn.Module):
         input_padding_mask=None,
     ):
         """
-        :param query                       (N, Length_{query}, C)
-        :param reference_points            (N, Length_{query}, levels, 2), range in [0, 1], top-left (0,0), bottom-right (1, 1), including padding area
-                                        or (N, Length_{query}, levels, 4), add additional (w, h) to form reference boxes
-        :param input_flatten               (N, \sum_{l=0}^{L-1} H_l \cdot W_l, C)
-        :param input_spatial_shapes        (levels, 2), [(H_0, W_0), (H_1, W_1), ..., (H_{L-1}, W_{L-1})]
-        :param input_level_start_index     (levels, ), [0, H_0*W_0, H_0*W_0+H_1*W_1, H_0*W_0+H_1*W_1+H_2*W_2, ..., H_0*W_0+H_1*W_1+...+H_{L-1}*W_{L-1}]
-        :param input_padding_mask          (N, \sum_{l=0}^{L-1} H_l \cdot W_l), True for padding elements, False for non-padding elements
+        Parameters
+        ----------
+        query : Tensor[N, Q, C]
+            The input query tensor.
+        reference_points : Tensor[N, Q, L, 2] or Tensor[N, Q, L, 4]
+            The reference points for each query point.
+        input_flatten : Tensor[N, S, C]
+            The flattened input tensor.
+        input_spatial_shapes : List[Tuple[int, int]]
+            The spatial shapes of the input features.
+        input_level_start_index : List[int]
+            The start index of each level in the flattened input tensor.
+        input_padding_mask : Optional[Tensor[N, S]]
+            The padding mask of the input tensor.
 
-        :return output                     (N, Length_{query}, C)
+        Returns
+        -------
+        output : Tensor[N, Q, C]
+            The output tensor.
         """
         N, Len_q, _ = query.shape
         N, Len_in, _ = input_flatten.shape
@@ -179,7 +189,7 @@ class MultiScaleDeformAttn(nn.Module):
         value = self.value_proj(input_flatten)
         if input_padding_mask is not None:
             value = value.masked_fill(input_padding_mask[..., None], float(0))
-        value = value.view(N, Len_in, self.heads, self.d_model // self.heads)
+        value = value.view(N, Len_in, self.heads, self.dims // self.heads)
         sampling_offsets = self.sampling_offsets(query).view(
             N, Len_q, self.heads, self.levels, self.n_points, 2
         )
@@ -207,13 +217,10 @@ class MultiScaleDeformAttn(nn.Module):
                 * 0.5
             )
         else:
-            raise ValueError(
-                "Last dim of reference_points must be 2 or 4, but get {} instead.".format(
-                    reference_points.shape[-1]
-                )
-            )
+            msg = f"Last dim of reference_points must be 2 or 4, but get {reference_points.shape[-1]} instead."
+            raise ValueError(msg)
         if torch.cuda.is_available():
-            output = MultiScaleDeformAttnFunction.apply(
+            out = MultiScaleDeformAttnFunction.apply(
                 value,
                 input_spatial_shapes,
                 input_level_start_index,
@@ -222,9 +229,10 @@ class MultiScaleDeformAttn(nn.Module):
                 self.im2col_step,
             )
         else:
-            ## CPU
-            output = deform_attn_fallback(
+            out = deform_attn_fallback(
                 value, input_spatial_shapes, sampling_locations, attention_weights
             )
-        output = self.output_proj(output)
-        return output
+        return self.output_proj(out)
+
+    if T.TYPE_CHECKING:
+        __call__ = forward

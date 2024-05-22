@@ -8,6 +8,7 @@ import abc
 import copy
 import typing as T
 from dataclasses import field
+from pprint import pformat
 
 import torch
 import typing_extensions as TX
@@ -294,7 +295,16 @@ class InputData(Tensorclass):
             len(b.batch_size) == 0 for b in batch
         ), f"Batch size must be 0 for all inputs! Got: {[b.batch_size for b in batch]}"
 
-        return torch.stack(batch)  # type: ignore
+        try:
+            return torch.stack(batch)  # type: ignore
+        except RuntimeError as e:
+            msg = (
+                f"Failed to collate batch of input data: {e}. "
+                f"Ensure that all input data objects have the same shape. \n\n"
+                f"Batch sizes: {[b.shape for b in batch]}. \n\n"
+                f"Batch items: \n{pformat(batch)}"
+            )
+            raise ValueError(msg) from e
         # batch = [b.to_tensordict() for b in batch]
         # return LazyStackedTensorDict(*batch)
 

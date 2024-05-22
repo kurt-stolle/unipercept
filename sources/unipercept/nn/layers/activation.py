@@ -25,33 +25,59 @@ def get_activation(spec: ActivationSpec) -> nn.Module:
 
     # Check whether activation is provided as a string or module path
     if isinstance(spec, str):
-        match spec:
+        spec, *spec_args = spec.split(":", 1) if ":" in spec else (spec, None)
+        if len(spec_args) > 0:
+            args = map(str.strip, T.cast(list[str], spec_args))
+        else:
+            args = iter([])
+        match spec.lower().strip():
             case "relu":
-                spec = nn.ReLU
-            case "relu-inplace":
-                spec = InplaceReLU
+                return nn.ReLU(
+                    inplace=next(args, "").lower() == "inplace",
+                )
             case "leaky-relu":
-                spec = nn.LeakyReLU
+                return nn.LeakyReLU(
+                    negative_slope=float(next(args, "0.01")),
+                    inplace=next(args, "").lower() == "inplace",
+                )
             case "gelu":
-                spec = nn.GELU
+                return nn.GELU(
+                    approximate=next(args, "none").lower(),
+                )
             case "silu":
-                spec = nn.SiLU
+                return nn.SiLU()
             case "swish":
-                spec = nn.SiLU
+                return nn.SiLU()
             case "mish":
-                spec = nn.Mish
+                return nn.Mish()
             case "sigmoid":
-                spec = nn.Sigmoid
+                return nn.Sigmoid()
             case "tanh":
-                spec = nn.Tanh
+                return nn.Tanh()
+            case "softmax":
+                return nn.Softmax(
+                    dim=int(next(args, "-1")),
+                )
             case "softplus":
-                spec = nn.Softplus
+                return nn.Softplus()
             case "softsign":
-                spec = nn.Softsign
+                return nn.Softsign()
+            case "threshold":
+                if len(spec_args) < 2:
+                    msg = (
+                        r"Threshold activation requires at least two arguments. "
+                        r"Provide them as `theshold:a:b` where `a` is the thehsold and `b` is the value."
+                    )
+                    raise ValueError(msg)
+                return nn.Threshold(
+                    threshold=float(next(args)),
+                    value=float(next(args)),
+                    inplace=next(args, "").lower() == "inplace",
+                )
             case "identity":
-                spec = nn.Identity
+                return nn.Identity()
             case "none":
-                spec = nn.Identity
+                return nn.Identity()
             case _:
                 spec = locate_object(spec)
 

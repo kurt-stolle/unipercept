@@ -16,6 +16,8 @@ from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.nn.init import constant_, xavier_uniform_
 
+from unipercept.nn.layers.conv.utils import NormActivationModule
+
 from .extension import deform_conv_backward, deform_conv_forward
 
 __all__ = ["DeformConv2d", "DeformConv2dFunction"]
@@ -497,6 +499,7 @@ class CenterScale(nn.Module):
             .repeat(
                 group,
             )
+            .clone()
         )
 
     @TX.override
@@ -508,21 +511,21 @@ class CenterScale(nn.Module):
         ).sigmoid()
 
 
-class DeformConv2d(nn.Module):
+class DeformConv2d(NormActivationModule):
     def __init__(
         self,
         dims,
         kernel_size: int = 3,
         *,
         stride: int = 1,
-        pad: int = 1,
+        padding: int = 1,
         dilation: int = 1,
-        group: int = 4,
+        groups: int = 4,
         offset_scale: float = 1.0,
         dw_kernel_size: int | None = None,
         center_feature_scale: bool = False,
         remove_center: bool = False,
-        output_bias: bool = True,
+        bias: bool = True,
         proj: type[nn.Module] = nn.Linear,
         **kwargs,
     ):
@@ -535,11 +538,11 @@ class DeformConv2d(nn.Module):
             Size of the convolving kernel
         stride : int
             Stride of the convolution
-        pad : int
+        padding : int
             Zero-padding added to both sides of the input
         dilation : int
             Spacing between kernel elements
-        group : int
+        groups : int
             Number of blocked connections from input dims to output dims
         offset_scale : float
             Scale of the offset
@@ -549,17 +552,17 @@ class DeformConv2d(nn.Module):
             Whether to use center feature scale
         remove_center : bool
             Whether to remove the center of the kernel
-        output_bias : bool
+        bias : bool
             Whether to use bias in the output projection
         proj : nn.Module
             Projection layer. Defaults to ``nn.Linear``.
         """
         super().__init__(**kwargs)
-        if dims % group != 0:
+        if dims % groups != 0:
             raise ValueError(
-                f"dims must be divisible by group, but got {dims} and {group}"
+                f"dims must be divisible by group, but got {dims} and {groups}"
             )
-        _d_per_group = dims // group
+        _d_per_group = dims // groups
         assert _d_per_group % 16 == 0
 
         self.offset_scale = offset_scale
@@ -567,15 +570,15 @@ class DeformConv2d(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.dilation = dilation
-        self.pad = pad
-        self.group = group
-        self.group_dims = dims // group
+        self.padding = padding
+        self.groups = groups
+        self.group_dims = dims // groups
         self.offset_scale = offset_scale
         self.dw_kernel_size = dw_kernel_size
         self.center_feature_scale = center_feature_scale
         self.remove_center = int(remove_center)
 
-        self.K = group * (kernel_size * kernel_size - self.remove_center)
+        self.K = groups * (kernel_size * kernel_size - self.remove_center)
         if dw_kernel_size is not None:
             self.offset_mask_dw = nn.Conv2d(
                 dims,
@@ -589,15 +592,15 @@ class DeformConv2d(nn.Module):
 
         if proj is not None:
             self.proj_input = proj(dims, dims)
-            self.proj_output = proj(dims, dims, bias=output_bias)
+            self.proj_output = proj(dims, dims, bias=bias)
         else:
-            self.register_module("proj_v", None)
-            self.register_module("proj_o", None)
+            self.register_module("proj_input", None)
+            self.register_module("proj_output", None)
 
         self._reset_parameters()
 
         if center_feature_scale:
-            self.center_scale = CenterScale(dims, group)
+            self.center_scale = CenterScale(dims, groups)
         else:
             self.register_module("center_scale", None)
 
@@ -633,20 +636,17 @@ class DeformConv2d(nn.Module):
         """
 
         # Input parsing and transformation
-        if input.ndim == 4:
-            N, C, H, W = input.shape
-            L = H * W
-            out = input.flatten(2).permute(0, 2, 1)
-            assert (
-                shape is None or (H, W) == shape
-            ), f"Shape {shape} does not match the input shape {H}x{W}"
+        ndim_input = input.ndim
+        if ndim_input == 4:
+            assert shape is None
+            shape = input.shape[-2:]
+            input = input.flatten(2).permute(0, 2, 1).contiguous()
+        N, L, C = input.shape
+        if shape is not None:
+            H, W = shape
         else:
-            N, L, C = input.shape
-            if shape is not None:
-                H, W = shape
-            else:
-                H, W = int(L**0.5), int(L**0.5)
-            out = input
+            H, W = int(L**0.5), int(L**0.5)
+        out = input
 
         # Input projection
         if self.proj_input is not None:
@@ -672,11 +672,11 @@ class DeformConv2d(nn.Module):
             self.kernel_size,
             self.stride,
             self.stride,
-            self.pad,
-            self.pad,
+            self.padding,
+            self.padding,
             self.dilation,
             self.dilation,
-            self.group,
+            self.groups,
             self.group_dims,
             self.offset_scale,
             256,
@@ -685,14 +685,10 @@ class DeformConv2d(nn.Module):
 
         # Center feature scale
         if self.center_scale is not None:
-            center_feature_scale = self.center_scale(
-                out,
-                self.center_scale_weight,
-                self.center_scale_bias,
-            )
+            center_feature_scale = self.center_scale(out)
             center_feature_scale = (
                 center_feature_scale[..., None]
-                .repeat(1, 1, 1, 1, self.dims // self.group)
+                .repeat(1, 1, 1, 1, self.dims // self.groups)
                 .flatten(-2)
             )
             out = out * (1 - center_feature_scale) + out_ante * center_feature_scale
@@ -702,8 +698,8 @@ class DeformConv2d(nn.Module):
         if self.proj_output is not None:
             out = self.proj_output(out)
 
-        if input.ndim == 4:
-            out = out.permute(0, 2, 1).reshape(N, -1, H, W)
+        if ndim_input == 4:
+            out = out.permute(0, 2, 1).unflatten(2, shape).contiguous()
 
         return out
 

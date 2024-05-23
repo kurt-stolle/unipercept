@@ -17,7 +17,7 @@ from typing_extensions import override
 from unipercept.utils.inspect import locate_object
 
 NormFactory: T.TypeAlias = T.Callable[[int], nn.Module]
-NormSpec: T.TypeAlias = str | NormFactory | nn.Module | None
+NormSpec: T.TypeAlias = str | NormFactory | type[nn.Module] | nn.Module | None
 
 _M = T.TypeVar("_M", bound=nn.Module)
 

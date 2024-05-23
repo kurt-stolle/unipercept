@@ -32,7 +32,7 @@ def _ignore_torch_cuda_oom():
             raise
 
 
-def retry_if_cuda_oom(func):
+def retry_if_cuda_oom(func, cpu_ok: bool = True):
     """
     Makes a function retry itself after encountering
     pytorch's CUDA OOM error.
@@ -43,11 +43,14 @@ def retry_if_cuda_oom(func):
     The return values may become CPU tensors as well and it's user's
     responsibility to convert it back to CUDA tensor if needed.
 
-    Args:
-        func: a stateless callable that takes tensor-like objects as arguments
+    Parameters
+    ----------
+    func
+        A stateless callable that takes tensor-like objects as arguments
 
-    Returns:
-        a callable which retries `func` if OOM is encountered.
+    Returns
+    -------
+        A callable which retries `func` if OOM is encountered.
 
     Examples:
     ::
@@ -77,19 +80,13 @@ def retry_if_cuda_oom(func):
     def wrapped(*args, **kwargs):
         with _ignore_torch_cuda_oom():
             return func(*args, **kwargs)
-
-        # Clear cache and retry
         torch.cuda.empty_cache()
-        with _ignore_torch_cuda_oom():
-            return func(*args, **kwargs)
-
-        # Try on CPU. This slows down the code significantly, therefore print a notice.
-        logger = logging.getLogger(__name__)
-        logger.info(
-            "Attempting to copy inputs of {} to CPU due to CUDA OOM".format(str(func))
-        )
-        new_args = (maybe_to_cpu(x) for x in args)
-        new_kwargs = {k: maybe_to_cpu(v) for k, v in kwargs.items()}
-        return func(*new_args, **new_kwargs)
+        if cpu_ok:
+            with _ignore_torch_cuda_oom():
+                return func(*args, **kwargs)
+            new_args = (maybe_to_cpu(x) for x in args)
+            new_kwargs = {k: maybe_to_cpu(v) for k, v in kwargs.items()}
+            return func(*new_args, **new_kwargs)
+        return func(*args, **kwargs)
 
     return wrapped

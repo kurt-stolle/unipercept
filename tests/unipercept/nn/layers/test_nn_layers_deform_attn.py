@@ -1,111 +1,93 @@
 from __future__ import annotations
 
+import pytest
 import torch
 from torch.autograd import gradcheck
 
-from unipercept.nn.layers.deform_attn import (
-    MSDeformAttnFunction,
-    ms_deform_attn_core_pytorch,
-)
+from unipercept.nn.layers.deform_attn import MultiScaleDeformAttnFunction, reference
 
 N, M, D = 1, 2, 2
-Lq, L, P = 2, 2, 2
-shapes = torch.as_tensor([(6, 4), (3, 2)], dtype=torch.long).cuda()
-level_start_index = torch.cat((shapes.new_zeros((1,)), shapes.prod(1).cumsum(0)[:-1]))
-S = sum([(H * W).item() for H, W in shapes])
+Q, L, P = 2, 2, 2
 
 
-torch.manual_seed(3)
-
-
-@torch.no_grad()
-def check_forward_equal_with_pytorch_double():
-    value = torch.rand(N, S, M, D).cuda() * 0.01
-    sampling_locations = torch.rand(N, Lq, M, L, P, 2).cuda()
-    attention_weights = torch.rand(N, Lq, M, L, P).cuda() + 1e-5
-    attention_weights /= attention_weights.sum(-1, keepdim=True).sum(-2, keepdim=True)
-    im2col_step = 2
-    output_pytorch = (
-        ms_deform_attn_core_pytorch(
-            value.double(),
-            shapes,
-            sampling_locations.double(),
-            attention_weights.double(),
+@pytest.mark("dtype", torch.float16, torch.bfloat16, torch.float32, torch.float64)
+def test_deform_attn(dtype: torch.dtype):
+    with torch.no_grad(), torch.device("cuda"):
+        shapes = torch.as_tensor([(6, 4), (3, 2)], dtype=torch.long)
+        level_start_index = torch.cat(
+            (shapes.new_zeros((1,)), shapes.prod(1).cumsum(0)[:-1])
         )
-        .detach()
-        .cpu()
-    )
-    output_cuda = (
-        MSDeformAttnFunction.apply(
-            value.double(),
-            shapes,
-            level_start_index,
-            sampling_locations.double(),
-            attention_weights.double(),
-            im2col_step,
+        S = sum([(H * W).item() for H, W in shapes])
+
+        value = torch.rand(N, S, M, D) * 0.01
+        sampling_locations = torch.rand(N, Q, M, L, P, 2)
+        attention_weights = torch.rand(N, Q, M, L, P) + 1e-5
+        attention_weights /= attention_weights.sum(-1, keepdim=True).sum(
+            -2, keepdim=True
         )
-        .detach()
-        .cpu()
-    )
-    fwdok = torch.allclose(output_cuda, output_pytorch)
-    max_abs_err = (output_cuda - output_pytorch).abs().max()
-    max_rel_err = ((output_cuda - output_pytorch).abs() / output_pytorch.abs()).max()
+        im2col_step = 2
 
-    print(
-        f"* {fwdok} check_forward_equal_with_pytorch_double: max_abs_err {max_abs_err:.2e} max_rel_err {max_rel_err:.2e}"
-    )
+        value = value.to(dtype=dtype)
+        sampling_locations = sampling_locations.to(dtype=dtype)
+        attention_weights = attention_weights.to(dtype=dtype)
 
-
-@torch.no_grad()
-def check_forward_equal_with_pytorch_float():
-    value = torch.rand(N, S, M, D).cuda() * 0.01
-    sampling_locations = torch.rand(N, Lq, M, L, P, 2).cuda()
-    attention_weights = torch.rand(N, Lq, M, L, P).cuda() + 1e-5
-    attention_weights /= attention_weights.sum(-1, keepdim=True).sum(-2, keepdim=True)
-    im2col_step = 2
-    output_pytorch = (
-        ms_deform_attn_core_pytorch(
-            value, shapes, sampling_locations, attention_weights
+        output_pytorch = (
+            reference.deform_attn(
+                value,
+                shapes,
+                sampling_locations,
+                attention_weights,
+            )
+            .detach()
+            .cpu()
         )
-        .detach()
-        .cpu()
-    )
-    output_cuda = (
-        MSDeformAttnFunction.apply(
-            value,
-            shapes,
-            level_start_index,
-            sampling_locations,
-            attention_weights,
-            im2col_step,
+        output_cuda = (
+            MultiScaleDeformAttnFunction.apply(
+                value,
+                shapes,
+                level_start_index,
+                sampling_locations.to(dtype=dtype),
+                attention_weights.to(dtype=dtype),
+                im2col_step,
+            )
+            .detach()
+            .cpu()
         )
-        .detach()
-        .cpu()
-    )
-    fwdok = torch.allclose(output_cuda, output_pytorch, rtol=1e-2, atol=1e-3)
-    max_abs_err = (output_cuda - output_pytorch).abs().max()
-    max_rel_err = ((output_cuda - output_pytorch).abs() / output_pytorch.abs()).max()
+        fwdok = torch.allclose(output_cuda, output_pytorch, rtol=1e-2, atol=1e-3)
+        max_abs_err = (output_cuda - output_pytorch).abs().max()
+        max_rel_err = (
+            (output_cuda - output_pytorch).abs() / output_pytorch.abs()
+        ).max()
 
-    print(
-        f"* {fwdok} check_forward_equal_with_pytorch_float: max_abs_err {max_abs_err:.2e} max_rel_err {max_rel_err:.2e}"
-    )
+    print(max_abs_err, max_rel_err)
+    assert fwdok, (max_abs_err, max_rel_err)
 
 
-def check_gradient_numerical(
+@pytest.mark("channels", [30, 32, 64, 71, 1025, 2048, 3096])
+def test_gradient_numerical(
     channels=4, grad_value=True, grad_sampling_loc=True, grad_attn_weight=True
 ):
-    value = torch.rand(N, S, M, channels).cuda() * 0.01
-    sampling_locations = torch.rand(N, Lq, M, L, P, 2).cuda()
-    attention_weights = torch.rand(N, Lq, M, L, P).cuda() + 1e-5
-    attention_weights /= attention_weights.sum(-1, keepdim=True).sum(-2, keepdim=True)
-    im2col_step = 2
-    func = MSDeformAttnFunction.apply
+    with torch.device("cuda"):
+        shapes = torch.as_tensor([(6, 4), (3, 2)], dtype=torch.long)
+        level_start_index = torch.cat(
+            (shapes.new_zeros((1,)), shapes.prod(1).cumsum(0)[:-1])
+        )
+        S = sum([(H * W).item() for H, W in shapes])
 
-    value.requires_grad = grad_value
-    sampling_locations.requires_grad = grad_sampling_loc
-    attention_weights.requires_grad = grad_attn_weight
+        value = torch.rand(N, S, M, channels) * 0.01
+        sampling_locations = torch.rand(N, Q, M, L, P, 2)
+        attention_weights = torch.rand(N, Q, M, L, P) + 1e-5
+        attention_weights /= attention_weights.sum(-1, keepdim=True).sum(
+            -2, keepdim=True
+        )
+        im2col_step = 2
+        func = MultiScaleDeformAttnFunctiontion.apply
 
-    gradok = gradcheck(
+        value.requires_grad = grad_value
+        sampling_locations.requires_grad = grad_sampling_loc
+        attention_weights.requires_grad = grad_attn_weight
+
+    assert gradcheck(
         func,
         (
             value.double(),
@@ -116,13 +98,3 @@ def check_gradient_numerical(
             im2col_step,
         ),
     )
-
-    print(f"* {gradok} check_gradient_numerical(D={channels})")
-
-
-if __name__ == "__main__":
-    check_forward_equal_with_pytorch_double()
-    check_forward_equal_with_pytorch_float()
-
-    for channels in [30, 32, 64, 71, 1025, 2048, 3096]:
-        check_gradient_numerical(channels, True, True, True)

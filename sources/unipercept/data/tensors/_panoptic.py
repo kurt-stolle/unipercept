@@ -523,4 +523,3 @@ class PanopticMap(_Mask):
         except ValueError:
             return False
         return True
-

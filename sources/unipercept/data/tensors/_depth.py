@@ -1,20 +1,16 @@
 from __future__ import annotations
 
+import enum as E
 import typing as T
-from enum import StrEnum, auto
 
-import cv2
 import PIL.Image as pil_image
 import safetensors.torch as safetensors
 import torch
 from einops import rearrange
 from torch import Tensor
+from torch.nn.functional import interpolate
 from torch.types import Device
-from torchvision.transforms.v2.functional import (
-    InterpolationMode,
-    register_kernel,
-    resize_image,
-)
+from torchvision.transforms.v2.functional import register_kernel
 from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 from torchvision.tv_tensors import Mask
 
@@ -27,12 +23,12 @@ __all__ = ["DepthMap", "DepthFormat", "downsample_depthmap", "resize_depthmap"]
 DEFAULT_DEPTH_DTYPE: T.Final = torch.float32
 
 
-class DepthFormat(StrEnum):
-    TIFF = auto()
-    DEPTH_INT16 = auto()
-    DISPARITY_INT16 = auto()
-    TORCH = auto()
-    SAFETENSORS = auto()
+class DepthFormat(E.StrEnum):
+    TIFF = E.auto()
+    DEPTH_INT16 = E.auto()
+    DISPARITY_INT16 = E.auto()
+    TORCH = E.auto()
+    SAFETENSORS = E.auto()
 
 
 @pixel_maps.register
@@ -167,30 +163,60 @@ class DepthMap(Mask):
         return cls(depth)
 
 
-def downsample_depthmap(x: Tensor, size: tuple[int, int]) -> Tensor:
+class DepthDownsampleMethod(E.StrEnum):
+    MEDIAN = E.auto()
+    NEAREST = E.auto()
+
+
+def downsample_depthmap(
+    depth_map: Tensor,
+    size: tuple[int, int] | torch.Size,
+    method: DepthDownsampleMethod | str = DepthDownsampleMethod.MEDIAN,
+) -> Tensor:
     """
-    Downsampling of depth maps via median pooling.
+    Downsampling of depth maps.
+
+    Parameters
+    ----------
+    depth_map: Tensor[..., H_old, W_old]
+        The input depth map.
+    size : tuple[H_new, W_new]
+        The target size of the downsampled depth map.
+    method : DepthDownsampleMethod or str
+        The method used for downsampling. Default: ```DepthDownsampleMethod.MEDIAN``.
+
+    Returns
+    -------
+    Tensor[..., H, W]
+        The downsampled depth map.
     """
     # Check that the shape is actually divisible by the target size, else do NN downsample first to the closest size
-    h_old, w_old = x.shape[-2:]
+    h_old, w_old = depth_map.shape[-2:]
     h_new, w_new = size
 
-    if h_old % h_new != 0 or w_old % w_new != 0:
-        h_new = h_old // round(h_old / h_new)
-        w_new = w_old // round(w_old / w_new)
-        x = resize_image(
-            x, (h_new, w_new), interpolation=InterpolationMode.NEAREST_EXACT
-        )
+    match DepthDownsampleMethod(method):
+        case DepthDownsampleMethod.MEDIAN:
+            if h_old % h_new != 0 or w_old % w_new != 0:
+                h_new = h_old // round(h_old / h_new)
+                w_new = w_old // round(w_old / w_new)
+                depth_map = interpolate_depthmap(depth_map, (h_new, w_new))
 
-    # Perform median pooling
-    x = rearrange(x, "... (h1 h2) (w1 w2) -> ... h1 w1 (h2 w2)", h1=h_new, w1=w_new)
-    x[x <= 0] = torch.nan
-    x = torch.nanmedian(x, dim=-1).values
+            # Perform median pooling
+            depth_map = rearrange(
+                depth_map,
+                "... (h1 h2) (w1 w2) -> ... h1 w1 (h2 w2)",
+                h1=h_new,
+                w1=w_new,
+            )
+            depth_map[depth_map <= 0] = torch.nan
+            depth_map = torch.nanmedian(depth_map, dim=-1).values
 
-    # Set invalid depth values to 0
-    x[~torch.isfinite(x)] = 0
+            # Set invalid depth values to 0
+            depth_map[~torch.isfinite(depth_map)] = 0
+        case DepthDownsampleMethod.NEAREST:
+            depth_map = interpolate_depthmap(depth_map, size)
 
-    return x
+    return depth_map
 
 
 @register_kernel(functional="resize", tv_tensor_cls=DepthMap)
@@ -211,13 +237,7 @@ def resize_depthmap(
     if h_new <= h_old and w_new <= w_old:
         res = downsample_depthmap(image, (h_new, w_new))
     else:
-        res = resize_image(
-            image,
-            size,
-            interpolation=InterpolationMode.NEAREST_EXACT,
-            max_size=max_size,
-            antialias=False,
-        )
+        res = interpolate_depthmap(image, (h_new, w_new))
 
     if use_rescale:
         d_min = image.min()
@@ -227,3 +247,21 @@ def resize_depthmap(
         res = (res * scale).clamp(d_min, d_max)
 
     return res.as_subclass(DepthMap)
+
+
+def interpolate_depthmap(
+    depth_map: Tensor,
+    size: T.Tuple[int, int] | torch.Size,
+) -> Tensor:
+    """
+    Quick wrapper for 2D nearest neighbor interpolation, if the input does not have enough
+    dimensions, then these are added before interpolation and removed at the end.
+    """
+    ndim = depth_map.ndim
+    while depth_map.ndim < 4:
+        depth_map = depth_map.unsqueeze(0)
+    depth_map = interpolate(depth_map, size=size, mode="nearest-exact")
+    while depth_map.ndim > ndim:
+        depth_map = depth_map.squeeze(0)
+
+    return depth_map

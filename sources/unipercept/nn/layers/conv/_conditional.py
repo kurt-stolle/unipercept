@@ -19,6 +19,8 @@ from unipercept.utils.function import to_2tuple
 
 from .utils import NormActivationMixin
 
+__all__ = ["CondConv2d"]
+
 
 def get_condconv_initializer(initializer, num_experts, expert_shape):
     def condconv_initializer(weight):

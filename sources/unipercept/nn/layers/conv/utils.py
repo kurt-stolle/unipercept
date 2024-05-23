@@ -21,10 +21,11 @@ from unipercept.utils.function import to_2tuple
 __all__ = [
     "with_norm_activation",
     "NormActivationMixin",
+    "NormActivationModule",
 ]
 
 
-_OUTPUT_CHANNEL_PROPERTIES = ["out_channels", "out_dims"]
+_OUTPUT_CHANNEL_PROPERTIES = ["out_channels", "out_dims", "channels", "dims"]
 
 
 @T.overload
@@ -162,7 +163,28 @@ def with_norm_activation(cls: type[_M]) -> type[_M]:
 
 
 class NormActivationMixin:
-    """Mixin for initialization helpers that add norm and activation layers."""
+    r"""
+    Mixin for initialization helpers that add norm and activation layers."
+    """
+
+    with_activation = classmethod(_init_sequential_activation)
+    with_norm = classmethod(_init_sequential_norm)
+    with_norm_activation = classmethod(_init_sequential_norm_activation)
+
+
+class NormActivationModule(nn.Module):
+    r"""
+    Baseclass of a module that supports normalization and activation layers.
+
+    Equivalent to NormActivationMixin, but implemented as a base class for modules.
+    """
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
 
     with_activation = classmethod(_init_sequential_activation)
     with_norm = classmethod(_init_sequential_norm)

@@ -7,7 +7,9 @@ import torch.nn as nn
 from unipercept.utils.inspect import locate_object
 
 ActivationFactory: T.TypeAlias = T.Callable[[], nn.Module]
-ActivationSpec: T.TypeAlias = ActivationFactory | nn.Module | None | str
+ActivationSpec: T.TypeAlias = (
+    ActivationFactory | type[nn.Module] | nn.Module | None | str
+)
 
 
 def get_activation(spec: ActivationSpec) -> nn.Module:

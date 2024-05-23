@@ -112,7 +112,6 @@ class Engine:
         "_state",
         "_mem_tracker",
         "_params",
-        "dry_run",
         "session_id",
         "find_batch_size",
         "_config",
@@ -131,18 +130,12 @@ class Engine:
             T.Mapping[str, T.Iterable[Evaluator] | EvaluationSuite] | None
         ) = None,
         log_events: bool = False,
-        dry_run: bool = False,
         find_batch_size: bool = False,
         **kwargs,
     ):
         self._default_setup()
 
         self.session_id = _generate_session_id()
-        self.dry_run = dry_run
-
-        if dry_run:
-            _logger.warning("Running in dry run mode!")
-
         self._mem_tracker = MemoryTracker(enabled=not params.memory_tracker)
         self._mem_tracker.start("init")  # must set up as early as possible
 
@@ -604,6 +597,7 @@ class Engine:
 
     @status(EngineStatus.IS_EVALUATION_RUN)
     @torch.no_grad()
+    # @torch.inference_mode()
     def run_evaluation(
         self,
         model_factory: ModelFactory | None,
@@ -614,9 +608,6 @@ class Engine:
         path: Pathable | None = None,
         optimizer: AcceleratedOptimizer | None = None,
     ) -> dict[str, float]:
-        if self.dry_run:
-            _logger.info("Dry run: skipping evaluation")
-            return {}
         _logger.info("Starting evaluation procedure...")
 
         metrics_overall = {}
@@ -780,6 +771,13 @@ class Engine:
         outputs: ModelOutput = model(*args)
         assert outputs.losses is not None
 
+        for key, loss in tuple(outputs.losses.items()):
+            if not torch.isfinite(loss):
+                _logger.warning(
+                    "Loss is not finite: %s (%.4e)", key, loss.detach().item()
+                )
+                del outputs.losses[key]
+
         loss_tensor = torch.stack([v for v in outputs.losses.values()])
 
         if self._params.train_sum_losses:
@@ -845,7 +843,7 @@ class Engine:
         steps_trained_in_current_epoch = 0
         steps_trained_progress_bar = None
 
-        # Create a loss tensor to avoid synchronization of TPUs through .item()
+        # Create tensor to store the losses
         tr_loss: T.Dict[str, Tensor] | None = None
         self._edge(
             Event.ON_TRAIN_BEGIN, model=model, optimizer=optimizer, scheduler=scheduler
@@ -892,24 +890,27 @@ class Engine:
                 steps_trained_in_current_epoch = 0
 
             steps_in_epoch = len(epoch_iterator)
+            epoch_enumerator = enumerate(epoch_iterator)
+            timings_accumulator = ProfileAccumulator()
+            for timings in timings_accumulator.run(warmup=10):
+                with profile(timings, "load_batch") as profile_handle:
+                    try:
+                        step, inputs = next(epoch_enumerator)
+                    except StopIteration:
+                        profile_handle.close()
+                        break
+                    total_session_samples += 1
 
-            for step, inputs in enumerate(epoch_iterator):
-                # assert isinstance(inputs, InputType), f"Expected InputType, got {type(inputs)}"
-
-                if total_session_samples > 0 and self.dry_run:
-                    continue
-
-                total_session_samples += 1
-
-                # Skip past any already trained steps if resuming training
-                if steps_trained_in_current_epoch > 0:
-                    steps_trained_in_current_epoch -= 1
-                    if steps_trained_progress_bar is not None:
-                        steps_trained_progress_bar.update(1)
-                    continue
-                elif steps_trained_progress_bar is not None:
-                    steps_trained_progress_bar.close()
-                    steps_trained_progress_bar = None
+                    # Skip past any already trained steps if resuming training
+                    if steps_trained_in_current_epoch > 0:
+                        steps_trained_in_current_epoch -= 1
+                        if steps_trained_progress_bar is not None:
+                            steps_trained_progress_bar.update(1)
+                        profile_handle.close()
+                        continue
+                    elif steps_trained_progress_bar is not None:
+                        steps_trained_progress_bar.close()
+                        steps_trained_progress_bar = None
 
                 if step % self._state.gradient_accumulation == 0:
                     self._edge(
@@ -919,8 +920,9 @@ class Engine:
                         scheduler=scheduler,
                     )
 
-                with self.xlr.accumulate(model):
-                    tr_loss_step = self.run_training_step(model, inputs, optimizer)
+                with profile(timings, "step"):
+                    with self.xlr.accumulate(model):
+                        tr_loss_step = self.run_training_step(model, inputs, optimizer)
 
                 # Add the losses individually
                 if total_session_steps == 0:
@@ -951,43 +953,46 @@ class Engine:
                     and (step + 1) == steps_in_epoch
                 )
 
-                if (
-                    total_session_samples % self._state.gradient_accumulation == 0
-                    or
-                    # last step in epoch but step is always smaller than gradient_accumulation
-                    is_last_step_and_steps_less_than_grad_acc
-                ):
-                    if self.xlr.sync_gradients:
-                        self.xlr.unscale_gradients()
-                        self._edge(
-                            Event.ON_TRAIN_GRADIENTS, model=model, losses=tr_loss
-                        )
+                with profile(timings, "optimize"):
+                    if (
+                        total_session_samples % self._state.gradient_accumulation == 0
+                        or
+                        # last step in epoch but step is always smaller than gradient_accumulation
+                        is_last_step_and_steps_less_than_grad_acc
+                    ):
+                        if self.xlr.sync_gradients:
+                            self.xlr.unscale_gradients()
+                            self._edge(
+                                Event.ON_TRAIN_GRADIENTS, model=model, losses=tr_loss
+                            )
 
-                    optimizer.step()
-                    if not self.xlr.optimizer_step_was_skipped:
-                        if scheduler is not None:
-                            scheduler.step_update(self._state.step, metric=None)
+                        optimizer.step()
+                        if not self.xlr.optimizer_step_was_skipped:
+                            if scheduler is not None:
+                                scheduler.step_update(self._state.step, metric=None)
+                        else:
+                            _logger.debug("Step was skipped")
+                        optimizer.zero_grad()
+                        self._state.register_step(
+                            epoch=epoch,
+                            step=step,
+                            steps_skipped=steps_skipped,
+                            steps_in_epoch=steps_in_epoch,
+                        )
+                        self._edge(
+                            Event.ON_TRAIN_STEP_END,
+                            model=model,
+                            optimizer=optimizer,
+                            losses=tr_loss,
+                        )
+                        self._train_handle_signals(
+                            tr_loss, model, optimizer, timings_accumulator, **kwargs
+                        )
                     else:
-                        _logger.debug("Step was skipped")
-                    optimizer.zero_grad()
-                    self._state.register_step(
-                        epoch=epoch,
-                        step=step,
-                        steps_skipped=steps_skipped,
-                        steps_in_epoch=steps_in_epoch,
-                    )
-                    self._edge(
-                        Event.ON_TRAIN_STEP_END,
-                        model=model,
-                        optimizer=optimizer,
-                        losses=tr_loss,
-                    )
-                    self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
-                else:
-                    self._edge(
-                        Event.ON_TRAIN_SUBSTEP_END,
-                        step_last_logged=self._step_last_logged,
-                    )
+                        self._edge(
+                            Event.ON_TRAIN_SUBSTEP_END,
+                            step_last_logged=self._step_last_logged,
+                        )
 
                 total_session_steps += 1
 
@@ -1008,7 +1013,9 @@ class Engine:
                 scheduler.step(round(self._state.epoch), metric=None)
 
             self._edge(Event.ON_TRAIN_EPOCH_END)
-            self._train_handle_signals(tr_loss, model, optimizer, **kwargs)
+            self._train_handle_signals(
+                tr_loss, model, optimizer, timings_accumulator, **kwargs
+            )
 
             epochs_trained += 1
 
@@ -1130,10 +1137,6 @@ class Engine:
             (3) iterate the dataset again, and run the evaluation function of each evaluator
         """
 
-        if self.dry_run:
-            _logger.info("Dry run: skipping inference")
-            return {}, 0
-
         _logger.info("Starting inference procedure...")
         self._start_experiment_trackers(restart=False)
 
@@ -1239,9 +1242,10 @@ class Engine:
                                 outputs=outputs,
                             )
 
+                timings_summary = timings.to_summary()
                 _logger.info(
                     "Inference loop: timing report:\n%s",
-                    create_table(timings.to_summary()),
+                    create_table(timings_summary.reset_index(), format="wide"),
                 )
                 # HACK: Sleep for 1 second appears to help with memory consistency
                 time.sleep(1)
@@ -1337,10 +1341,6 @@ class Engine:
         -----
         This should be called at the beginning of training  and inference.
         """
-        if self.dry_run:
-            _logger.info("Start trackers: skipping (dry run)")
-            return
-
         if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status:
             if not restart:
                 _logger.debug("Start trackers: skipping (already started)")
@@ -1411,10 +1411,6 @@ class Engine:
         Stop the experiment trackers. Run has been finished and cannot be logged to
         anymore.
         """
-        if self.dry_run:
-            _logger.info("Stop trackers: skipping (dry run)")
-            return
-
         if EngineStatus.EXPERIMENT_TRACKERS_STARTED in self.status:
             _logger.info("Stop trackers: marking experiment as finished")
             for tracker in self.xlr.trackers:
@@ -1429,6 +1425,7 @@ class Engine:
         tr_loss: T.Dict[str, Tensor] | None,
         model: nn.Module,
         optimizer: AcceleratedOptimizer,
+        timings_accumulator: ProfileAccumulator,
         *,
         trial: Trial | None,
     ) -> None:
@@ -1442,9 +1439,9 @@ class Engine:
             assert tr_loss is not None
 
             self.status &= ~EngineStatus.FINDING_BATCH_SIZE
-
             steps_passed = self._state.step - self._step_last_logged
 
+            # Allocate a log to store entries that will be logged to the experiment
             logs: dict[str, float] = {}
             logs["optimizer/lr"] = _get_learning_rate(optimizer)
 
@@ -1453,16 +1450,24 @@ class Engine:
                 loss_key: gather(loss_item).mean().item()
                 for loss_key, loss_item in tr_loss.items()
             }
-
-            # reset tr_loss to zero
             for k in tr_loss.keys():
                 tr_loss[k].zero_()
-
             for k, v in tr_loss_scalar.items():
                 logs["losses/" + k] = round(v / steps_passed, 4)
 
-            self._step_last_logged = self._state.step
+            # Store FLOPs
             # self.store_flops()
+
+            # Timings
+            if timings_accumulator.steps_recorded > 0:
+                timings_summary = timings_accumulator.to_summary()
+                for k, v in timings_summary["mean"].to_dict().items():
+                    logs["engine/time_train_" + k] = v
+            timings_accumulator.reset()
+            # _logger.info("Timing report:\n%s", create_table(timings_summary.reset_index(), format="wide"))
+
+            # Push logs
+            self._step_last_logged = self._state.step
             self._push_logs(logs)
 
         # SIGNAL: save model

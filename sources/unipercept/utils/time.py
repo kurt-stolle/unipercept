@@ -44,14 +44,22 @@ class profile(contextlib.ContextDecorator):
     Context manager that profiles a block of code and stores the elapsed time in a mapping.
     """
 
-    def __init__(self, dest: T.MutableMapping, key: str):
+    def __init__(self, dest: T.MutableMapping | None, key: str):
         self.dest = dest
         self.key = key
+        self.is_closed = dest is None
+
+    def close(self):
+        self.is_closed = True
 
     def __enter__(self):
-        self.start_time = time.perf_counter_ns()
+        if not self.is_closed:
+            self.start_time = time.perf_counter_ns()
+        return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        if self.is_closed:
+            return
         end_time = time.perf_counter_ns()
         elapsed_time = end_time - self.start_time
         self.dest[self.key] = elapsed_time
@@ -68,6 +76,37 @@ class ProfileAccumulator(T.MutableMapping):
 
     def __init__(self):
         self.data = {}
+
+    def run(
+        self, warmup: int = 0, incomplete_ok: bool = True, enabled: bool = True
+    ) -> T.Iterator[T.Dict[str, int] | None]:
+        """
+        Returns an infinite iterator of dicts to which profiling data can be written.
+        The first dict that is successfully returned is defines the keys that will be
+        read.
+        """
+        if not enabled:
+            while True:
+                yield None
+        skip = warmup
+        while True:
+            target = {}
+            yield target
+            if len(target.keys()) == 0:
+                continue
+            keys = list(target.keys())
+            if len(self.data.keys()) > 0 and set(keys) != set(self.data.keys()):
+                if not incomplete_ok:
+                    msg = f"Keys must be consistent across profiling runs: {keys} != {self.data.keys()}"
+                    raise ValueError(msg)
+                else:
+                    continue
+            if skip > 0:
+                skip -= 1
+            else:
+                for k, v in target.items():
+                    self[k] = v
+            del target
 
     @override
     def __getitem__(self, key):
@@ -92,6 +131,16 @@ class ProfileAccumulator(T.MutableMapping):
     @override
     def __len__(self):
         return len(self.data)
+
+    def reset(self):
+        self.data.clear()
+
+    @property
+    def steps_recorded(self) -> int:
+        if len(self.data) == 0:
+            return 0
+        steps = [len(v) for v in self.data.values()]
+        return max(steps)
 
     def to_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(

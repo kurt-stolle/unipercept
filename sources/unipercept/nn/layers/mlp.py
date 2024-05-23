@@ -30,11 +30,21 @@ class MLP(nn.Sequential):
         out_channels: int,
         hidden_channels: int | float = 1.0,
         *,
-        dropout: float | T.Sequence[float] = 0.0,
+        dropout: float | T.Sequence[float] | T.Tuple[float, float] = 0.0,
         layers: int = 2,
-        norm: NormSpec | T.Sequence[NormSpec | None] | None = None,
+        norm: (
+            NormSpec
+            | T.Sequence[NormSpec]
+            | T.Tuple[NormSpec, NormSpec]
+            | T.Tuple[NormSpec, NormSpec, NormSpec]
+        ) = None,
         bias: T.Tuple[bool, bool] | bool | None = None,
-        activation: ActivationSpec | T.Sequence[ActivationSpec] = nn.GELU,
+        activation: (
+            ActivationSpec
+            | T.Sequence[ActivationSpec]
+            | T.Tuple[ActivationSpec, ActivationSpec]
+            | T.Tuple[ActivationSpec, ActivationSpec, ActivationSpec]
+        ) = nn.GELU,
         init_gain: float | None = None,
     ):
         """
@@ -68,6 +78,8 @@ class MLP(nn.Sequential):
         if layers == 1:
             msg = "At least two layers are required."
             raise ValueError(msg)
+        self.layers = layers
+        self.init_gain = init_gain
 
         # Handle hidden channels (if float, interpret as percentage of input channels)
         if isinstance(hidden_channels, float):

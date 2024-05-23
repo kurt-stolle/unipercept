@@ -1206,6 +1206,9 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
                         f"Task {task} not found in losses (keys: {list(losses.keys())})"
                     )
                     raise ValueError(msg)
+            if len(group_losses) == 0:
+                msg = f"No losses found for group: {group}"
+                raise RuntimeError(msg)
             self.losses[i, 0] = torch.stack(group_losses).sum()
 
 

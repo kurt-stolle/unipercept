@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
+import math
 import typing as T
+from functools import lru_cache
 
 import torch
 import torch.fx
 import torch.nn as nn
 from torch import Tensor
+from torch.nn.functional import interpolate
 from typing_extensions import override
 
-__all__ = ["CoordCat2d"]
+__all__ = ["CoordCat2d", "CoordEmbed2d", "CoordSinusoid2d"]
 
 
 class CoordCat2d(nn.Module):
-    """Layer that concatenates a 2D coordinate grid to the input tensor."""
+    """
+    Layer that concatenates a 2D coordinate grid to the input tensor.
+    """
 
-    gamma: torch.jit.Final[float]
-    groups: torch.jit.Final[int]
-    cat_channels: torch.jit.Final[int]
+    gamma: T.Final[float]
+    groups: T.Final[int]
+    cat_channels: T.Final[int]
 
     def __init__(self, groups: int = 1, gamma=1.0):
         super().__init__()
@@ -36,6 +41,78 @@ class CoordCat2d(nn.Module):
 
         # Concatenate the groups back together
         return _make_grid(t_split, self.gamma, t.shape, t.device)
+
+
+class CoordEmbed2d(nn.Module):
+    """
+    Layer that embeds a learnable position encoding to the input tensor.
+    The encoding is interpolated to match the size of the input tensor.
+    """
+
+    cat_channels: T.Final[int]
+
+    def __init__(self, channels: int = 1, height: int = 32, aspect_ratio: int = 2):
+        """
+        Parameters
+        ----------
+        channels : int
+            The number of channels of the emebdding, by default 1.
+        dims : int
+            The number of dimensions of the embedding (height * width).
+        aspect_ratio : int
+            The aspect ratio of the embedding (width / height). Default is 2.
+        """
+        super().__init__()
+        self.cat_channels = 0
+        self.embedding = nn.Parameter(
+            torch.randn(channels, height, height * aspect_ratio)
+        )
+
+    @override
+    def forward(self, t: Tensor) -> Tensor:
+        e = self.embedding.unsqueeze(0).expand(t.shape[0], -1, -1, -1)
+        e = interpolate(
+            e.unsqueeze(0), size=t.shape[1:], mode="trilinear", align_corners=False
+        ).squeeze(0)
+
+        return t + e
+
+
+class CoordSinusoid2d(nn.Module):
+    cat_channels: T.Final[int]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.cat_channels = 0
+
+    @staticmethod
+    @lru_cache(maxsize=None)
+    def _get_encoding(
+        channels: int, height: int, width: int, device: torch.device
+    ) -> Tensor:
+        assert (
+            channels % 4 == 0
+        ), "Channels must be divisible by 4 for sinusoidal encoding"
+
+        with device, torch.no_grad():
+            y_position = torch.arange(0, height).unsqueeze(1)
+            x_position = torch.arange(0, width).unsqueeze(0)
+            div_term = torch.exp(
+                torch.arange(0, channels, 4) * -(math.log(10000.0) / channels)
+            )
+            div_term = div_term.view(-1, 1, 1)
+            pe = torch.zeros(channels, height, width)
+            pe[0::4, :, :] = torch.sin(x_position * div_term)
+            pe[1::4, :, :] = torch.cos(x_position * div_term)
+            pe[2::4, :, :] = torch.sin(y_position * div_term)
+            pe[3::4, :, :] = torch.cos(y_position * div_term)
+
+        return pe
+
+    @override
+    def forward(self, x):
+        return x + self._get_encoding(x.size(1), x.size(2), x.size(3), x.device)
 
 
 def _make_grid(

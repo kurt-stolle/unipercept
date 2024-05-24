@@ -1,15 +1,74 @@
 from __future__ import annotations
 
 import typing as T
-
+import functools
 import torch
+from torch import Tensor
 
 __all__ = []
 
 
-def cat_nonempty(
-    tensors: T.Iterable[torch.Tensor | None], dim=0
-) -> T.Optional[torch.Tensor]:
+def bchw_to_blc(x: Tensor) -> T.Tuple[Tensor, torch.Size]:
+    """
+    Convert a tensor from BCHW to BLC format.
+
+    Parameters
+    ----------
+    x : Tensor[B, C, H, W]
+        The input tensor, with dimensions: batch, channels, height, width.
+
+    Returns
+    -------
+    Tensor[B, L, C]
+        The ``reshape``d tensor, with dimensions: batch, length, channels. The length is height * width.
+    torch.Size[H, W]
+        The shape of the spatial dimensions of the input tensor.
+    """
+
+    spatial_shape = x.shape[2:]
+    x = x.permute(0, 2, 3, 1).reshape(x.shape[0], -1, x.shape[1])
+
+    return x.contiguous(), spatial_shape
+
+
+def blc_to_bchw(x: Tensor, spatial_shape: torch.Size) -> Tensor:
+    """
+    Convert a tensor from BLC to BCHW format.
+
+    Parameters
+    ----------
+    x : Tensor[B, L, C]
+        The input tensor, with dimensions: batch, length, channels.
+    spatial_shape : torch.Size[H, W]
+        The shape of the spatial dimensions of the input tensor.
+
+    Returns
+    -------
+    Tensor[B, C, H, W]
+        The ``reshape``d tensor, with dimensions: batch, channels, height, width.
+    """
+
+    h, w = spatial_shape
+    x = x.reshape(x.shape[0], h, w, x.shape[2]).permute(0, 3, 1, 2)
+
+    return x.contiguous()
+
+
+def with_bchw_as_blc(fn: T.Callable[[Tensor], Tensor]) -> T.Callable[[Tensor], Tensor]:
+    """
+    Wraps a function that operats on a BLC tensor to work with BCHW tensors.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(x: Tensor) -> Tensor:
+        x, spatial_shape = bchw_to_blc(x)
+        x = fn(x)
+        return blc_to_bchw(x, spatial_shape)
+
+    return wrapper
+
+
+def cat_nonempty(tensors: T.Iterable[Tensor | None], dim=0) -> T.Optional[Tensor]:
     """
     Concatenate an interable of tensors for each entry that has a length greater
     than zero.
@@ -76,11 +135,11 @@ def topk_score(scores, *, K: int, score_shape: torch.Size):
 
 
 def gather_feature(
-    fmap: torch.Tensor,
-    index: torch.Tensor,
-    mask: T.Optional[torch.Tensor] = None,
+    fmap: Tensor,
+    index: Tensor,
+    mask: T.Optional[Tensor] = None,
     use_transform: bool = False,
-) -> torch.Tensor:
+) -> Tensor:
     """
     Gather features from a mapping.
 
@@ -115,14 +174,10 @@ def gather_feature(
 
 
 def map_values(
-    x: torch.Tensor,
-    translation: (
-        torch.Tensor
-        | T.Tuple[torch.Tensor, torch.Tensor]
-        | T.Dict[int, int | float | bool]
-    ),
+    x: Tensor,
+    translation: Tensor | T.Tuple[Tensor, Tensor] | T.Dict[int, int | float | bool],
     default: int | float | bool | None = None,
-) -> torch.Tensor:
+) -> Tensor:
     """
     Maps the values in a tensor to a new set of values.
 
@@ -135,7 +190,7 @@ def map_values(
 
     Returns
     -------
-    torch.Tensor
+    Tensor
         Tensor with mapped values.
 
 
@@ -153,7 +208,7 @@ def map_values(
         ), "Expected integer keys"
         t_from = torch.tensor(translation.keys(), dtype=torch.int64, device=x.device)
         t_to = torch.tensor(translation.values(), device=x.device)
-    elif isinstance(translation, torch.Tensor):
+    elif isinstance(translation, Tensor):
         assert (
             translation.ndim == 2
         ), f"Expected 2D tensor, got {translation.ndim}D tensor"

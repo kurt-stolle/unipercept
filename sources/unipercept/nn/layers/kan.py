@@ -24,6 +24,8 @@ import torch
 import typing_extensions as TX
 from torch import Tensor, nn
 
+from unipercept.nn.layers.activation import get_activation, ActivationSpec
+
 
 class KANLinear(nn.Module):
     def __init__(
@@ -35,8 +37,8 @@ class KANLinear(nn.Module):
         scale_noise=0.1,
         scale_base=1.0,
         scale_spline=1.0,
-        enable_standalone_scale_spline=True,
-        base_activation=nn.SiLU,
+        standalone_scale_spline=True,
+        base_activation: ActivationSpec = nn.SiLU,
         grid_eps=0.02,
         grid_range=[-1, 1],
     ):
@@ -61,14 +63,14 @@ class KANLinear(nn.Module):
         self.spline_weight = nn.Parameter(
             Tensor(out_features, in_features, grid_size + spline_order)
         )
-        if enable_standalone_scale_spline:
+        if standalone_scale_spline:
             self.spline_scaler = nn.Parameter(Tensor(out_features, in_features))
 
         self.scale_noise = scale_noise
         self.scale_base = scale_base
         self.scale_spline = scale_spline
-        self.enable_standalone_scale_spline = enable_standalone_scale_spline
-        self.base_activation = base_activation()
+        self.standalone_scale_spline = standalone_scale_spline
+        self.activation = get_activation(base_activation)
         self.grid_eps = grid_eps
 
         self.reset_parameters()
@@ -85,27 +87,31 @@ class KANLinear(nn.Module):
                 / self.grid_size
             )
             self.spline_weight.data.copy_(
-                (self.scale_spline if not self.enable_standalone_scale_spline else 1.0)
-                * self.curve2coeff(
+                (self.scale_spline if not self.standalone_scale_spline else 1.0)
+                * self.curve_to_coeff(
                     self.grid.T[self.spline_order : -self.spline_order],
                     noise,
                 )
             )
-            if self.enable_standalone_scale_spline:
+            if self.standalone_scale_spline:
                 # nn.init.constant_(self.spline_scaler, self.scale_spline)
                 nn.init.kaiming_uniform_(
                     self.spline_scaler, a=math.sqrt(5) * self.scale_spline
                 )
 
-    def b_splines(self, x: Tensor):
+    def b_splines(self, x: Tensor) -> Tensor:
         """
         Compute the B-spline bases for the given input tensor.
 
-        Args:
-            x (Tensor): Input tensor of shape (batch_size, in_features).
+        Parameters
+        ----------
+        x : Tnesor[B,F]
+            Input tensor of shape (batch_size, in_features).
 
-        Returns:
-            Tensor: B-spline bases tensor of shape (batch_size, in_features, grid_size + spline_order).
+        Returns
+        -------
+        Tensor[B,F,G*S]
+            B-spline bases tensor of shape (batch_size, in_features, grid_size + spline_order).
         """
         assert x.dim() == 2 and x.size(1) == self.in_features
 
@@ -130,16 +136,21 @@ class KANLinear(nn.Module):
         )
         return bases.contiguous()
 
-    def curve2coeff(self, x: Tensor, y: Tensor):
+    def curve_to_coeff(self, x: Tensor, y: Tensor):
         """
         Compute the coefficients of the curve that interpolates the given points.
 
-        Args:
-            x (Tensor): Input tensor of shape (batch_size, in_features).
-            y (Tensor): Output tensor of shape (batch_size, in_features, out_features).
+        Parameters
+        ----------
+        x : Tensor[B, I]
+            Input tensor of shape (batch_size, in_features).
+        y : Tensor[B, I, O]
+            Output tensor of shape (batch_size, in_features, out_features).
 
-        Returns:
-            Tensor: Coefficients tensor of shape (out_features, in_features, grid_size + spline_order).
+        Returns
+        -------
+        Tensor[O,I,G*S]
+            Coefficients tensor of shape (out_features, in_features, grid_size + spline_order).
         """
         assert x.dim() == 2 and x.size(1) == self.in_features
         assert y.size() == (x.size(0), self.in_features, self.out_features)
@@ -165,16 +176,14 @@ class KANLinear(nn.Module):
     @property
     def scaled_spline_weight(self):
         return self.spline_weight * (
-            self.spline_scaler.unsqueeze(-1)
-            if self.enable_standalone_scale_spline
-            else 1.0
+            self.spline_scaler.unsqueeze(-1) if self.standalone_scale_spline else 1.0
         )
 
     @TX.override
     def forward(self, x: Tensor) -> Tensor:
         assert x.dim() == 2 and x.size(1) == self.in_features
 
-        base_output = nn.functional.linear(self.base_activation(x), self.base_weight)
+        base_output = nn.functional.linear(self.activation(x), self.base_weight)
         spline_output = nn.functional.linear(
             self.b_splines(x).view(x.size(0), -1),
             self.scaled_spline_weight.view(self.out_features, -1),
@@ -228,7 +237,7 @@ class KANLinear(nn.Module):
         )
 
         self.grid.copy_(grid.T)
-        self.spline_weight.data.copy_(self.curve2coeff(x, unreduced_spline_output))
+        self.spline_weight.data.copy_(self.curve_to_coeff(x, unreduced_spline_output))
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         l1_fake = self.spline_weight.abs().mean(-1)
@@ -241,16 +250,19 @@ class KANLinear(nn.Module):
         )
 
 
+    if T.TYPE_CHECKING:
+        __call__ = forward
+
 class KAN(nn.Module):
     def __init__(
         self,
-        layers_hidden,
+        layers,
         grid_size=5,
         spline_order=3,
         scale_noise=0.1,
         scale_base=1.0,
         scale_spline=1.0,
-        base_activation=nn.SiLU,
+        base_activation: ActivationSpec = nn.SiLU,
         grid_eps=0.02,
         grid_range=[-1, 1],
     ):
@@ -258,9 +270,8 @@ class KAN(nn.Module):
         self.grid_size = grid_size
         self.spline_order = spline_order
 
-        self.layers = nn.ModuleList()
-        for in_features, out_features in zip(layers_hidden, layers_hidden[1:]):
-            self.layers.append(
+        self.layers = nn.ModuleList(
+            [
                 KANLinear(
                     in_features,
                     out_features,
@@ -273,7 +284,18 @@ class KAN(nn.Module):
                     grid_eps=grid_eps,
                     grid_range=grid_range,
                 )
-            )
+                for in_features, out_features in zip(layers[:-1], layers[1:])
+            ]
+        )
+
+    @TX.override
+    def forward(self, x: Tensor) -> Tensor:
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+    if T.TYPE_CHECKING:
+        __call__ = forward
 
 
 class _Spline(nn.Linear):
@@ -290,6 +312,9 @@ class _Spline(nn.Linear):
     @TX.override
     def reset_parameters(self) -> None:
         nn.init.trunc_normal_(self.weight, mean=0, std=self.init_scale)
+
+    if T.TYPE_CHECKING:
+        __call__ = nn.Linear.forward
 
 
 class _RBF(nn.Module):
@@ -313,6 +338,9 @@ class _RBF(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         return torch.exp(-(((x[..., None] - self.grid) / self.denominator) ** 2))
 
+    if T.TYPE_CHECKING:
+        __call__ = forward
+
 
 class RadialKANLinear(nn.Module):
     """
@@ -321,36 +349,38 @@ class RadialKANLinear(nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
-        output_dim: int,
+        in_features: int,
+        out_features: int,
         grid_min: float = -2.0,
         grid_max: float = 2.0,
         num_grids: int = 8,
-        use_base_update: bool = True,
-        base_activation=nn.functional.silu,
+        base_update: bool = True,
+        base_activation: ActivationSpec = nn.SiLU,
         spline_weight_init_scale: float = 0.1,
     ) -> None:
         super().__init__()
-        self.layernorm = nn.LayerNorm(input_dim)
+        self.layernorm = nn.LayerNorm(in_features)
         self.rbf = _RBF(grid_min, grid_max, num_grids)
         self.spline_linear = _Spline(
-            input_dim * num_grids, output_dim, spline_weight_init_scale
+            in_features * num_grids, out_features, spline_weight_init_scale
         )
-        self.use_base_update = use_base_update
-        if use_base_update:
-            self.base_activation = base_activation
-            self.base_linear = nn.Linear(input_dim, output_dim)
-
-    def forward(self, x, time_benchmark=False):
-        if not time_benchmark:
-            spline_basis = self.rbf(self.layernorm(x))
+        if base_update:
+            self.base_activation = get_activation(base_activation)
+            self.base_linear = nn.Linear(in_features, out_features)
         else:
-            spline_basis = self.rbf(x)
-        ret = self.spline_linear(spline_basis.view(*spline_basis.shape[:-2], -1))
-        if self.use_base_update:
-            base = self.base_linear(self.base_activation(x))
-            ret = ret + base
-        return ret
+            self.register_module("base_activation", None)
+            self.register_module("base_linear", None)
+
+    @TX.override
+    def forward(self, x: Tensor) -> Tensor:
+        spline_basis = self.rbf(self.layernorm(x))
+        y = self.spline_linear(spline_basis.view(*spline_basis.shape[:-2], -1))
+        if self.base_linear is not None:
+            y = y + self.base_linear(self.base_activation(x))
+        return y
+
+    if T.TYPE_CHECKING:
+        __call__ = forward
 
 
 class RadialKAN(nn.Module):
@@ -360,13 +390,13 @@ class RadialKAN(nn.Module):
 
     def __init__(
         self,
-        layers_hidden: T.Sequence[int],
+        layers: T.Sequence[int],
         grid_min: float = -2.0,
         grid_max: float = 2.0,
         num_grids: int = 8,
-        use_base_update: bool = True,
+        base_update: bool = True,
         base_activation=nn.functional.silu,
-        spline_weight_init_scale: float = 0.1,
+        spline_init_scale: float = 0.1,
     ) -> None:
         super().__init__()
         self.layers = nn.ModuleList(
@@ -377,11 +407,11 @@ class RadialKAN(nn.Module):
                     grid_min=grid_min,
                     grid_max=grid_max,
                     num_grids=num_grids,
-                    use_base_update=use_base_update,
+                    base_update=base_update,
                     base_activation=base_activation,
-                    spline_weight_init_scale=spline_weight_init_scale,
+                    spline_weight_init_scale=spline_init_scale,
                 )
-                for in_dim, out_dim in zip(layers_hidden[:-1], layers_hidden[1:])
+                for in_dim, out_dim in zip(layers[:-1], layers[1:])
             ]
         )
 
@@ -390,3 +420,6 @@ class RadialKAN(nn.Module):
         for layer in self.layers:
             x = layer(x)
         return x
+
+    if T.TYPE_CHECKING:
+        __call__ = forward

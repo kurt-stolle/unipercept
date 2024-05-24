@@ -16,11 +16,12 @@ from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.nn.init import constant_, xavier_uniform_
 
-from unipercept.nn.layers.conv.utils import NormActivationModule
+from unipercept.nn.layers.norm import NormSpec, get_norm
+from unipercept.nn.layers.activation import ActivationSpec, get_activation
 
 from .extension import deform_conv_backward, deform_conv_forward
 
-__all__ = ["DeformConv2d", "DeformConv2dFunction"]
+__all__ = ["DeformConv2d", "DeformConv2dFunction", "DeformConv2dNormActivation"]
 
 # Precomputed mappings (B, H, W, G, C) -> (d_stride, n_thread, n_block)
 _BHWGCTuple: T.TypeAlias = T.Tuple[int, int, int, int, int]
@@ -511,7 +512,7 @@ class CenterScale(nn.Module):
         ).sigmoid()
 
 
-class DeformConv2d(NormActivationModule):
+class DeformConv2d(nn.Module):
     def __init__(
         self,
         dims,
@@ -615,7 +616,27 @@ class DeformConv2d(NormActivationModule):
             if self.proj_output.bias is not None:
                 constant_(self.proj_output.bias.data, 0.0)
 
+    def _forward_deform(self, out: Tensor, offset_mask: Tensor) -> Tensor:
+        return DeformConv2dFunction.apply(
+            out,
+            offset_mask,
+            self.kernel_size,
+            self.kernel_size,
+            self.stride,
+            self.stride,
+            self.padding,
+            self.padding,
+            self.dilation,
+            self.dilation,
+            self.groups,
+            self.group_dims,
+            self.offset_scale,
+            256,
+            self.remove_center,
+        )
+
     @TX.override
+    @torch.compiler.disable()
     def forward(self, input: Tensor, shape: torch.Size | None = None) -> Tensor:
         """
         Parameters
@@ -665,23 +686,7 @@ class DeformConv2d(NormActivationModule):
 
         # Deformable convolution
         out_ante = out
-        out = DeformConv2dFunction.apply(
-            out,
-            offset_mask,
-            self.kernel_size,
-            self.kernel_size,
-            self.stride,
-            self.stride,
-            self.padding,
-            self.padding,
-            self.dilation,
-            self.dilation,
-            self.groups,
-            self.group_dims,
-            self.offset_scale,
-            256,
-            self.remove_center,
-        )
+        out = self._forward_deform(out, offset_mask) 
 
         # Center feature scale
         if self.center_scale is not None:
@@ -703,5 +708,30 @@ class DeformConv2d(NormActivationModule):
 
         return out
 
+    @classmethod
+    def with_norm_activation(cls, *args, **kwargs):
+        return DeformConv2dNormActivation(*args, **kwargs)
+
     if T.TYPE_CHECKING:
         __call__ = forward
+
+
+class DeformConv2dNormActivation(nn.Module):
+    """
+    The usual `with_norm_activation` factory does not work when the inputs are flattened,
+    becuase the signature takes an extra argument `shape`. This wrapper is a workaround
+    for this issue.
+    """
+
+    def __init__(self, *args, norm: NormSpec = None, activation: ActivationSpec = None, **kwargs):
+        super().__init__()
+        self.conv = DeformConv2d(*args, **kwargs)
+        self.norm = get_norm(norm, self.conv.dims)
+        self.activation = get_activation(activation)
+
+    def forward(self, x: Tensor, shape: torch.Size = None) -> Tensor:
+        x = self.conv(x, shape)
+        x = self.norm(x)
+        x = self.activation(x)
+        return x
+

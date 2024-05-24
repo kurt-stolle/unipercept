@@ -26,9 +26,9 @@ class MLP(nn.Sequential):
 
     def __init__(
         self,
-        in_channels: int,
-        out_channels: int,
-        hidden_channels: int | float = 1.0,
+        in_features: int,
+        out_features: int,
+        hidden_features: int | float = 1.0,
         *,
         dropout: float | T.Sequence[float] | T.Tuple[float, float] = 0.0,
         layers: int = 2,
@@ -50,9 +50,9 @@ class MLP(nn.Sequential):
         """
         Parameters
         ----------
-        in_channels
+        in_features
             Number of input channels.
-        out_channels
+        out_features
             Number of output channels.
         hidden_channels
             Number of hidden channels. If a float is provided, it is interpreted as a percentage of the input channels.
@@ -82,12 +82,12 @@ class MLP(nn.Sequential):
         self.init_gain = init_gain
 
         # Handle hidden channels (if float, interpret as percentage of input channels)
-        if isinstance(hidden_channels, float):
-            hidden_channels = int(in_channels * hidden_channels)
-        elif isinstance(hidden_channels, int):
+        if isinstance(hidden_features, float):
+            hidden_features = int(in_features * hidden_features)
+        elif isinstance(hidden_features, int):
             pass
         else:
-            msg = f"Invalid type for `hidden_channels`: {type(hidden_channels)}"
+            msg = f"Invalid type for `hidden_channels`: {type(hidden_features)}"
             raise ValueError(msg)
 
         # Handle variable parameters
@@ -95,7 +95,7 @@ class MLP(nn.Sequential):
             norm, default=None
         )
         if ante_norm is not None:
-            self.add_module("norm_0", get_norm(ante_norm, in_channels))
+            self.add_module("norm_0", get_norm(ante_norm, in_features))
 
         ante_activation, intra_activation, post_activation = _decompose_ante_intra_post(
             activation, default=None
@@ -131,8 +131,8 @@ class MLP(nn.Sequential):
 
             # Fully connected
             fc = nn.Linear(
-                in_channels if n == 0 else hidden_channels,
-                hidden_channels if not is_final else out_channels,
+                in_features if n == 0 else hidden_features,
+                hidden_features if not is_final else out_features,
                 bias=n_bias,
             )
             if is_final and init_gain is not None:
@@ -146,7 +146,7 @@ class MLP(nn.Sequential):
             if n_dropout is not None:
                 self.add_module(f"drop_{n+1}", nn.Dropout(n_dropout, inplace=False))
             if n_norm is not None:
-                self.add_module(f"norm_{n+1}", get_norm(n_norm, hidden_channels))
+                self.add_module(f"norm_{n+1}", get_norm(n_norm, hidden_features))
 
 
 _T = T.TypeVar("_T")

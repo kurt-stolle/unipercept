@@ -13,7 +13,20 @@ from torch import Tensor
 from torch.nn.functional import interpolate
 from typing_extensions import override
 
-__all__ = ["CoordCat2d", "CoordEmbed2d", "CoordSinusoid2d"]
+__all__ = ["CoordModuleProtocol", "CoordCat2d", "CoordEmbed2d", "CoordSinusoid2d"]
+
+
+class CoordModuleProtocol(T.Protocol):
+    """
+    Protocol for a module that adds positional encoding to an input tensor.
+    """
+
+    cat_channels: T.Final[int]
+
+    def forward(self, t: Tensor) -> Tensor: ...
+
+    if T.TYPE_CHECKING:
+        __call__ = forward
 
 
 class CoordCat2d(nn.Module):
@@ -41,6 +54,9 @@ class CoordCat2d(nn.Module):
 
         # Concatenate the groups back together
         return _make_grid(t_split, self.gamma, t.shape, t.device)
+
+    if T.TYPE_CHECKING:
+        __call__ = forward
 
 
 class CoordEmbed2d(nn.Module):
@@ -77,42 +93,39 @@ class CoordEmbed2d(nn.Module):
 
         return t + e
 
+    if T.TYPE_CHECKING:
+        __call__ = forward
+
 
 class CoordSinusoid2d(nn.Module):
     cat_channels: T.Final[int]
+    cache: T.Dict[T.Tuple[int, int, int, torch.device], Tensor]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         self.cat_channels = 0
+        self.cache = {}
 
-    @staticmethod
-    @lru_cache(maxsize=None)
-    def _get_encoding(
-        channels: int, height: int, width: int, device: torch.device
+    def _cached_sinusoidal_encoding(
+        self, c: int, h: int, w: int, d: torch.device
     ) -> Tensor:
-        assert (
-            channels % 4 == 0
-        ), "Channels must be divisible by 4 for sinusoidal encoding"
-
-        with device, torch.no_grad():
-            y_position = torch.arange(0, height).unsqueeze(1)
-            x_position = torch.arange(0, width).unsqueeze(0)
-            div_term = torch.exp(
-                torch.arange(0, channels, 4) * -(math.log(10000.0) / channels)
-            )
-            div_term = div_term.view(-1, 1, 1)
-            pe = torch.zeros(channels, height, width)
-            pe[0::4, :, :] = torch.sin(x_position * div_term)
-            pe[1::4, :, :] = torch.cos(x_position * div_term)
-            pe[2::4, :, :] = torch.sin(y_position * div_term)
-            pe[3::4, :, :] = torch.cos(y_position * div_term)
-
-        return pe
+        key = (c, h, w, d)
+        if key not in self.cache:
+            self.cache[key] = _make_sinusoidal_encoding(c, h, w, d)
+        return self.cache[key]
 
     @override
-    def forward(self, x):
-        return x + self._get_encoding(x.size(1), x.size(2), x.size(3), x.device)
+    def forward(self, x: Tensor) -> Tensor:
+        # if torch.compiler.is_dynamo_compiling():
+        #    enc_fn = _make_sinusoidal_encoding
+        # else:
+        #    enc_fn = self._cached_sinusoidal_encoding
+        enc_fn = self._cached_sinusoidal_encoding
+        return x + enc_fn(x.size(1), x.size(2), x.size(3), x.device)
+
+    if T.TYPE_CHECKING:
+        __call__ = forward
 
 
 def _make_grid(
@@ -127,6 +140,27 @@ def _make_grid(
         grid_y = grid_y.unsqueeze(0).unsqueeze(0).expand(shape[0], -1, -1, -1)
     t_list = [torch.cat([t_n, grid_x, grid_y], dim=1) for t_n in t_split]
     return torch.cat(t_list, dim=1)
+
+
+def _make_sinusoidal_encoding(
+    channels: int, height: int, width: int, device: torch.device
+) -> Tensor:
+    assert channels % 4 == 0, "Channels must be divisible by 4 for sinusoidal encoding"
+
+    with device, torch.no_grad():
+        y_position = torch.arange(0, height).unsqueeze(1)
+        x_position = torch.arange(0, width).unsqueeze(0)
+        div_term = torch.exp(
+            torch.arange(0, channels, 4) * -(math.log(10000.0) / channels)
+        )
+        div_term = div_term.view(-1, 1, 1)
+        pe = torch.zeros(channels, height, width)
+        pe[0::4, :, :] = torch.sin(x_position * div_term)
+        pe[1::4, :, :] = torch.cos(x_position * div_term)
+        pe[2::4, :, :] = torch.sin(y_position * div_term)
+        pe[3::4, :, :] = torch.cos(y_position * div_term)
+
+    return pe
 
 
 def _get_split_size(t: Tensor, groups: int) -> int:

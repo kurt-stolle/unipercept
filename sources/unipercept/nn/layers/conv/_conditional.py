@@ -44,12 +44,7 @@ def get_condconv_initializer(initializer, num_experts, expert_shape):
 
 class CondConv2d(NormActivationMixin, nn.Module):
     r"""
-    Based on the implementation in `timm.layers`, where their docs state:
-    >   Conditionally Parameterized Convolution
-    >   Inspired by: https://github.com/tensorflow/tpu/blob/master/models/official/efficientnet/condconv/condconv_layers.py
-    >
-    >   Grouped convolution hackery for parallel execution of the per-sample kernel filters inspired by this discussion
-    >    https://github.com/pytorch/pytorch/issues/17983
+    Conditional convolution layer.
     """
 
     __constants__ = ["in_channels", "out_channels", "dynamic_padding"]

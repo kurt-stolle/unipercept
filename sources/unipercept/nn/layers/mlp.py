@@ -75,9 +75,6 @@ class MLP(nn.Sequential):
         """
         super().__init__()
 
-        if layers == 1:
-            msg = "At least two layers are required."
-            raise ValueError(msg)
         self.layers = layers
         self.init_gain = init_gain
 

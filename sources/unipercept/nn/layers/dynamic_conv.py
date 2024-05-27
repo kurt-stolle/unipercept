@@ -32,7 +32,8 @@ class DynamicConv2d(nn.Module):
         feature_dim: int,
         kernel_dim: int,
         conv_dim: int,
-        **kwargs,
+        layers: int | T.Tuple[int,int] | T.Sequence[int] = (2,1),
+        activation: ActivationSpec = InplaceReLU,
     ):
         r"""
         Parameters
@@ -43,8 +44,8 @@ class DynamicConv2d(nn.Module):
             The number of dimensions in the feature tensor.
         conv_dim : int
             The number of dimensions in the output tensor.
-        **kwargs
-            Keyword arguments for the projection layers.
+        activation: ActivationSpec
+            The activation function to apply to the output tensor.
         """
 
         super().__init__()
@@ -53,8 +54,23 @@ class DynamicConv2d(nn.Module):
         self.feature_dim = feature_dim
         self.conv_dim = conv_dim
 
-        self.proj_kernel = MLP(kernel_dim, conv_dim, **kwargs)
-        self.proj_feature = MLP(feature_dim, conv_dim, **kwargs)
+        layers_kernel, layers_feature = to_2tuple(layers)
+
+        self.proj_kernel = MLP(
+            kernel_dim,
+            conv_dim,
+            bias=None,
+            layers=layers_kernel,
+            activation=activation,
+            init_gain=0.01,
+        )
+        self.proj_feature = MLP(
+            kernel_dim,
+            conv_dim,
+            bias=None,
+            layers=layers_feature,
+            activation=activation,
+        )
 
     @TX.override
     def forward(self, feature: Tensor, kernel: Tensor) -> Tensor:

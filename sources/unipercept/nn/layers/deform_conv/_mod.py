@@ -523,7 +523,6 @@ class DeformConv2d(nn.Module):
         dilation: int = 1,
         groups: int = 4,
         offset_scale: float = 1.0,
-        dw_kernel_size: int | None = None,
         center_feature_scale: bool = False,
         remove_center: bool = False,
         bias: bool = True,
@@ -547,8 +546,6 @@ class DeformConv2d(nn.Module):
             Number of blocked connections from input dims to output dims
         offset_scale : float
             Scale of the offset
-        dw_kernel_size : int
-            Size of the depthwise kernel
         center_feature_scale : bool
             Whether to use center feature scale
         remove_center : bool
@@ -575,20 +572,18 @@ class DeformConv2d(nn.Module):
         self.groups = groups
         self.group_dims = dims // groups
         self.offset_scale = offset_scale
-        self.dw_kernel_size = dw_kernel_size
         self.center_feature_scale = center_feature_scale
         self.remove_center = int(remove_center)
 
         self.K = groups * (kernel_size * kernel_size - self.remove_center)
-        if dw_kernel_size is not None:
-            self.offset_mask_dw = nn.Conv2d(
-                dims,
-                dims,
-                dw_kernel_size,
-                stride=1,
-                padding=(dw_kernel_size - 1) // 2,
-                groups=dims,
-            )
+        self.offset_mask_dw = nn.Conv2d(
+            dims,
+            dims,
+            self.kernel_size,
+            stride=1,
+            padding=(self.kernel_size - 1) // 2,
+            groups=dims,
+        )
         self.offset_mask = nn.Linear(dims, int(math.ceil((self.K * 3) / 8) * 8))
 
         if proj is not None:
@@ -675,13 +670,10 @@ class DeformConv2d(nn.Module):
 
         # Offset mask
         out = out.reshape(N, H, W, -1)
-        if self.dw_kernel_size is not None:
-            offset_mask_input = self.offset_mask_dw(
-                input.view(N, H, W, C).permute(0, 3, 1, 2)
-            )
-            offset_mask_input = offset_mask_input.permute(0, 2, 3, 1).view(N, L, C)
-        else:
-            offset_mask_input = input
+        offset_mask_input = self.offset_mask_dw(
+            input.view(N, H, W, C).permute(0, 3, 1, 2)
+        )
+        offset_mask_input = offset_mask_input.permute(0, 2, 3, 1).view(N, L, C)
         offset_mask = self.offset_mask(offset_mask_input).reshape(N, H, W, -1)
 
         # Deformable convolution

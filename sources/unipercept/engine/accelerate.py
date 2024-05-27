@@ -118,7 +118,6 @@ class Accelerator(accelerate.Accelerator):
             compile_kwargs = kwargs.get(
                 "compile_kwargs",
                 {"backend": "inductor"},
-                # {"mode": "reduce-overhead"},  # "max-autotune",
             )
             _logger.debug("Compiling model with: " + str(compile_kwargs))
             prepared_model.compile(**compile_kwargs)

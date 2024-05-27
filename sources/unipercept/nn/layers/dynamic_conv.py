@@ -74,10 +74,10 @@ class DynamicConv2d(nn.Module):
             The convolved tensor.
         """
 
-        k = self.proj_kernel(kernel)
         f = rearrange(feature, "... c h w -> ... (h w) c")
         f = self.proj_feature(f)
-        o = einsum(k, f, "... n c, ... (h w) c -> ... n (h w)")
+        k = self.proj_kernel(kernel)
+        o = einsum(k, f, "... n c, ... hw c -> ... n hw")
         o = rearrange(o, "... n (h w) -> ... n h w", w=feature.shape[-1])
 
         return o

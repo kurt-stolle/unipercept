@@ -171,11 +171,11 @@ class Metadata:
     depth_max: float
 
     # Sem. ID -> Sem. Class
-    semantic_classes: frozendict[int, SClass]
+    semantic_classes: T.Mapping[int, SClass]
 
     # Sem. ID --> Embedded ID
-    thing_offsets: frozendict[int, int]
-    stuff_offsets: frozendict[int, int]
+    thing_offsets: T.Mapping[int, int]
+    stuff_offsets: T.Mapping[int, int]
     stuff_mode: StuffMode
 
     # Dataset ID -> Sem. ID
@@ -185,35 +185,35 @@ class Metadata:
     translations_semantic: frozendict[int, int]
 
     @property
-    def thing_o2e(self) -> T.Dict[int, int]:
+    def thing_o2e(self) -> T.Mapping[int, int]:
         """
         Returns a mapping of dataset IDs to embedded IDs for object classes.
         """
         return self.thing_offsets
 
     @property
-    def stuff_o2e(self) -> T.Dict[int, int]:
+    def stuff_o2e(self) -> T.Mapping[int, int]:
         """
         Returns a mapping of dataset IDs to embedded IDs for semantic classes.
         """
         return self.stuff_offsets
 
     @functools.cached_property
-    def thing_e2o(self) -> T.Dict[int, int]:
+    def thing_e2o(self) -> T.Mapping[int, int]:
         """
         Returns a mapping of embedded IDs to dataset IDs for object classes.
         """
         return {v: k for k, v in self.thing_offsets.items()}
 
     @functools.cached_property
-    def stuff_e2o(self) -> dict[int, int]:
+    def stuff_e2o(self) -> T.Mapping[int, int]:
         """
         Returns a mapping of embedded IDs to dataset IDs for semantic classes.
         """
         return {v: k for k, v in self.stuff_offsets.items()}
 
     @property
-    def depth_fixed(self) -> T.Dict[int, float]:
+    def depth_fixed(self) -> T.Mapping[int, float]:
         """
         Returns a mapping of semantic IDs to fixed depths.
         """

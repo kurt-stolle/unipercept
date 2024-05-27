@@ -22,7 +22,8 @@ __all__ = ["PanopticMap", "LabelsFormat"]
 if T.TYPE_CHECKING:
     from ..sets import Metadata
 
-BYTE_OFFSET: T.Final[T.Literal[256]] = 256
+_L = T.TypeVar("_L", int, Tensor)
+_BYTE_OFFSET: T.Final[T.Literal[256]] = 256
 
 
 class LabelsFormat(StrEnum):
@@ -84,8 +85,8 @@ class PanopticMap(_Mask):
 
                 map_ = (
                     img[:, :, 0]
-                    + BYTE_OFFSET * img[:, :, 1]
-                    + BYTE_OFFSET * BYTE_OFFSET * img[:, :, 2]
+                    + _BYTE_OFFSET * img[:, :, 1]
+                    + _BYTE_OFFSET * _BYTE_OFFSET * img[:, :, 2]
                 )
                 map_ = torch.where(map_ > 0, map_, ignore_label)
                 map_ = torch.where(map_ < divisor, map_ * divisor, map_ + 1)
@@ -117,7 +118,7 @@ class PanopticMap(_Mask):
                 img = read_pixels(path, color=True)
                 sem = img[:, :, 0]  # R-channel
                 ids = torch.add(
-                    img[:, :, 1] * BYTE_OFFSET,  # G channel
+                    img[:, :, 1] * _BYTE_OFFSET,  # G channel
                     img[:, :, 2],  # B channel
                 )
 
@@ -152,8 +153,8 @@ class PanopticMap(_Mask):
 
                 img = read_pixels(path, color=True)
                 img = (
-                    img[:, :, 0].to(torch.long) * BYTE_OFFSET * BYTE_OFFSET
-                    + img[:, :, 1].to(torch.long) * BYTE_OFFSET
+                    img[:, :, 0].to(torch.long) * _BYTE_OFFSET * _BYTE_OFFSET
+                    + img[:, :, 1].to(torch.long) * _BYTE_OFFSET
                     + img[:, :, 2].to(torch.long)
                 )
                 sem = torch.full_like(img, ignore_label, dtype=torch.long)
@@ -170,7 +171,8 @@ class PanopticMap(_Mask):
                     translation=translations,
                 )
             case _:
-                raise NotImplementedError(f"{panoptic_format=}")
+                msg = f"Could not read labels from {path!r} ({panoptic_format=})"
+                raise NotImplementedError(msg)
 
         assert labels.ndim == 2, f"Expected 2D tensor, got {labels.ndim}D tensor"
 
@@ -214,9 +216,9 @@ class PanopticMap(_Mask):
                 divisor = 1000
                 ignore_label = 255
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
-                img[:, :, 0] = self % BYTE_OFFSET
-                img[:, :, 1] = self // BYTE_OFFSET
-                img[:, :, 2] = self // BYTE_OFFSET // BYTE_OFFSET
+                img[:, :, 0] = self % _BYTE_OFFSET
+                img[:, :, 1] = self // _BYTE_OFFSET
+                img[:, :, 2] = self // _BYTE_OFFSET // _BYTE_OFFSET
                 img = torch.where(self == ignore_label * divisor, 0, img)
                 img = torch.where(self < divisor, img * divisor, img - 1)
 
@@ -243,30 +245,32 @@ class PanopticMap(_Mask):
 
                 sem, ids = self.to_parts(as_tuple=True)
                 img[:, :, 0] = sem
-                img[:, :, 1] = ids // BYTE_OFFSET
-                img[:, :, 2] = ids % BYTE_OFFSET
+                img[:, :, 1] = ids // _BYTE_OFFSET
+                img[:, :, 2] = ids % _BYTE_OFFSET
 
                 write_png_rgb(path, img)
             case LabelsFormat.VISTAS:
                 divisor = PanopticMap.DIVISOR
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
-                img[:, :, 0] = self % BYTE_OFFSET
-                img[:, :, 1] = self // BYTE_OFFSET
-                img[:, :, 2] = self // BYTE_OFFSET // BYTE_OFFSET
+                img[:, :, 0] = self % _BYTE_OFFSET
+                img[:, :, 1] = self // _BYTE_OFFSET
+                img[:, :, 2] = self // _BYTE_OFFSET // _BYTE_OFFSET
 
                 write_png_rgb(path, img)
             case LabelsFormat.WILD_DASH:
                 divisor = PanopticMap.DIVISOR
                 ignore_label = PanopticMap.IGNORE
                 img = torch.empty((*self.shape, 3), dtype=torch.uint8)
-                img[:, :, 0] = self // (BYTE_OFFSET * BYTE_OFFSET)
-                img[:, :, 1] = (self // BYTE_OFFSET) % BYTE_OFFSET
-                img[:, :, 2] = self % BYTE_OFFSET
+                img[:, :, 0] = self // (_BYTE_OFFSET * _BYTE_OFFSET)
+                img[:, :, 1] = (self // _BYTE_OFFSET) % _BYTE_OFFSET
+                img[:, :, 2] = self % _BYTE_OFFSET
                 img = torch.where(self == ignore_label * divisor, 0, img)
 
                 write_png_rgb(path, img)
             case _:
-                raise NotImplementedError(f"{format=}")
+                pass
+        msg = f"Could not save labels to {path!r} ({format=})"
+        raise NotImplementedError(msg)
 
     @classmethod
     def default(cls, shape: torch.Size, device: torch.device | str = "cpu") -> T.Self:
@@ -293,17 +297,12 @@ class PanopticMap(_Mask):
         return tensor.to(dtype=torch.long, non_blocking=True).as_subclass(cls)
 
     @classmethod
-    def from_parts(
-        cls, semantic: Tensor | T.Any, instance: Tensor | T.Any
-    ) -> PanopticMap:
+    def from_parts(cls, semantic: Tensor, instance: Tensor) -> "PanopticMap":
         """
         Create an instance from a semantic segmentation and instance segmentation map by combining them
         using the global ``LABEL_DIVISOR``.
         """
         if not torch.compiler.is_compiling():
-            semantic = torch.as_tensor(semantic)
-            instance = torch.as_tensor(instance)
-
             if semantic.shape != instance.shape:
                 msg = f"Expected tensors of the same shape, got {semantic.shape} and {instance.shape}"
                 raise ValueError(msg)
@@ -320,7 +319,7 @@ class PanopticMap(_Mask):
         return panoptic.as_subclass(PanopticMap)
 
     @classmethod
-    def from_combined(cls, encoded_map: Tensor | T.Any, divisor: int) -> T.Self:
+    def from_combined(cls, encoded_map: Tensor | T.Any, divisor: int) -> "PanopticMap":
         """
         Decompose an encoded map into a semantic segmentation and instance segmentation map, then combine
         again using the global ``LABEL_DIVISOR``.
@@ -328,7 +327,11 @@ class PanopticMap(_Mask):
         encoded_map = torch.as_tensor(encoded_map)
         assert encoded_map.dtype in (torch.int32, torch.int64), encoded_map.dtype
 
-        return cls.from_parts(encoded_map // divisor, encoded_map % divisor)
+        sem_id = torch.floor_divide(encoded_map, divisor)
+        ins_id = torch.remainder(encoded_map, divisor)
+        ins_id = torch.where(encoded_map >= 0, ins_id, 0)
+
+        return PanopticMap.from_parts(sem_id, ins_id)
 
     @T.overload
     def to_parts(self: Tensor) -> Tensor: ...
@@ -351,6 +354,36 @@ class PanopticMap(_Mask):
         if as_tuple:
             return sem.as_subclass(_Mask), ins.as_subclass(_Mask)
         return torch.stack((sem, ins), dim=-1).as_subclass(_Mask)
+
+    @classmethod
+    def parse_label(cls, label: _L) -> T.Tuple[_L, _L]:
+        """
+        Parse a label into a semantic and instance ID.
+        """
+        sem_id: _L
+        ins_id: _L
+
+        if isinstance(label, int):
+            sem_id = label // cls.DIVISOR
+            ins_id = label % cls.DIVISOR if label >= 0 else 0
+        else:
+            sem_id = torch.floor_divide(label, cls.DIVISOR)
+            ins_id = torch.remainder(label, cls.DIVISOR)
+            ins_id = torch.where(label >= 0, ins_id, 0)
+
+        return sem_id, ins_id
+
+    @classmethod
+    @T.overload
+    def is_void(cls, label: int) -> bool: ...
+
+    @classmethod
+    @T.overload
+    def is_void(cls, label: Tensor) -> Tensor: ...
+
+    @classmethod
+    def is_void(cls, label: Tensor | int) -> Tensor | bool:
+        return label < 0
 
     def get_semantic_map(self: Tensor) -> _Mask:
         return torch.floor_divide(self, PanopticMap.DIVISOR).as_subclass(_Mask)
@@ -391,38 +424,27 @@ class PanopticMap(_Mask):
         """Return a mask for the specified instance."""
         return (PanopticMap.get_instance_map(self) == instance_id).as_subclass(_Mask)
 
-    @T.overload
-    def get_masks(
-        self: Tensor,
-        with_void: bool,
-    ) -> T.List[T.Tuple[int, int, _Mask]]: ...
-
-    @T.overload
-    def get_masks(
-        self: Tensor, with_void: bool, return_label: bool = True
-    ) -> T.List[T.Tuple[int, _Mask]]: ...
-
-    def get_masks(
-        self: Tensor, with_void: bool = False, return_label: bool = False
-    ) -> T.List[T.Tuple[int, int, _Mask]] | T.List[T.Tuple[int, _Mask]]:
-        """Return a mask for each semantic class and instance (if any)."""
-        result = []
+    def get_masks_by_label(
+            self: Tensor, *, with_void: bool = False, as_tensor: bool = False
+    ) -> T.Iterator[T.Tuple[Tensor, _Mask]]:
+        """
+        Iterate pairs of labels and masks, where each masks corresponds to a unique
+        label.
+        """
         for pan_id in self.unique():
-            if pan_id == PanopticMap.IGNORE:
-                if not with_void:
-                    continue
-                sem_id = PanopticMap.IGNORE
-                ins_id = 0
-            else:
-                sem_id = pan_id // PanopticMap.DIVISOR
-                ins_id = torch.remainder(pan_id, PanopticMap.DIVISOR)
+            if not as_tensor:
+                pan_id = pan_id.detach().item()
+            if PanopticMap.is_void(pan_id) and not with_void:
+                continue
+            yield pan_id, (self == pan_id).as_subclass(_Mask)
 
-            mask = (self == pan_id).as_subclass(_Mask)
-            if not return_label:
-                result.append((int(sem_id), int(ins_id), mask))
-            else:
-                result.append((int(pan_id), mask))
-        return result
+    def get_masks(
+        self: Tensor, **kwargs
+    ) -> T.Iterator[T.Tuple[Tensor, Tensor, _Mask]]:
+        """Return a mask for each semantic class and instance (if any)."""
+        for pan_id, mask in PanopticMap.get_masks_by_label(self, **kwargs):
+            sem_id, ins_id = PanopticMap.parse_label(pan_id)
+            yield sem_id, ins_id, mask
 
     def unique_instances(self: Tensor) -> Tensor:
         """Count the number of unique instances for each semantic class."""

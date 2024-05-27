@@ -241,7 +241,11 @@ class ConfigDebugMode(
         from unipercept.engine.debug import DebugMode
 
         os.environ["WANDB_OFFLINE"] = "true"
+        os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+        os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
         torch.autograd.set_detect_anomaly(True)
+
         cfg.ENGINE.params.full_determinism = True
         cfg.ENGINE.params.debug = DebugMode.UNDERFLOW_OVERFLOW
 

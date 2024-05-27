@@ -131,7 +131,7 @@ class WandBCallback(CallbackDispatcher):
         )
     )
     watch_steps: int | None = D.field(
-        default_factory=lambda: get_env(int, "UNIPERCEPT_WANDB_WATCH_INTERVAL"),
+        default_factory=lambda: get_env(int, "UP_WANDB_WATCH_INTERVAL"),
         metadata={
             "help": (
                 "Interval passed to W&B model watcher. "

@@ -18,8 +18,6 @@ import typing as T
 from datetime import datetime
 
 import torch
-import torch._dynamo
-import torch._dynamo.config
 import torch.optim
 import torch.types
 import torch.utils.data
@@ -54,8 +52,6 @@ from unipercept.utils.tensorclass import Tensorclass
 from unipercept.utils.time import ProfileAccumulator, profile
 from unipercept.utils.typings import Pathable
 from unipercept.utils.ulid import ULID
-
-torch._dynamo.config.suppress_errors = True
 
 if T.TYPE_CHECKING:
     from accelerate.optimizer import AcceleratedOptimizer

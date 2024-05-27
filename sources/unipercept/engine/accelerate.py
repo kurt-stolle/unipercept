@@ -12,6 +12,8 @@ import torch
 import torch.nn
 import torch.types
 import torch.utils.data
+import torch._dynamo
+import torch._dynamo.config
 import typing_extensions as TX
 
 from unipercept import file_io
@@ -23,6 +25,10 @@ if T.TYPE_CHECKING:
 __all__ = ["Accelerator", "find_executable_batch_size", "StatefulObject"]
 
 _logger = get_logger(__name__)
+
+
+torch._dynamo.config.suppress_errors = True
+torch._dynamo.config.optimize_ddp = False
 
 
 class StatefulObject(T.Protocol):

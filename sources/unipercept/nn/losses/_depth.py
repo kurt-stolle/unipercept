@@ -60,9 +60,9 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     def __init__(
         self,
         *,
-        weight_sile=5.0,
-        weight_are=None,
-        weight_sre=None,
+        weight_sile=2.0,
+        weight_are=1.0,
+        weight_sre=1.0,
         **kwargs,
     ):
         if weight_are is None:

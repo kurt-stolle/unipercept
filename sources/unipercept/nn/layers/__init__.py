@@ -20,6 +20,7 @@ from . import (
     squeeze_excite,
     utils,
     weight,
+    dynamic_conv,
 )
 from ._coord import *
 from ._interpolate import *
@@ -41,6 +42,5 @@ def __getattr__(name: str):
         warnings.warn(msg, stacklevel=1)
 
         return mlp.MLP
-
     msg = f"Module {__name__} has no attribute {name}"
     raise AttributeError(msg)

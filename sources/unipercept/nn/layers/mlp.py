@@ -143,7 +143,10 @@ class MLP(nn.Sequential):
             if n_dropout is not None:
                 self.add_module(f"drop_{n+1}", nn.Dropout(n_dropout, inplace=False))
             if n_norm is not None:
-                self.add_module(f"norm_{n+1}", get_norm(n_norm, hidden_features))
+                self.add_module(
+                    f"norm_{n+1}",
+                    get_norm(n_norm, out_features if is_final else hidden_features),
+                )
 
 
 _T = T.TypeVar("_T")

@@ -117,7 +117,7 @@ class Accelerator(accelerate.Accelerator):
         if not get_env(bool, "UP_ENGINE_DISABLE_COMPILE", default=False):
             compile_kwargs = kwargs.get(
                 "compile_kwargs",
-                {"backend": "inductor"},
+                {"mode": "reduce-overhead"},
             )
             _logger.debug("Compiling model with: " + str(compile_kwargs))
             prepared_model.compile(**compile_kwargs)

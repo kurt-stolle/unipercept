@@ -34,6 +34,8 @@ class DynamicConv2d(nn.Module):
         conv_dim: int,
         layers: int | T.Tuple[int,int] | T.Sequence[int] = (2,1),
         activation: ActivationSpec = InplaceReLU,
+        dropout: float = 0.0,
+        init_gain: float | T.Tuple[float,float] | T.Sequence[float] = (0.01,1.0)
     ):
         r"""
         Parameters
@@ -46,6 +48,10 @@ class DynamicConv2d(nn.Module):
             The number of dimensions in the output tensor.
         activation: ActivationSpec
             The activation function to apply to the output tensor.
+        dropout : float
+            The dropout rate to apply to the output tensor.
+        init_gain : float | Tuple[float,float] | Sequence[float]
+            The gain to apply to the output tensor initialization.
         """
 
         super().__init__()
@@ -55,6 +61,7 @@ class DynamicConv2d(nn.Module):
         self.conv_dim = conv_dim
 
         layers_kernel, layers_feature = to_2tuple(layers)
+        gain_kernel, gain_feature = to_2tuple(init_gain)
 
         self.proj_kernel = MLP(
             kernel_dim,
@@ -62,14 +69,17 @@ class DynamicConv2d(nn.Module):
             bias=None,
             layers=layers_kernel,
             activation=activation,
-            init_gain=0.01,
+            dropout=dropout,
+            init_gain=gain_kernel,
         )
         self.proj_feature = MLP(
-            kernel_dim,
+            feature_dim,
             conv_dim,
             bias=None,
             layers=layers_feature,
             activation=activation,
+            dropout=dropout,
+            init_gain=gain_feature,
         )
 
     @TX.override

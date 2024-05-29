@@ -32,12 +32,23 @@ _DEFAULT_EXPERIMENT_TRACKERS: set[str] = {"tensorboard"}
 
 class InferencePrecision(E.StrEnum):
     """
-    Defines the different modes of FP16 inference.
+    Defines the different modes of inference precision.
     """
 
     DEFAULT = E.auto()
-    FULL_FP16 = E.auto()
-    FULL_BF16 = E.auto()
+    FULL_FP16 = "fp16"
+    FULL_BF16 = "bf16"
+
+
+class TrainingPrecision(E.StrEnum):
+    """
+    Defines the different modes of training (AMP) precision
+    """
+
+    DEFAULT = E.auto()
+    AMP_FP16 = "fp16"
+    AMP_BF16 = "bf16"
+    AMP_INT8 = "int8"
 
 
 @D.dataclass(kw_only=True)
@@ -120,25 +131,17 @@ class EngineParams:
             "help": "Whether the training graph is static. Relevant when using DDP for training. See: https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html"
         },
     )
-
     full_determinism: bool = False
     seed: int = 42
-
-    # Memory tracker
     memory_tracker: bool = D.field(
         default=False, metadata={"help": "Whether to track memory usage."}
     )
-
-    # Experiment trackers
     trackers: set[str] = D.field(
         default_factory=lambda: _DEFAULT_EXPERIMENT_TRACKERS,
         metadata={"help": "Experiment trackers to use."},
     )
-
-    # FP16 modes during inference
     inference_precision: InferencePrecision = InferencePrecision.DEFAULT
-
-    # Convert BatchNorm to SyncBatchNorm?
+    training_precision: TrainingPrecision = TrainingPrecision.DEFAULT
     convert_sync_batchnorm: bool = D.field(
         default=True,
         metadata={"help": "Whether to convert BatchNorm to SyncBatchNorm."},

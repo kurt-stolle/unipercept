@@ -8,6 +8,7 @@ import math
 import typing as T
 
 import torch
+import torch.fx
 import typing_extensions as TX
 from torch import Tensor, nn
 from torch.autograd import Function
@@ -15,10 +16,28 @@ from torch.autograd.function import once_differentiable
 from torch.nn.functional import softmax
 from torch.nn.init import constant_, xavier_uniform_
 
-from .extension import deform_attn_backward, deform_attn_forward
+from .extension import (
+    deform_attn_backward,
+    deform_attn_forward,
+    flash_attn_backward,
+    flash_attn_forward,
+)
 from .reference import deform_attn as deform_attn_fallback
 
-__all__ = ["MultiScaleDeformAttn", "MultiScaleDeformAttnFunction"]
+__all__ = [
+    "MultiScaleDeformAttn",
+    "MultiScaleDeformAttnFunction",
+    "MultiScaleFlashAttn",
+    "MultiScaleFlashAttnFunction",
+]
+
+
+def _get_factors(N):
+    res = []
+    for i in range(1, N + 1):
+        if N % i == 0:
+            res.append(i)
+    return res
 
 
 def _is_power_of_2(n):
@@ -26,6 +45,111 @@ def _is_power_of_2(n):
         msg = f"Expected a positive integer. Got: {n} ({type(n)})!"
         raise ValueError(msg)
     return (n & (n - 1) == 0) and n != 0
+
+
+def _is_divisible(a, b):
+    return a % b == 0
+
+
+def _lookup_forward_stride_thread(B, Q, G, C):
+    d_stride = 8
+    ms = _get_factors(B * Q)
+    multiplier = 1
+    for m in ms:
+        if m <= 64 and (m * G * C // d_stride) <= 512:
+            multiplier = m
+    n_thread = multiplier * G * C // d_stride
+    return d_stride, n_thread
+
+
+def _lookup_backward_stride_thread(B, Q, G, C):
+    if C >= 64:
+        d_stride = 2
+    else:
+        d_stride = 1
+
+    ms = _get_factors(B * Q)
+    multiplier = 1
+    for m in ms:
+        if m <= 64 and (m * G * C // d_stride) <= 256:
+            multiplier = m
+    n_thread = multiplier * G * C // d_stride
+    return d_stride, n_thread
+
+
+class MultiScaleFlashAttnFunction(Function):
+    @staticmethod
+    @TX.override
+    def forward(
+        ctx,
+        value,
+        spatial_shapes,
+        start_index,
+        loc_attn,
+        im2col_step,
+        points=8,
+    ):
+        ctx.im2col_step = im2col_step
+        ctx.points = points
+        stride_fwd, blkthd_fwd = _lookup_forward_stride_thread(
+            value.shape[0], loc_attn.shape[1], value.shape[2], value.shape[3]
+        )
+        stride_bwd, blkthd_bwd = _lookup_backward_stride_thread(
+            value.shape[0], loc_attn.shape[1], value.shape[2], value.shape[3]
+        )
+        ctx.stride_bwd = stride_bwd
+        ctx.blkthd_bwd = blkthd_bwd
+
+        output = flash_attn_forward(
+            value,
+            spatial_shapes,
+            start_index,
+            loc_attn,
+            ctx.im2col_step,
+            points,
+            stride_fwd,
+            blkthd_fwd,
+        )
+        ctx.save_for_backward(value, spatial_shapes, start_index, loc_attn)
+        return output
+
+    @staticmethod
+    @TX.override
+    @once_differentiable
+    def backward(ctx, grad_output):
+        (
+            value,
+            spatial_shapes,
+            level_index,
+            loc_attn,
+        ) = ctx.saved_tensors
+        grad_value, grad_sampling_loc_attn = flash_attn_backward(
+            value,
+            spatial_shapes,
+            level_index,
+            loc_attn,
+            grad_output.contiguous(),
+            ctx.im2col_step,
+            ctx.points,
+            ctx.stride_bwd,
+            ctx.blkthd_bwd,
+        )
+
+        return grad_value, None, None, grad_sampling_loc_attn, None, None
+
+    if T.TYPE_CHECKING:
+
+        @classmethod
+        @TX.override
+        def apply(
+            cls,
+            value: Tensor,
+            shapes: Tensor,
+            level_index: Tensor,
+            loc_attn: Tensor,
+            im2col_step: int,
+            points: int,
+        ) -> Tensor: ...
 
 
 class MultiScaleDeformAttnFunction(Function):
@@ -37,28 +161,28 @@ class MultiScaleDeformAttnFunction(Function):
     @TX.override
     def forward(
         ctx,
-        value,
-        value_spatial_shapes,
-        value_level_start_index,
-        sampling_locations,
-        attention_weights,
-        im2col_step,
+        value: Tensor,
+        shapes: Tensor,
+        level_index: Tensor,
+        loc: Tensor,
+        attn: Tensor,
+        im2col_step: int,
     ):
         ctx.im2col_step = im2col_step
         output = deform_attn_forward(
             value,
-            value_spatial_shapes,
-            value_level_start_index,
-            sampling_locations,
-            attention_weights,
+            shapes,
+            level_index,
+            loc,
+            attn,
             ctx.im2col_step,
         )
         ctx.save_for_backward(
             value,
-            value_spatial_shapes,
-            value_level_start_index,
-            sampling_locations,
-            attention_weights,
+            shapes,
+            level_index,
+            loc,
+            attn,
         )
         return output
 
@@ -70,96 +194,112 @@ class MultiScaleDeformAttnFunction(Function):
     ) -> T.Tuple[Tensor, None, None, Tensor, Tensor, None]:
         (
             value,
-            value_spatial_shapes,
-            value_level_start_index,
-            sampling_locations,
-            attention_weights,
+            spatial_shapes,
+            start_index,
+            loc,
+            attn,
         ) = ctx.saved_tensors
         grad_value, grad_sampling_loc, grad_attn_weight = deform_attn_backward(
             value,
-            value_spatial_shapes,
-            value_level_start_index,
-            sampling_locations,
-            attention_weights,
+            spatial_shapes,
+            start_index,
+            loc,
+            attn,
             grad_output,
             ctx.im2col_step,
         )
 
         return grad_value, None, None, grad_sampling_loc, grad_attn_weight, None
 
+    if T.TYPE_CHECKING:
+
+        @classmethod
+        @TX.override
+        def apply(
+            cls,
+            value: Tensor,
+            shapes: Tensor,
+            level_index: Tensor,
+            loc: Tensor,
+            attn: Tensor,
+            im2col_step: int,
+        ) -> Tensor: ...
+
 
 class MultiScaleDeformAttn(nn.Module):
-    def __init__(self, dims=256, levels=4, heads=8, points=4):
-        """
-        Multi-Scale Deformable Attention
-
+    def __init__(
+        self,
+        dim: int,
+        attention_heads: int,
+        *,
+        levels: int,
+        points=4,
+        proj: type[nn.Module] = nn.Linear,
+        **kwargs,
+    ):
+        r"""
         Parameters
         ----------
-        dims
-            amount of hidden dimension in the model
+        dim
+            Amount of hidden dimension
         levels
-            number of feature levels
-        heads
-            number of attention heads
-        n_points
-            number of sampling points per attention head per feature level
+            Amount of feature levels
+        attention_heads
+            Amount of attention attention_heads
+        points
+            Amount of sampling points per attention head per feature level
         """
-        super().__init__()
-        if dims % heads != 0:
-            msg = "dims must be divisible by heads, but got {} and {}".format(
-                dims, heads
-            )
-            raise ValueError(msg)
-        _d_per_head = dims // heads
-        if not _is_power_of_2(_d_per_head):
-            msg = "dims / heads must be power of 2, but got {}.".format(_d_per_head)
-            raise ValueError(msg)
+        super().__init__(**kwargs)
+
+        d_per_head = dim // attention_heads
+        assert _is_divisible(dim, attention_heads), (dim, attention_heads)
+        assert _is_power_of_2(d_per_head), (dim, attention_heads)
 
         self.im2col_step = 128
 
-        self.dims = dims
+        self.dim = dim
         self.levels = levels
-        self.heads = heads
-        self.n_points = points
+        self.attention_heads = attention_heads
+        self.points = points
 
-        self.sampling_offsets = nn.Linear(dims, heads * levels * points * 2)
-        self.attention_weights = nn.Linear(dims, heads * levels * points)
-        self.value_proj = nn.Linear(dims, dims)
-        self.output_proj = nn.Linear(dims, dims)
+        self.sampling_offsets = nn.Linear(dim, attention_heads * levels * points * 2)
+        self.attention_weights = nn.Linear(dim, attention_heads * levels * points)
+        self.proj_input = proj(dim, dim)
+        self.proj_output = proj(dim, dim)
 
-        self._reset_parameters()
+        self.reset_parameters()
 
-    def _reset_parameters(self):
+    def reset_parameters(self):
         constant_(self.sampling_offsets.weight.data, 0.0)
-        thetas = torch.arange(self.heads, dtype=torch.float32) * (
-            2.0 * math.pi / self.heads
+        thetas = torch.arange(self.attention_heads, dtype=torch.float32) * (
+            2.0 * math.pi / self.attention_heads
         )
         grid_init = torch.stack([thetas.cos(), thetas.sin()], -1)
         grid_init = (
             (grid_init / grid_init.abs().max(-1, keepdim=True)[0])
-            .view(self.heads, 1, 1, 2)
-            .repeat(1, self.levels, self.n_points, 1)
+            .view(self.attention_heads, 1, 1, 2)
+            .repeat(1, self.levels, self.points, 1)
         )
-        for i in range(self.n_points):
+        for i in range(self.points):
             grid_init[:, :, i, :] *= i + 1
         with torch.no_grad():
-            self.sampling_offsets.bias = nn.Parameter(grid_init.view(-1))
+            self.sampling_offsets.bias = nn.Parameter(grid_init.reshape(-1).clone())
         constant_(self.attention_weights.weight.data, 0.0)
         constant_(self.attention_weights.bias.data, 0.0)
-        xavier_uniform_(self.value_proj.weight.data)
-        constant_(self.value_proj.bias.data, 0.0)
-        xavier_uniform_(self.output_proj.weight.data)
-        constant_(self.output_proj.bias.data, 0.0)
+        xavier_uniform_(self.proj_input.weight.data)
+        constant_(self.proj_input.bias.data, 0.0)
+        xavier_uniform_(self.proj_output.weight.data)
+        constant_(self.proj_output.bias.data, 0.0)
 
     @TX.override
     def forward(
         self,
-        q,
-        p,
-        v,
-        shapes,
-        level_index,
-        padding_mask=None,
+        q: Tensor,
+        p: Tensor,
+        v: Tensor,
+        shapes: Tensor,
+        level_index: Tensor,
+        padding_mask: Tensor | None = None,
     ):
         """
         Parameters
@@ -182,50 +322,97 @@ class MultiScaleDeformAttn(nn.Module):
         output : Tensor[N, Q, C]
             The output tensor.
         """
-        N, Len_q, _ = q.shape
-        N, Len_in, _ = v.shape
-        assert (shapes[:, 0] * shapes[:, 1]).sum() == Len_in
+        d_batch, d_q, _ = q.shape
+        d_batch, d_in, _ = v.shape
+        assert (shapes[:, 0] * shapes[:, 1]).sum() == d_in
 
-        v = self.value_proj(v)
+        v = self.proj_input(v)
         if padding_mask is not None:
             v = v.masked_fill(padding_mask[..., None], float(0))
-        v = v.view(N, Len_in, self.heads, self.dims // self.heads)
-        sampling_offsets = self.sampling_offsets(q).view(
-            N, Len_q, self.heads, self.levels, self.n_points, 2
+        v = v.view(
+            d_batch, d_in, self.attention_heads, self.dim // self.attention_heads
         )
-        attention_weights = self.attention_weights(q).view(
-            N, Len_q, self.heads, self.levels * self.n_points
+        attn = self.attention_weights(q).view(
+            d_batch, d_q, self.attention_heads, self.levels * self.points
         )
-        attention_weights = softmax(attention_weights, -1).view(
-            N, Len_q, self.heads, self.levels, self.n_points
+        attn = softmax(attn, -1).view(
+            d_batch, d_q, self.attention_heads, self.levels, self.points
         )
-        # N, Len_q, heads, levels, points, 2
+        loc_off = self.sampling_offsets(q).view(
+            d_batch, d_q, self.attention_heads, self.levels, self.points, 2
+        )
         if p.shape[-1] == 2:
-            offset_normalizer = torch.stack([shapes[..., 1], shapes[..., 0]], -1)
-            sampling_locations = (
+            loc_norm = torch.stack([shapes[..., 1], shapes[..., 0]], -1)
+            loc = (
                 p[:, :, None, :, None, :]
-                + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
+                + loc_off / loc_norm[None, None, None, :, None, :]
             )
         elif p.shape[-1] == 4:
-            sampling_locations = (
+            loc = (
                 p[:, :, None, :, None, :2]
-                + sampling_offsets / self.n_points * p[:, :, None, :, None, 2:] * 0.5
+                + loc_off / self.points * p[:, :, None, :, None, 2:] * 0.5
             )
         else:
-            msg = f"Last dim of points must be 2 or 4, but get {p.shape[-1]} instead."
+            msg = f"Last dim of points must be 2 or 4. Got: {p.shape[-1]}"
             raise ValueError(msg)
-        if torch.cuda.is_available():
-            out = MultiScaleDeformAttnFunction.apply(
-                v,
+        out = self._forward_op(v, shapes, level_index, loc, attn)
+        return self.proj_output(out)
+
+    def _forward_op(
+        self, v: Tensor, shapes: Tensor, level_index: Tensor, loc: Tensor, attn: Tensor
+    ):
+        if not torch.cuda.is_available():
+            return deform_attn_fallback(v, shapes, loc, attn)
+        with torch.autocast("cuda", enabled=False):
+            res = MultiScaleDeformAttnFunction.apply(
+                v.float(),
                 shapes,
                 level_index,
-                sampling_locations,
-                attention_weights,
+                loc.float(),
+                attn.float(),
                 self.im2col_step,
             )
-        else:
-            out = deform_attn_fallback(v, shapes, sampling_locations, attention_weights)
-        return self.output_proj(out)
+        return res.type_as(v)
 
     if T.TYPE_CHECKING:
         __call__ = forward
+
+
+class MultiScaleFlashAttn(MultiScaleDeformAttn):
+    r"""
+    Multi-Scale Flash Attention Module. See :class:`MultiScaleDeformAttn` for details.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        See :meth:`MultiScaleDeformAttn.__init__`.
+        """
+        super().__init__(*args, **kwargs)
+
+        self.im2col_step = 64
+
+    @TX.override
+    def _forward_op(
+        self, v: Tensor, shapes: Tensor, level_index: Tensor, loc: Tensor, attn: Tensor
+    ) -> Tensor:
+        if not torch.cuda.is_available():
+            return deform_attn_fallback(v, shapes, loc, attn)
+        with torch.autocast("cuda", enabled=False):
+            loc = loc.flatten(-3)
+            loc_attn = torch.cat([loc.half(), attn.half()], dim=-1)
+            res = MultiScaleFlashAttnFunction.apply(
+                v.half(),
+                shapes,
+                level_index,
+                loc_attn,
+                self.im2col_step,
+                self.points,
+            )
+        return res.type_as(v)
+
+
+torch.fx.wrap("deform_attn_fallback")
+torch.fx.wrap("deform_attn_forward")
+torch.fx.wrap("deform_attn_backward")
+torch.fx.wrap("flash_attn_forward")
+torch.fx.wrap("flash_attn_backward")

@@ -425,7 +425,7 @@ class PanopticMap(_Mask):
         return (PanopticMap.get_instance_map(self) == instance_id).as_subclass(_Mask)
 
     def get_masks_by_label(
-            self: Tensor, *, with_void: bool = False, as_tensor: bool = False
+        self: Tensor, *, with_void: bool = False, as_tensor: bool = False
     ) -> T.Iterator[T.Tuple[Tensor, _Mask]]:
         """
         Iterate pairs of labels and masks, where each masks corresponds to a unique
@@ -438,9 +438,7 @@ class PanopticMap(_Mask):
                 continue
             yield pan_id, (self == pan_id).as_subclass(_Mask)
 
-    def get_masks(
-        self: Tensor, **kwargs
-    ) -> T.Iterator[T.Tuple[Tensor, Tensor, _Mask]]:
+    def get_masks(self: Tensor, **kwargs) -> T.Iterator[T.Tuple[Tensor, Tensor, _Mask]]:
         """Return a mask for each semantic class and instance (if any)."""
         for pan_id, mask in PanopticMap.get_masks_by_label(self, **kwargs):
             sem_id, ins_id = PanopticMap.parse_label(pan_id)

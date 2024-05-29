@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import typing as T
 import functools
+import typing as T
+
 import torch
 from torch import Tensor
 
@@ -245,3 +246,16 @@ def map_values(
     y = t_to[i]
 
     return y.reshape(x.shape)
+
+
+def nanvar(t: Tensor, dim: int, keepdim=False):
+    return (
+        (t - t.nanmean(dim=dim, keepdim=True))
+        .abs()
+        .pow(2)
+        .nanmean(dim=dim, keepdim=keepdim)
+    )
+
+
+def nanstd(t: Tensor, dim: int, keepdim=False):
+    return torch.sqrt(nanvar(t, dim, keepdim))

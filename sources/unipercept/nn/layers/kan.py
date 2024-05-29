@@ -24,7 +24,7 @@ import torch
 import typing_extensions as TX
 from torch import Tensor, nn
 
-from unipercept.nn.layers.activation import get_activation, ActivationSpec
+from unipercept.nn.layers.activation import ActivationSpec, get_activation
 
 
 class KANLinear(nn.Module):
@@ -249,9 +249,9 @@ class KANLinear(nn.Module):
             + regularize_entropy * regularization_loss_entropy
         )
 
-
     if T.TYPE_CHECKING:
         __call__ = forward
+
 
 class KAN(nn.Module):
     def __init__(

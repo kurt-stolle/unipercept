@@ -7,9 +7,20 @@ import torch
 import torch.nn as nn
 import typing_extensions as TX
 
-from .utils import NormActivationMixin
+from .utils import NormActivationMixin, NormActivationModule
 
-__all__ = ["Conv2d", "Standard2d", "Separable2d"]
+__all__ = [
+    "Conv2d",
+    "Standard2d",
+    "Separable2d",
+    "IntParam1d",
+    "IntParam2d",
+    "IntParam3d",
+]
+
+IntParam1d: T.TypeAlias = int | T.Tuple[int] | T.Sequence[int]
+IntParam2d: T.TypeAlias = int | T.Tuple[int, int] | T.Sequence[int]
+IntParam3d: T.TypeAlias = int | T.Tuple[int, int, int] | T.Sequence[int]
 
 
 class Conv2d(NormActivationMixin, nn.Conv2d):
@@ -51,7 +62,7 @@ class Standard2d(Conv2d):
         return x
 
 
-class Separable2d(NormActivationMixin, nn.Module):
+class Separable2d(NormActivationModule):
     """
     Impements a depthwise-seperable 2d convolution. This is a combination of a depthwise convolution and a pointwise
     convolution. The depthwise convolution is a convolution with a kernel size of 1x1xKxK and a pointwise convolution

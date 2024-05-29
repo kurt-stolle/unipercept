@@ -18,12 +18,24 @@ from unipercept.data.tensors.helpers import get_kwd, read_pixels, write_png_l16
 from unipercept.data.tensors.registry import pixel_maps
 from unipercept.utils.typings import Pathable
 
-__all__ = ["DepthMap", "DepthFormat", "downsample_depthmap", "resize_depthmap"]
+__all__ = [
+    "DepthMap",
+    "DepthMode",
+    "DepthFormat",
+    "downsample_depthmap",
+    "resize_depthmap",
+    "depth_to_normalized",
+    "depth_to_absolute",
+]
 
 DEFAULT_DEPTH_DTYPE: T.Final = torch.float32
 
 
 class DepthFormat(E.StrEnum):
+    r"""
+    Enum class for depth map file formats and their respective mode.
+    """
+
     TIFF = E.auto()
     DEPTH_INT16 = E.auto()
     DISPARITY_INT16 = E.auto()
@@ -31,10 +43,19 @@ class DepthFormat(E.StrEnum):
     SAFETENSORS = E.auto()
 
 
+class DepthMode(E.StrEnum):
+    r"""
+    Enum class for depth prediction modes.
+    """
+
+    ABSOLUTE = E.auto()
+    DISPARITY = E.auto()
+
+
 @pixel_maps.register
 class DepthMap(Mask):
     @classmethod
-    def default_like(cls, other: torch.Tensor) -> T.Self:
+    def default_like(cls, other: Tensor) -> T.Self:
         """Returns a default instance of this class with the same shape as the given tensor."""
         return cls(torch.full_like(other, fill_value=0, dtype=torch.float32))
 
@@ -227,7 +248,7 @@ def resize_depthmap(
     max_size: int | None = None,
     antialias: T.Any = False,  # noqa: U100
     use_rescale: bool = False,
-) -> torch.Tensor:
+) -> Tensor:
     shape = image.shape
     h_old, w_old = shape[-2:]
     h_new, w_new = _compute_resized_output_size(
@@ -265,3 +286,91 @@ def interpolate_depthmap(
         depth_map = depth_map.squeeze(0)
 
     return depth_map
+
+
+def depth_to_absolute(
+    value: Tensor,
+    min_depth: float | Tensor,
+    max_depth: float | Tensor,
+    mode: DepthMode | str = DepthMode.ABSOLUTE,
+) -> Tensor:
+    """
+    Convert depth from normalized values to absolute range.
+
+    Notes
+    -----
+    The range of values in the input is not strictly enfoced. Users should ensure
+    that the input values are within the normalized range.
+
+    Parameters
+    ----------
+    value : Tensor[..., N, H, W] in (0, 1)
+        The normalized depth tensor.
+    min_depth : float or Tensor[..., N]
+        The minimum depth value.
+    max_depth : float or Tensor[..., N]
+        The maximum depth value.
+    mode : DepthMode
+        The depth prediction mode.
+
+    Returns
+    -------
+    Tensor[..., N, H, W] in (min_depth, max_depth)
+        The absolute depth tensor.
+    """
+    if mode == DepthMode.ABSOLUTE:
+        result = value * (max_depth - min_depth) + min_depth
+    elif mode == DepthMode.DISPARITY:
+        min_disp = 1 / max_depth
+        max_disp = 1 / min_depth
+        scaled_disp = min_disp + (max_disp - min_disp) * value
+        result = 1 / scaled_disp
+    else:
+        msg = f"Invalid prediction mode: {mode}"
+        raise NotImplementedError(msg)
+    result = torch.nan_to_num(result, nan=0, posinf=0, neginf=0)
+    return result
+
+
+def depth_to_normalized(
+    value: Tensor,
+    min_depth: float | Tensor,
+    max_depth: float | Tensor,
+    mode: DepthMode | str,
+) -> Tensor:
+    """
+    Convert depth from absolute range to normalized values.
+
+    Notes
+    -----
+    The range of values in the input is not strictly enfoced. Users should ensure
+    that the input values are within the absolute range.
+
+    Parameters
+    ----------
+    value : Tensor[..., N, H, W] in (min_depth, max_depth)
+        The absolute depth tensor.
+    min_depth : float or Tensor[..., N]
+        The minimum depth value.
+    max_depth : float or Tensor[..., N]
+        The maximum depth value.
+    mode : DepthMode
+        The depth prediction mode.
+
+    Returns
+    -------
+    Tensor[..., N, H, W] in (0, 1)
+        The absolute depth tensor.
+    """
+    if mode == DepthMode.ABSOLUTE:
+        result = (value - min_depth) / (max_depth - min_depth)
+    elif mode == DepthMode.DISPARITY:
+        min_disp = 1 / max_depth
+        max_disp = 1 / min_depth
+        scaled_disp = 1 / value
+        result = (scaled_disp - min_disp) / (max_disp - min_disp)
+    else:
+        msg = f"Invalid prediction mode: {mode}"
+        raise NotImplementedError(msg)
+    result = torch.nan_to_num(result, nan=0, posinf=0, neginf=0)
+    return result

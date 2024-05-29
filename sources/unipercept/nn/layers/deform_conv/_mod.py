@@ -16,8 +16,8 @@ from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.nn.init import constant_, xavier_uniform_
 
-from unipercept.nn.layers.norm import NormSpec, get_norm
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
+from unipercept.nn.layers.norm import NormSpec, get_norm
 
 from .extension import deform_conv_backward, deform_conv_forward
 
@@ -678,7 +678,7 @@ class DeformConv2d(nn.Module):
 
         # Deformable convolution
         out_ante = out
-        out = self._forward_deform(out, offset_mask) 
+        out = self._forward_deform(out, offset_mask)
 
         # Center feature scale
         if self.center_scale is not None:
@@ -715,7 +715,9 @@ class DeformConv2dNormActivation(nn.Module):
     for this issue.
     """
 
-    def __init__(self, *args, norm: NormSpec = None, activation: ActivationSpec = None, **kwargs):
+    def __init__(
+        self, *args, norm: NormSpec = None, activation: ActivationSpec = None, **kwargs
+    ):
         super().__init__()
         self.conv = DeformConv2d(*args, **kwargs)
         self.norm = get_norm(norm, self.conv.dims)
@@ -726,4 +728,3 @@ class DeformConv2dNormActivation(nn.Module):
         x = self.norm(x)
         x = self.activation(x)
         return x
-

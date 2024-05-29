@@ -9,11 +9,11 @@ import typing as T
 import accelerate
 import accelerate.utils
 import torch
+import torch._dynamo
+import torch._dynamo.config
 import torch.nn
 import torch.types
 import torch.utils.data
-import torch._dynamo
-import torch._dynamo.config
 import typing_extensions as TX
 
 from unipercept import file_io
@@ -74,6 +74,11 @@ class Accelerator(accelerate.Accelerator):
         project_dir.mkdir(parents=True, exist_ok=True)
         logging_dir.mkdir(parents=True, exist_ok=True)
 
+        kwargs = {}
+
+        if params.training_precision not in {None, "", "default"}:
+            kwargs["mixed_precision"] = params.training_precision
+
         acc = cls(
             project_dir=project_dir,
             project_config=ProjectConfiguration(
@@ -97,7 +102,7 @@ class Accelerator(accelerate.Accelerator):
             ),
             gradient_accumulation_steps=1,
             device_placement=True,
-            # mixed_precision=None,
+            **kwargs,
             # dynamo_backend=None,
         )
         acc.state.dynamo_plugin = TorchDynamoPlugin(
@@ -115,10 +120,7 @@ class Accelerator(accelerate.Accelerator):
 
         prepared_model = super().prepare_model(model, *args, **kwargs)
         if not get_env(bool, "UP_ENGINE_DISABLE_COMPILE", default=False):
-            compile_kwargs = kwargs.get(
-                "compile_kwargs",
-                {"mode": "reduce-overhead"},
-            )
+            compile_kwargs = kwargs.get("compile_kwargs", {"backend": "inductor"})
             _logger.debug("Compiling model with: " + str(compile_kwargs))
             prepared_model.compile(**compile_kwargs)
         else:

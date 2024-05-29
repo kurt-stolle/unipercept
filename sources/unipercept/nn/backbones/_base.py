@@ -8,6 +8,7 @@ import functools
 import typing as T
 from collections import OrderedDict
 
+import regex as re
 import torch
 import torch.nn as nn
 
@@ -74,10 +75,35 @@ class Backbone(nn.Module):
 
 
 @functools.lru_cache()
-def query_feature_info(module: type[Backbone], *args, **kwargs):
+def query_feature_info(
+    module: type[Backbone],
+    *args,
+    match: str | re.Pattern | T.Iterable[str] | None = None,
+    empty_ok: bool = False,
+    **kwargs,
+) -> BackboneFeatures:
     """
-    Utility function to query the feature information of a backbone in confiugration
+    Utility function to query the feature information of a backbone in configuration
     files.
     """
-    bb = module(*args, **kwargs)
-    return bb.feature_info
+    info = module(*args, **kwargs).feature_info
+    if match is not None:
+        if isinstance(match, str):
+            match = re.compile(match)
+        if isinstance(match, re.Pattern):
+            info = {k: v for k, v in info.items() if match.search(k)}
+        elif isinstance(match, T.Iterable):
+            match = set(match)
+            info = {k: v for k, v in info.items() if k in match}
+        else:
+            msg = f"Invalid type for {match=} ({type(match)})"
+            raise TypeError(msg)
+
+    if len(info) == 0 and not empty_ok:
+        args_str = ", ".join(map(str, args))
+        kwargs_str = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+        params = ", ".join(filter(None, [args_str, kwargs_str]))
+        msg = f"No features found for {module.__name__}({params}) with {match=}"
+        raise ValueError(msg)
+
+    return info

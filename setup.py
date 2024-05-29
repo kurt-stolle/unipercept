@@ -60,7 +60,6 @@ setup(
     ext_modules=[
         find_extension("unipercept.nn.layers.deform_conv"),
         find_extension("unipercept.nn.layers.deform_attn"),
-        find_extension("unipercept.nn.layers.flash_attn"),
     ],
     cmdclass={"build_ext": BuildExtension},
 )

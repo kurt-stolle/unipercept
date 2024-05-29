@@ -12,7 +12,8 @@ from . import (
     conv,
     deform_attn,
     deform_conv,
-    flash_attn,
+    dropout,
+    dynamic_conv,
     mlp,
     norm,
     position,
@@ -20,7 +21,6 @@ from . import (
     squeeze_excite,
     utils,
     weight,
-    dynamic_conv,
 )
 from ._coord import *
 from ._interpolate import *

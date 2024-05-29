@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import collections.abc
 import typing as T
+from copy import deepcopy
 from itertools import repeat
+
+from torch import nn
 
 _V = T.TypeVar("_V")
 
@@ -40,3 +43,12 @@ def extend_tuple(x, n):
     if pad_n <= 0:
         return x[:n]
     return x + (x[-1],) * pad_n
+
+
+_CloneTargetT = T.TypeVar("_CloneTargetT", bound=nn.Module)
+
+
+def clone_to(
+    template: nn.Module, target: type[_CloneTargetT] = nn.ModuleList, *, n: int
+) -> _CloneTargetT:
+    return target([deepcopy(template) for _ in range(n)])

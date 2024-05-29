@@ -3,17 +3,17 @@ Dynamic Convolution modules.
 """
 
 from __future__ import annotations
+
 import typing as T
-import typing_extensions as TX
+
 import torch
-
-from torch import nn, Tensor
-
-from einops import rearrange, einsum
+import typing_extensions as TX
+from einops import einsum, rearrange
+from torch import Tensor, nn
 
 from unipercept.nn.layers.activation import ActivationSpec, InplaceReLU
-from unipercept.nn.layers.mlp import MLP
 from unipercept.nn.layers.conv import Conv2d
+from unipercept.nn.layers.mlp import MLP
 from unipercept.nn.layers.utils import to_2tuple
 
 
@@ -32,10 +32,10 @@ class DynamicConv2d(nn.Module):
         feature_dim: int,
         kernel_dim: int,
         conv_dim: int,
-        layers: int | T.Tuple[int,int] | T.Sequence[int] = (2,1),
+        layers: int | T.Tuple[int, int] | T.Sequence[int] = (2, 1),
         activation: ActivationSpec = InplaceReLU,
         dropout: float = 0.0,
-        init_gain: float | T.Tuple[float,float] | T.Sequence[float] = (0.01,1.0)
+        init_gain: float | T.Tuple[float, float] | T.Sequence[float] = (0.01, 1.0),
     ):
         r"""
         Parameters

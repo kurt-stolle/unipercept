@@ -10,7 +10,8 @@ import math
 import typing as T
 
 import torch
-import torch.nn as nn
+import typing_extensions as TX
+from torch import Tensor, nn
 from typing_extensions import override
 
 from unipercept.nn.layers.activation import ActivationSpec, get_activation
@@ -20,12 +21,20 @@ from unipercept.utils.function import to_2tuple
 
 __all__ = [
     "with_norm_activation",
+    "NormActivation",
     "NormActivationMixin",
     "NormActivationModule",
 ]
 
 
-_OUTPUT_CHANNEL_PROPERTIES = ["out_channels", "out_dims", "channels", "dims"]
+_OUTPUT_CHANNEL_PROPERTIES = [
+    "out_channels",
+    "out_dims",
+    "channels",
+    "dims",
+    "d_out",
+    "dim",
+]
 
 
 @T.overload
@@ -63,88 +72,97 @@ def get_output_channels(
 # ---------------------- #
 
 
-def _init_sequential_norm_activation(
+class NormActivationWrapper(nn.Module):
+    """
+    Wrapper that adds normalization and activation layers to a module.
+
+    This implementation was chosen over ``nn.Sequential`` to allow for more flexibility
+    in the implementation and because this empirically improved performance in
+    all tested cases that used ``torch.compile``.
+    """
+
+    def __init__(self, mod: nn.Module, norm: NormSpec, activation: ActivationSpec):
+        super().__init__()
+
+        self.wrap = mod
+        self.na = NormActivation(get_output_channels(mod), norm, activation)
+
+    @TX.override
+    def forward(self, x: Tensor) -> Tensor:
+        return self.na(self.wrap(x))
+
+
+class NormWrapper(nn.Module):
+    """
+    See :class:`NormActivationWrapper`.
+    """
+
+    def __init__(self, mod: nn.Module, norm: NormSpec):
+        super().__init__()
+
+        self.wrap = mod
+        self.norm = get_norm(norm, get_output_channels(mod))
+
+    @TX.override
+    def forward(self, x: Tensor) -> Tensor:
+        return self.norm(self.wrap(x))
+
+
+class ActivationWrapper(nn.Module):
+    """
+    See :class:`NormActivationWrapper`.
+    """
+
+    def __init__(self, mod: nn.Module, activation: ActivationSpec):
+        super().__init__()
+
+        self.wrap = mod
+        self.act = get_activation(activation)
+
+    @TX.override
+    def forward(self, x: Tensor) -> Tensor:
+        return self.act(self.wrap(x))
+
+
+class NormActivation(nn.Module):
+    def __init__(self, dim: int, norm: NormSpec, activation: ActivationSpec):
+        super().__init__()
+
+        self.norm = get_norm(norm, dim)
+        self.act = get_activation(activation)
+
+    @TX.override
+    def forward(self, x: Tensor) -> Tensor:
+        return self.act(self.norm(x))
+
+
+def _init_with_norm_activation(
     cls,
     *args,
     norm: T.Optional[NormSpec],
     activation: T.Optional[ActivationSpec],
+    bias: bool | None = None,
     **kwargs,
-) -> nn.Sequential:
-    """Adds optional `norm` and `activation` parameters."""
-
-    act = get_activation(activation)
-
-    seq = _init_sequential_norm(cls, *args, norm=norm, **kwargs)
-    seq.add_module(short_name(act), act)
-
-    return seq
-
-
-def _init_sequential_norm(
-    cls, *args, norm: NormSpec | None, bias: bool | None = None, **kwargs
-) -> nn.Sequential:
-    """
-    Adds an optional normalization layer to a module.
-
-    Parameters
-    ----------
-    *args : Any
-        Arguments to pass to the module constructor.
-    norm : NormSpec, optional
-        The normalization layer to add.
-    bias : bool, optional
-        Whether to add a bias layer. If ``None``, it will be determined based on the
-        ``norm`` parameter.
-    **kwargs : Any
-        Keyword arguments to pass to the module constructor.
-
-    Returns
-    -------
-    nn.Sequential
-        A sequential module with the normalization layer added.
-    """
-
+) -> NormActivationWrapper:
     bias = bias if bias is not None else norm is None
     assert isinstance(bias, bool)
-
     mod = cls(*args, bias=bias, **kwargs)
-    num_channels = get_output_channels(mod, none_ok=False)
-    nrm = get_norm(norm, num_channels)
-
-    seq = nn.Sequential()
-    seq.add_module(short_name(mod), mod)
-    seq.add_module(short_name(nrm), nrm)
-    return seq
+    return NormActivationWrapper(mod, norm, activation)
 
 
-def _init_sequential_activation(
+def _init_with_norm(
+    cls, *args, norm: NormSpec | None, bias: bool | None = None, **kwargs
+) -> NormWrapper:
+    bias = bias if bias is not None else norm is None
+    assert isinstance(bias, bool)
+    mod = cls(*args, bias=bias, **kwargs)
+    return NormWrapper(mod, norm)
+
+
+def _init_with_activation(
     cls, *args, activation: ActivationSpec | None = None, **kwargs
-) -> nn.Sequential:
-    """
-    Adds an optional activation layer.
-
-    Parameters
-    ----------
-    *args : Any
-        Arguments to pass to the module constructor.
-    activation : ActivationSpec, optional
-        The activation layer to add.
-    **kwargs : Any
-        Keyword arguments to pass to the module constructor.
-
-    Returns
-    -------
-    nn.Sequential
-        A sequential module with the activation layer added.
-    """
-
-    mod = cls(*args, **kwargs)
-    act = get_activation(activation)
-
-    seq = nn.Sequential()
-    seq.add_module(short_name(mod), mod)
-    seq.add_module(short_name(act), act)
-    return seq
+) -> ActivationWrapper:
+    return ActivationWrapper(cls(*args, **kwargs), activation)
 
 
 _M = T.TypeVar("_M", bound=nn.Module)
@@ -155,9 +173,9 @@ def with_norm_activation(cls: type[_M]) -> type[_M]:
     Wrapper that adds normalization and activation layers to a module.
     """
 
-    cls.with_activation = classmethod(_init_sequential_activation)  # type: ignore
-    cls.with_norm = classmethod(_init_sequential_norm)  # type: ignore
-    cls.with_norm_activation = classmethod(_init_sequential_norm_activation)  # type: ignore
+    cls.with_activation = classmethod(_init_with_activation)  # type: ignore
+    cls.with_norm = classmethod(_init_with_norm)  # type: ignore
+    cls.with_norm_activation = classmethod(_init_with_norm_activation)  # type: ignore
 
     return cls
 
@@ -167,9 +185,9 @@ class NormActivationMixin:
     Mixin for initialization helpers that add norm and activation layers."
     """
 
-    with_activation = classmethod(_init_sequential_activation)
-    with_norm = classmethod(_init_sequential_norm)
-    with_norm_activation = classmethod(_init_sequential_norm_activation)
+    with_activation = classmethod(_init_with_activation)
+    with_norm = classmethod(_init_with_norm)
+    with_norm_activation = classmethod(_init_with_norm_activation)
 
 
 class NormActivationModule(nn.Module):
@@ -186,9 +204,9 @@ class NormActivationModule(nn.Module):
     ):
         super().__init__(*args, **kwargs)
 
-    with_activation = classmethod(_init_sequential_activation)
-    with_norm = classmethod(_init_sequential_norm)
-    with_norm_activation = classmethod(_init_sequential_norm_activation)
+    with_activation = classmethod(_init_with_activation)
+    with_norm = classmethod(_init_with_norm)
+    with_norm_activation = classmethod(_init_with_norm_activation)
 
 
 # --------------- #
@@ -201,7 +219,7 @@ class Padding(enum.StrEnum):
     SAME = enum.auto()
 
 
-_PaddingInput = T.TypeVar("_PaddingInput", torch.Tensor, int)
+_PaddingInput = T.TypeVar("_PaddingInput", Tensor, int)
 _PaddingValue: T.TypeAlias = int | T.Tuple[int, int]
 _PaddingParam: T.TypeAlias = str | Padding | _PaddingValue
 
@@ -252,10 +270,10 @@ def _wrap_init(
 
 
 def _wrap_forward(
-    forward: T.Callable[[_T, torch.Tensor], torch.Tensor]
-) -> T.Callable[[_T, torch.Tensor], torch.Tensor]:
+    forward: T.Callable[[_T, Tensor], Tensor]
+) -> T.Callable[[_T, Tensor], Tensor]:
     @functools.wraps(forward)
-    def wrapper(self, x: torch.Tensor) -> torch.Tensor:
+    def wrapper(self, x: Tensor) -> Tensor:
         if self.padding_dynamic:
             x = _pad_same(x, self.kernel_size, self.stride, self.dilation)
         x = forward(self, x)
@@ -273,12 +291,12 @@ def _pad_same_amount(x: int, kernel_size: int, stride: int, dilation: int) -> in
 
 
 def _pad_same(
-    input: torch.Tensor,
+    input: Tensor,
     kernel_size: T.Tuple[int, ...],
     stride: T.Tuple[int, ...],
     dilation: T.Tuple[int, ...] = (1, 1),
     value: float = 0.0,
-) -> torch.Tensor:
+) -> Tensor:
     ih, iw = input.size()[-2:]
     k0, k1 = kernel_size
     s0, s1 = stride
@@ -363,7 +381,7 @@ class PaddingMixin:
 
     def _padding_forward(
         self,
-        x: torch.Tensor,
+        x: Tensor,
         ks: T.Tuple[int, ...],
         ss: T.Tuple[int, ...],
         dl: T.Tuple[int, ...],
@@ -425,7 +443,7 @@ def max_pool2d_same(
     stride: T.Tuple[int, int],
     dilation: T.Tuple[int, int] = (1, 1),
     ceil_mode: bool = False,
-) -> torch.Tensor:
+) -> Tensor:
     x = _pad_same(x, kernel_size, stride, value=-float("inf"))
     x = nn.functional.max_pool2d(x, kernel_size, stride, (0, 0), dilation, ceil_mode)
     return x
@@ -446,7 +464,7 @@ class MaxPool2dSame(nn.MaxPool2d):
         dilation = to_2tuple(dilation)
         super().__init__(kernel_size, stride, (0, 0), dilation, ceil_mode)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         return max_pool2d_same(
             x, self.kernel_size, self.stride, self.dilation, self.ceil_mode
         )

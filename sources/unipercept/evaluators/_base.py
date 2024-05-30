@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import abc
 import contextlib
+import enum as E
 import dataclasses as D
-import enum
 import typing as T
 
 import pandas as pd
@@ -20,7 +20,9 @@ from unipercept.log import get_logger
 from unipercept.state import check_main_process, get_interactive
 
 if T.TYPE_CHECKING:
-    from ..model import TensorDictBase
+    from unipercept.model import InputData
+    from tensordict import TensorDictBase
+    from unipercept.data.sets import Metadata
 
 __all__ = ["Evaluator", "PlotMode"]
 
@@ -28,10 +30,21 @@ __all__ = ["Evaluator", "PlotMode"]
 _logger = get_logger(__name__)
 
 
-class PlotMode(enum.Enum):
-    ALWAYS = enum.auto()
-    ONCE = enum.auto()
-    NEVER = enum.auto()
+class PlotMode(E.StrEnum):
+    ALWAYS = E.auto()
+    ONCE = E.auto()
+    NEVER = E.auto()
+
+
+class StoragePrefix(E.StrEnum):
+    """
+    Simple enum for common key prefixes in the storage. Use of this enum is optional,
+    but it can be helpful in the canonicalization of evaluators.
+    """
+
+    TRUE = E.auto()
+    PRED = E.auto()
+    VALID = E.auto()
 
 
 class EvaluatorComputeKWArgs(T.TypedDict):
@@ -49,29 +62,69 @@ class Evaluator(metaclass=abc.ABCMeta):
     Implements an evaluator for a given task.
     """
 
+    @classmethod
+    def from_metadata(cls, name: str, **kwargs) -> T.Self:
+        from unipercept import get_info
+
+        return cls(info=get_info(name), **kwargs)
+
+    def __new__(cls, *args, **kwargs):
+        if cls is Evaluator:
+            msg = "Cannot instantiate base class Evaluator directly."
+            raise RuntimeError(msg)
+        return super().__new__(cls)
+
+    info: Metadata = D.field(repr=False)
+
     show_progress: bool = D.field(
-        default_factory=get_interactive, metadata={"help": "Show progress bar"}
+        default_factory=get_interactive,
+        metadata={
+            "help": "Show progress bar",
+        },
+    )
+    show_summary: bool = True
+    show_details: bool = False
+    prefix: str | None = D.field(
+        default=None,
+        metadata={
+            "help": "Prefix for storage keys, used to avoid conflicts between different evaluators",
+        },
+    )
+    pair_index: int = D.field(
+        default=-1,
+        metadata={
+            "help": (
+                "Index of the temporal pair dimension in the batch items. "
+                "For example, if a batch item has images with (B, T, C, H, W) shape, "
+                "then the default pair index `-1` indices that the prediction is "
+                "temporally aligned to the last (-1th) image in the T-dimension."
+            )
+        },
     )
 
+    @abc.abstractmethod
     def update(
         self,
         storage: TensorDictBase,  # noqa: U100
-        inputs: TensorDictBase,  # noqa: U100
+        inputs: InputData,  # noqa: U100
         outputs: TensorDictBase,  # noqa: U100
-    ) -> None: ...
+    ) -> None:
+        pass
 
     @abc.abstractmethod
     def compute(
         self,
         storage: TensorDictBase,  # noqa: U100
         **kwargs: T.Unpack[EvaluatorComputeKWArgs],  # noqa: U100
-    ) -> dict[str, int | float | str | bool | dict]: ...
+    ) -> dict[str, int | float | str | bool | dict]:
+        return {}
 
     @abc.abstractmethod
     def plot(
         self,
         storage: TensorDictBase,  # noqa: U100
-    ) -> dict[str, pil_image.Image]: ...
+    ) -> dict[str, pil_image.Image]:
+        return {}
 
     def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
         from unipercept.log import create_table
@@ -91,3 +144,12 @@ class Evaluator(metaclass=abc.ABCMeta):
             disable=not check_main_process(local=True) or not self.show_progress,
             **kwargs,
         )
+
+    def get_storage_key(self, key: str, prefix: StoragePrefix | str) -> str:
+        if isinstance(prefix, StoragePrefix):
+            kind = prefix.value
+        else:
+            kind = str(prefix)
+        if self.prefix is not None:
+            key = f"{self.prefix}_{key}"
+        return "_".join([kind, key])

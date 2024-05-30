@@ -1,10 +1,8 @@
-from __future__ import annotations
-
-import typing as T
-
-import typing_extensions as TX
+r"""
+Evaluators that can be used to compute metrics for various tasks.
+"""
 
 from ._base import *
-from ._depth import *
-from ._dvps import *
-from ._panoptic import *
+from ._common import *
+
+from . import depth, dvps, segmentation, tracking

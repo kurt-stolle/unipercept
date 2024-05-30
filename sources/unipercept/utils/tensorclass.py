@@ -22,8 +22,6 @@ if T.TYPE_CHECKING:
     from tensordict.base import IndexType as IndexType
     from tensordict.tensordict import NestedKey as NestedKey
 
-from typing_extensions import override
-
 __all__ = ["Tensorclass", "TensorDict", "TensorDictBase"]
 _CompatibleType: T.TypeAlias = torch.Tensor
 

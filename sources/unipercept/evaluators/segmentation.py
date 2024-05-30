@@ -1,7 +1,7 @@
 """
-Implements an evaluator for panoptic segmentation tasks.
+Implements an evaluator for segmentation tasks.
 
-Based on the Torchmetrics implementation of the Panoptic Quality metric.
+Computes metrics like PQ, SQ, RQ, and mIoU for segmentation tasks.
 """
 
 from __future__ import annotations
@@ -16,127 +16,159 @@ import typing as T
 
 import pandas as pd
 import torch
-import torch.multiprocessing as M
 import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from tqdm import tqdm
-from typing_extensions import override
-
+import typing_extensions as TX
 from unipercept import file_io
 from unipercept.data.tensors import PanopticMap
 from unipercept.data.types.coco import COCOResultPanoptic
-from unipercept.evaluators import helpers as H
-from unipercept.evaluators._base import Evaluator, EvaluatorComputeKWArgs, PlotMode
+from unipercept.evaluators._common import isin, stable_divide
+from unipercept.evaluators._base import (
+    Evaluator,
+    EvaluatorComputeKWArgs,
+    PlotMode,
+    StoragePrefix,
+)
 from unipercept.log import get_logger
 from unipercept.state import check_main_process, cpus_available
 
 if T.TYPE_CHECKING:
-    from ..data.sets import Metadata
-
-__all__ = ["PanopticEvaluator", "TRUE_PANOPTIC", "PRED_PANOPTIC", "PanopticWriter"]
+    from unipercept.model import InputData
 
 _logger = get_logger(__name__)
-_ColorType: T.TypeAlias = tuple[
-    int, int
-]  # A (category_id, instance_id) tuple that uniquely identifies a panoptic segment.
 
-VALID_PANOPTIC: T.Final[str] = "valid_panoptic"
-TRUE_PANOPTIC: T.Final[str] = "true_panoptic"
-PRED_PANOPTIC: T.Final[str] = "pred_panoptic"
+
+class SegmentationTask(E.StrEnum):
+    PANOPTIC_SEGMENTATION = E.auto()
+    SEMANTIC_SEGMENTATION = E.auto()
+    INSTANCE_SEGMENTATION = E.auto()
 
 
 @D.dataclass(kw_only=True)
-class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
+class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
     """
     Stores and optionally renders panoptic segmentation outputs.
     """
 
-    info: Metadata = D.field(repr=False)
-
-    plot_samples: int = D.field(
+    segmentation_plot_samples: int = D.field(
         default=1, metadata={"help": "Number of samples to plot"}
     )
-    plot_true_segmentation: PlotMode = PlotMode.ONCE
-    plot_pred_segmentation: PlotMode = PlotMode.ALWAYS
-
-    pred_key_segmentation: str = D.field(
-        default="segmentations",
+    segmentation_plot_true: PlotMode = PlotMode.NEVER
+    segmentation_plot_pred: PlotMode = PlotMode.ALWAYS
+    segmentation_requires_true: bool = D.field(
+        default=True,
+        metadata={"help": "Raise an error if the target segmentation is not found"},
+    )
+    segmentation_requires_pred: bool = D.field(
+        default=True,
+        metadata={"help": "Raise an error if the predicted segmentation is not found"},
+    )
+    segmentation_key: str = D.field(
+        default=None,  # type: ignore
         metadata={
-            "help": "The key for the segmentation predictions in the output TensorDict"
+            "help": (
+                "The key for the segmentation predictions in the output TensorDict. "
+                "If None, the evaluator will use the default key for the configured task."
+            )
         },
     )
-    true_key_segmentation: tuple[str, ...] = D.field(
-        default=("captures", "segmentations"),
-        metadata={
-            "help": "The key for the ground truth segmentation in the input TensorDict"
-        },
+    segmentation_task: SegmentationTask = D.field(
+        default=SegmentationTask.PANOPTIC_SEGMENTATION,
+        metadata={"help": "The type of segmentation task."},
     )
 
-    true_group_index: int = -1  # the most recent index [batch, group, ...] dimensions
+    def __post_init__(self):
+        if isinstance(self.segmentation_task, str):
+            self.segmentation_task = SegmentationTask(self.segmentation_task)
+        if self.segmentation_key is None:
+            self.segmentation_key = self.segmentation_task.value
 
-    coco_export: bool = D.field(
-        default=False,
-        metadata={"help": "Export COCO panoptic segmentation to the given path"},
-    )
+    @property
+    def key_segmentation_pred(self) -> str:
+        return self.get_storage_key(self.segmentation_key, StoragePrefix.PRED)
 
-    @classmethod
-    def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        from unipercept import get_info
+    @property
+    def key_segmentation_true(self) -> str:
+        return self.get_storage_key(self.segmentation_key, StoragePrefix.PRED)
 
-        return cls(info=get_info(name), **kwargs)
+    @property
+    def key_segmentation_valid(self) -> str:
+        return self.get_storage_key(self.segmentation_key, StoragePrefix.VALID)
 
-    @override
+    @TX.override
     def update(
-        self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
+        self, storage: TensorDictBase, inputs: InputData, outputs: TensorDictBase
     ):
         """
-        Stores the panoptic segmentation predictions and ground truths in storage for later evaluation.
+        See :meth:`Evaluator.update`.
         """
         super().update(storage, inputs, outputs)
 
+        target_keys = {
+            self.key_segmentation_valid,
+            self.key_segmentation_pred,
+            self.key_segmentation_valid,
+        }
         storage_keys = storage.keys(include_nested=True, leaves_only=True)
-        assert storage_keys is not None, "Storage keys are empty"
-        if (
-            TRUE_PANOPTIC in storage_keys
-            and PRED_PANOPTIC in storage_keys
-            and VALID_PANOPTIC in storage_keys
-        ):
+        assert storage_keys is not None
+        if target_keys.issubset(storage_keys):
             return
 
-        pred = outputs.get(self.pred_key_segmentation)
+        input_images = inputs.captures.images
+        assert input_images is not None
+        input_batch = input_images.shape[0]
+        input_size = input_images.shape[-2:]
+        pred = outputs.get(self.segmentation_key, None)
         if pred is None:
-            msg = f"Panoptic segmentation output not found in {outputs=}"
-            raise RuntimeError(msg)
+            if self.segmentation_requires_pred:
+                msg = f"Panoptic segmentation output not found in {outputs=}"
+                raise RuntimeError(msg)
+            pred = torch.full(
+                (input_batch, *input_size),
+                PanopticMap.IGNORE,
+                device=input_images.device,
+                dtype=torch.int,
+            ).as_subclass(PanopticMap)
         assert pred.ndim == 3, f"Expected 3D tensor, got {pred.shape=}"
+        assert pred.shape[-2:] == input_size, f"{pred.shape=} {input_size=}"
+        assert pred.shape[0] == input_batch, f"{pred.shape=} {input_batch=}"
 
-        true: torch.Tensor = inputs.get(self.true_key_segmentation, default=None)
+        true = inputs.captures.segmentations
+        assert true is not None
         if true is None:  # Generate dummy values for robust evaluation downstream
+            if self.segmentation_requires_true:
+                msg = f"Panoptic segmentation target not found in {inputs=}"
+                raise RuntimeError(msg)
             true = torch.full_like(pred, PanopticMap.IGNORE, dtype=torch.long)
         else:
-            true = true[:, self.true_group_index, ...]
+            true = true[:, self.pair_index, ...]
         assert true.ndim == 3, f"Expected 3D tensor, got {true.shape=}"
+        assert true.shape[-2:] == input_size, f"{true.shape=} {input_size=}"
+        assert true.shape[0] == input_batch, f"{true.shape=} {input_batch=}"
 
-        valid = (true != PanopticMap.IGNORE).any(dim=(-1)).any(dim=-1)
+        valid = (true >= 0).any(dim=(-1)).any(dim=-1)
 
-        for key, item in (
-            (TRUE_PANOPTIC, true),
-            (PRED_PANOPTIC, pred),
-            (VALID_PANOPTIC, valid),
-        ):
-            storage.set(key, item, inplace=True)  # noqa: PD002
+        for key, item in {
+            self.key_segmentation_pred: pred,
+            self.key_segmentation_true: true,
+            self.key_segmentation_valid: valid,
+        }.items():
+            storage.set(key, item, inplace=True)
 
-    @override
+    @TX.override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         from unipercept.render import draw_image_segmentation
 
-        result = {}
+        result = super().plot(storage)
 
         plot_keys = []
-        for key, mode_attr in (
-            (TRUE_PANOPTIC, "plot_true_segmentation"),
-            (PRED_PANOPTIC, "plot_pred_segmentation"),
-        ):
+        plot_mapping = {
+            self.key_segmentation_true: "segmentation_plot_true",
+            self.key_segmentation_pred: "segmentation_plot_pred",
+        }
+        for key, mode_attr in plot_mapping.items():
             mode = getattr(self, mode_attr)
             if mode == PlotMode.NEVER:
                 continue
@@ -144,22 +176,29 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
                 setattr(self, mode_attr, PlotMode.NEVER)
             plot_keys.append(key)
 
-        for i in range(self.plot_samples):
+        for i in range(self.segmentation_plot_samples):
             for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_segmentation(
                     storage.get_at(key, i), self.info
                 )
         return result
 
-    @override
+    @TX.override
     def compute(
         self, storage: TensorDictBase, **kwargs: T.Unpack[EvaluatorComputeKWArgs]
     ):
-        if self.coco_export:
-            self._export_coco(storage, **kwargs)
-        return {}
+        return super().compute(storage, **kwargs)
 
-    def _export_coco(self, storage: TensorDictBase, *, path: str, **kwargs) -> None:
+
+class COCOWriter(SegmentationWriter):
+    @TX.override
+    def compute(
+        self,
+        storage: TensorDictBase,
+        *,
+        path: str,
+        **kwargs: T.Unpack[EvaluatorComputeKWArgs],
+    ) -> None:
         path_files = file_io.Path(path) / "coco_panoptic"
         path_json = path_files.with_suffix(".json")
 
@@ -194,6 +233,10 @@ class PanopticWriter(Evaluator, metaclass=abc.ABCMeta):
             json.dump(coco_res, f)
 
 
+# A (category_id, instance_id) tuple that uniquely identifies a panoptic segment.
+_ColorType: T.TypeAlias = tuple[int, int]
+
+
 def _export_coco_at(
     i: int, *, storage, translations_dataset, path_files
 ) -> COCOResultPanoptic | None:
@@ -213,6 +256,12 @@ def _export_coco_at(
     }
 
 
+@D.dataclass(kw_only=True)
+class SemanticSegmentationEvaluator(SegmentationWriter):
+    def compute():
+        pass
+
+
 class PQMetrics(T.NamedTuple):
     pq: torch.Tensor
     sq: torch.Tensor
@@ -229,7 +278,7 @@ class PQDefinition(E.IntEnum):
 
 
 @D.dataclass(kw_only=True)
-class PanopticEvaluator(PanopticWriter):
+class PanopticSegmentationEvaluator(SegmentationWriter):
     """
     Computes PQ metrics for panoptic segmentation tasks.
     """
@@ -241,7 +290,7 @@ class PanopticEvaluator(PanopticWriter):
     pq_definition: PQDefinition = PQDefinition.ORIGINAL
 
     @classmethod
-    @override
+    @TX.override
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
         return super().from_metadata(name, **kwargs)
 
@@ -253,7 +302,7 @@ class PanopticEvaluator(PanopticWriter):
     def background_ids(self) -> frozenset[int]:
         return self.info.background_ids
 
-    @override
+    @TX.override
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
         metrics = super().compute(storage, **kwargs)
 
@@ -282,7 +331,7 @@ class PanopticEvaluator(PanopticWriter):
         """
         Calculate stat scores required to compute the metric for a full batch.
         """
-        void_color = _get_void_color(self.object_ids, self.background_ids)
+        void_color = find_void_color(self.object_ids, self.background_ids)
         # device = torch.device("cpu")  # using multiprocessing
         num_categories = len(self.object_ids) + len(self.background_ids)
         iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
@@ -303,6 +352,9 @@ class PanopticEvaluator(PanopticWriter):
             void_color=void_color,
             allow_stuff_instances=allow_stuff_instances,
             num_categories=num_categories,
+            key_segmentation_true=self.key_segmentation_true,
+            key_segmentation_pred=self.key_segmentation_pred,
+            key_segmentation_valid=self.key_segmentation_valid,
         )
 
         progress_bar = tqdm(
@@ -324,8 +376,8 @@ class PanopticEvaluator(PanopticWriter):
         finally:
             progress_bar.close()
         # Compute PQ = SQ * RQ
-        sq = H.stable_divide(iou, tp)
-        rq = H.stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
+        sq = stable_divide(iou, tp)
+        rq = stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
         pq = sq * rq
 
         # Convert to percentages
@@ -363,11 +415,11 @@ class PanopticEvaluator(PanopticWriter):
         num_categories,
     ):
         tn_mask: torch.Tensor = n_valid > 0
-        th_mask: torch.Tensor = H.isin(
+        th_mask: torch.Tensor = isin(
             torch.arange(num_categories, device=metrics.pq.device),
             list(self.object_ids),
         )
-        st_mask: torch.Tensor = H.isin(
+        st_mask: torch.Tensor = isin(
             torch.arange(num_categories, device=metrics.pq.device),
             list(self.background_ids),
         )
@@ -477,27 +529,30 @@ def _compute_at(
     void_color,
     allow_stuff_instances,
     num_categories,
+    key_segmentation_true: str,
+    key_segmentation_pred: str,
+    key_segmentation_valid: str,
 ):
-    valid = storage.get_at(VALID_PANOPTIC, n).item()
+    valid = storage.get_at(key_segmentation_valid, n)
     if not valid:
         return None
-    pred = storage.get_at(PRED_PANOPTIC, n).to(device=device, non_blocking=True)
-    true = storage.get_at(TRUE_PANOPTIC, n).to(device=device, non_blocking=True)
-    pred = _preprocess_mask(
+    pred = storage.get_at(key_segmentation_pred, n).to(device=device, non_blocking=True)
+    true = storage.get_at(key_segmentation_true, n).to(device=device, non_blocking=True)
+    pred = panoptic_quality_preprocess(
         object_ids,
         background_ids,
         pred,
         void_color=void_color,
         allow_unknown_category=allow_unknown_category,
     )
-    true = _preprocess_mask(
+    true = panoptic_quality_preprocess(
         object_ids,
         background_ids,
         true,
         void_color=void_color,
         allow_unknown_category=True,
     )
-    result = _panoptic_quality_update_sample(
+    result = panoptic_quality_update_sample(
         pred,
         true,
         void_color=void_color,
@@ -564,11 +619,14 @@ def _get_color_areas(inputs: torch.Tensor) -> dict[tuple, torch.Tensor]:
     return dict(zip(_to_tuple(unique_keys), unique_keys_area))
 
 
-def _get_void_color(
-    things: T.FrozenSet[int], stuffs: T.FrozenSet[int]
+def find_void_color(
+    thing_colors: T.FrozenSet[int], stuff_colors: T.FrozenSet[int]
 ) -> tuple[int, int]:
     r"""
-    Get an unused color ID.
+    Suggest an unused color ID for ignored/void segments.
+
+    In the canonical implementation, the void color cannot be negative, so this value
+    is mapped to the maximum of the category IDs plus one.
 
     Parameters
     ----------
@@ -581,41 +639,11 @@ def _get_void_color(
     -------
         A new color ID that does not belong to things nor stuffs.
     """
-    unused_category_id = 1 + max([0, *list(things), *list(stuffs)])
+    unused_category_id = 1 + max([0, *list(thing_colors), *list(stuff_colors)])
     return unused_category_id, 0
 
 
-def _get_category_id_to_continuous_id(
-    things: T.FrozenSet[int], stuffs: T.FrozenSet[int]
-) -> dict[int, int]:
-    r"""
-    Convert original IDs to continuous IDs.
-
-    Parameters
-    ----------
-    things:
-        All unique IDs for things classes.
-    stuffs:
-        All unique IDs for stuff classes.
-
-    Returns
-    -------
-        A mapping from the original category IDs to continuous IDs (i.e., 0, 1, 2, ...).
-
-    """
-    # things metrics are stored with a continuous id in [0, len(things)),
-    thing_id_to_continuous_id = {thing_id: idx for idx, thing_id in enumerate(things)}
-    # stuff metrics are stored with a continuous id in [len(things), len(things) + len(stuffs))
-    stuff_id_to_continuous_id = {
-        stuff_id: idx + len(things) for idx, stuff_id in enumerate(stuffs)
-    }
-    cat_id_to_continuous_id = {}
-    cat_id_to_continuous_id.update(thing_id_to_continuous_id)
-    cat_id_to_continuous_id.update(stuff_id_to_continuous_id)
-    return cat_id_to_continuous_id
-
-
-def _preprocess_mask(
+def panoptic_quality_preprocess(
     things: T.FrozenSet[int],
     stuffs: T.FrozenSet[int],
     inputs: PanopticMap,
@@ -655,8 +683,8 @@ def _preprocess_mask(
     out = torch.flatten(out, 0, -2)
     assert out.ndim == 2, out.shape
 
-    mask_stuffs = H.isin(out[:, 0], list(stuffs))
-    mask_things = H.isin(out[:, 0], list(things))
+    mask_stuffs = isin(out[:, 0], list(stuffs))
+    mask_things = isin(out[:, 0], list(things))
 
     if not allow_unknown_category and not torch.all(mask_things | mask_stuffs):
         raise ValueError(
@@ -669,7 +697,7 @@ def _preprocess_mask(
     return out
 
 
-def _calculate_iou(
+def compute_iou(
     pred_color: _ColorType,
     target_color: _ColorType,
     pred_areas: dict[_ColorType, torch.Tensor],
@@ -736,7 +764,7 @@ def _filter_false_positives(
             yield pred_color[0]
 
 
-def _panoptic_quality_update_sample(
+def panoptic_quality_update_sample(
     flatten_preds: torch.Tensor,
     flatten_target: torch.Tensor,
     void_color: tuple[int, int],
@@ -779,7 +807,7 @@ def _panoptic_quality_update_sample(
             continue
         if pred_color[0] != target_color[0]:
             continue
-        iou = _calculate_iou(
+        iou = compute_iou(
             pred_color,
             target_color,
             pred_areas,
@@ -813,48 +841,3 @@ def _panoptic_quality_update_sample(
             true_positives[cat_id] += 1
 
     return iou_sum, true_positives, false_positives, false_negatives
-
-
-def _compute_stq(
-    element,
-    num_classes=19,
-    max_ins=10000,
-    ign_id=255,
-    num_things=8,
-    label_divisor=1e4,
-    ins_divisor=1e7,
-):
-    import numpy as np
-
-    y_pred, y_true = element
-    y_true = y_true.astype(np.int64)
-    y_pred = y_pred.astype(np.int64)
-
-    # semantic eval
-    semantic_label = y_true // max_ins
-    semantic_prediction = y_pred // max_ins
-    semantic_label = np.where(semantic_label != ign_id, semantic_label, num_classes)
-    semantic_prediction = np.where(
-        semantic_prediction != ign_id, semantic_prediction, num_classes
-    )
-    semantic_ids = np.reshape(semantic_label, [-1]) * label_divisor + np.reshape(
-        semantic_prediction, [-1]
-    )
-
-    # instance eval
-    instance_label = y_true % max_ins
-    label_mask = np.less(semantic_label, num_things)
-    prediction_mask = np.less(semantic_label, num_things)
-    is_crowd = np.logical_and(instance_label == 0, label_mask)
-
-    label_mask = np.logical_and(label_mask, np.logical_not(is_crowd))
-    prediction_mask = np.logical_and(prediction_mask, np.logical_not(is_crowd))
-
-    seq_preds = y_pred[prediction_mask]
-    seg_labels = y_true[label_mask]
-
-    non_crowd_intersection = np.logical_and(label_mask, prediction_mask)
-    intersection_ids = (
-        y_true[non_crowd_intersection] * ins_divisor + y_pred[non_crowd_intersection]
-    )
-    return semantic_ids, seq_preds, seg_labels, intersection_ids

@@ -8,99 +8,68 @@ See Also
 
 from __future__ import annotations
 
-import abc
 import concurrent.futures
 import dataclasses as D
 import functools
 import itertools
 import typing as T
-
+import warnings
 import pandas as pd
 import torch
-import torch.multiprocessing as M
 import torch.types
 import typing_extensions as TX
 from einops import rearrange
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
-import unipercept.evaluators.helpers as H
 from unipercept.data.tensors import PanopticMap
-from unipercept.evaluators._depth import PRED_DEPTH, TRUE_DEPTH, DepthWriter
-from unipercept.evaluators._panoptic import (
-    PRED_PANOPTIC,
-    TRUE_PANOPTIC,
-    VALID_PANOPTIC,
-    PanopticWriter,
-    PQDefinition,
-    _get_void_color,
-    _panoptic_quality_update_sample,
-    _preprocess_mask,
-)
+from unipercept.evaluators import segmentation, tracking, depth
 from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (
     defaultdict_recurrent,
     defaultdict_recurrent_to_dict,
 )
-
-FRAME_ID = "frame_id"
-SEQUENCE_ID = "sequence_id"
+import enum as E
 
 _logger = get_logger(__name__)
 
 
-__all__ = ["DVPSWriter", "DVPSEvaluator"]
+class DVPSMetric(E.StrEnum):
+    """
+    Enumeration of (D)VPS metrics.
+    """
+
+    VPQ = E.auto()
+    STQ = E.auto()
+    DVPQ = E.auto()
+    DSTQ = E.auto()
+
+
+DEFAULT_DVPS_METRICS = frozenset((DVPSMetric.DVPQ, DVPSMetric.VPQ))
 
 
 @D.dataclass(kw_only=True)
-class DVPSWriter(PanopticWriter, DepthWriter):
-    """
-    Writes DVPS requirements to storage.
-    """
-
-    ids_key = "ids"
-
-    @classmethod
-    def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        from unipercept import get_info
-
-        return cls(info=get_info(name), **kwargs)
-
-    @TX.override
-    def update(
-        self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
-    ):
-        super().update(storage, inputs, outputs)
-
-        storage_keys = storage.keys(include_nested=True, leaves_only=True)
-        if SEQUENCE_ID in storage_keys and FRAME_ID in storage_keys:
-            return
-
-        combined_id = inputs.get(self.ids_key)
-        assert (
-            combined_id.shape[-1] == 2
-        ), f"Expected {self.ids_key} to have shape (..., 2). Got {combined_id.shape}."
-
-        sequence_id = combined_id[..., 0]
-        frame_id = combined_id[..., 1]
-
-        storage.set(SEQUENCE_ID, sequence_id, inplace=True)  # noqa: PD002
-        storage.set(FRAME_ID, frame_id, inplace=True)  # noqa: PD002
-
-
-@D.dataclass(kw_only=True, slots=True)
-class DVPSEvaluator(DVPSWriter):
+class DVPSEvaluator(
+    tracking.VideoIDWriter, segmentation.SegmentationWriter, depth.DepthWriter
+):
     """
     Computes (D)VPQ and (D)STQ metrics.
+
+    Because these metrics are largely the same, the implementation is combined into one evaluator.
+    Users can set the ``dvps_metrics`` attribute to specify which metrics to compute specifically.
     """
 
-    show_progress: bool = D.field(default_factory=get_interactive)
-    show_summary: bool = True
-    show_details: bool = False
     report_details: bool = False
 
-    pq_definition: PQDefinition = PQDefinition.ORIGINAL
+    pq_definition: segmentation.PQDefinition = segmentation.PQDefinition.ORIGINAL
+
+    dvps_metrics: T.Collection[DVPSMetric] = D.field(
+        default=DEFAULT_DVPS_METRICS,
+        metadata={
+            "help": f"The DVPS metrics to compute. Default: {DEFAULT_DVPS_METRICS}.",
+        },
+    )
 
     # See Qiao et al. "ViP-DeepLab" (2020) for details on parameters
     dvpq_windows: list[int] = D.field(default_factory=lambda: [1, 2, 3, 4])
@@ -108,6 +77,7 @@ class DVPSEvaluator(DVPSWriter):
     dstq_thresholds: list[float] = D.field(default_factory=lambda: [1.25, 1.1])
 
     @classmethod
+    @TX.override
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
         from unipercept import get_info
 
@@ -125,48 +95,66 @@ class DVPSEvaluator(DVPSWriter):
     def compute(
         self, storage: TensorDictBase, return_dataframe: bool = False, **kwargs
     ) -> dict[str, T.Any]:
+        result = super().compute(storage, **kwargs)
+
+        if len(self.dvps_metrics) == 0:
+            msg = "No DVPS metrics were specified. Skipping computation."
+            warnings.warn(msg, stacklevel=2)
+            return result
+
         num_samples: int = storage.batch_size[0]
         indices_per_sequence: dict[int, list[int]] = {}
         for i in range(num_samples):
-            valid = T.cast(torch.Tensor, storage.get_at(VALID_PANOPTIC, i, None))
+            valid = T.cast(
+                torch.Tensor, storage.get_at(self.key_segmentation_valid, i, None)
+            )
             if valid is None:
-                msg = f"Missing {VALID_PANOPTIC} in storage."
+                msg = f"Missing {self.key_segmentation_valid} in storage."
                 raise ValueError(msg)
             if not valid.item():
                 print("Skipping invalid sample")
                 continue
-            seq_id = T.cast(torch.Tensor, storage.get_at(SEQUENCE_ID, i))
+            seq_id = T.cast(torch.Tensor, storage.get_at(self.key_video_sequence, i))
             seq_id_item = int(seq_id.item())
             indices_per_sequence.setdefault(seq_id_item, []).append(i)
 
         # Sort each sequence by frame id
         for indices in indices_per_sequence.values():
-            indices.sort(key=lambda i: storage.get_at(FRAME_ID, i).item())
+            indices.sort(
+                key=lambda i: storage.get_at(self.key_segmentation_valid, i).item()
+            )
 
-        return {
-            "vpq": self._compute_dvpq(
+        if DVPSMetric.VPQ in self.dvps_metrics:
+            assert DVPSMetric.VPQ not in result, result.keys()
+            result[DVPSMetric.VPQ] = self._compute_dvpq(
                 storage,
                 indices_per_sequence,
                 self.dvpq_windows,
                 None,
                 return_dataframe=return_dataframe,
                 **kwargs,
-            ),
-            "dvpq": self._compute_dvpq(
+            )
+        if DVPSMetric.DVPQ in self.dvps_metrics:
+            assert DVPSMetric.DVPQ.value not in result, result.keys()
+            result[DVPSMetric.DVPQ.value] = self._compute_dvpq(
                 storage,
                 indices_per_sequence,
                 self.dvpq_windows,
                 self.dvpq_thresholds,
                 return_dataframe=return_dataframe,
                 **kwargs,
-            ),
-            "dstq": self._compute_dstq(
+            )
+
+        if DVPSMetric.STQ in self.dvps_metrics:
+            assert DVPSMetric.STQ.value not in result, result.keys()
+            result[DVPSMetric.STQ.value] = self._compute_dstq(
                 storage,
                 indices_per_sequence,
                 return_dataframe=return_dataframe,
                 **kwargs,
-            ),
-        }
+            )
+
+        return result
 
     def _compute_dvpq(
         self,
@@ -202,7 +190,7 @@ class DVPSEvaluator(DVPSWriter):
                     if len(indices) == 0:
                         raise ValueError("Empty sequence.")
 
-                    if self.pq_definition & PQDefinition.ORIGINAL:
+                    if self.pq_definition & segmentation.PQDefinition.ORIGINAL:
                         sum = self._compute_dvpq_at(
                             storage,
                             indices,
@@ -213,7 +201,7 @@ class DVPSEvaluator(DVPSWriter):
                         )
                         sum["definition"] = "original"
                         summaries.append(sum)
-                    if self.pq_definition & PQDefinition.BALANCED:
+                    if self.pq_definition & segmentation.PQDefinition.BALANCED:
                         sum = self._compute_dvpq_at(
                             storage,
                             indices,
@@ -305,7 +293,7 @@ class DVPSEvaluator(DVPSWriter):
         """
 
         # Make groups of length `window` and compute PQ for each group
-        void_color = _get_void_color(self.object_ids, self.background_ids)
+        void_color = segmentation.find_void_color(self.object_ids, self.background_ids)
 
         num_categories = len(self.object_ids) + len(self.background_ids)
         iou = torch.zeros(num_categories, dtype=torch.double, device=device)  # type: ignore
@@ -326,6 +314,10 @@ class DVPSEvaluator(DVPSWriter):
             num_categories=num_categories,
             object_ids=self.object_ids,
             background_ids=self.background_ids,
+            key_segmentation_true=self.key_segmentation_true,
+            key_segmentation_pred=self.key_segmentation_pred,
+            key_depth_true=self.depth_key_true,
+            key_depth_pred=self.depth_key_pred,
         )
         sample_amt = len(indices)
         with concurrent.futures.ThreadPoolExecutor(
@@ -351,8 +343,8 @@ class DVPSEvaluator(DVPSWriter):
         #     fn += result[3]
 
         # Compute PQ = SQ * RQ
-        sq = H.stable_divide(iou, tp)
-        rq = H.stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
+        sq = stable_divide(iou, tp)
+        rq = stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
         pq = sq * rq
 
         # Total valid values
@@ -363,10 +355,10 @@ class DVPSEvaluator(DVPSWriter):
 
         # Mask out categories that have only true negatives
         tn_mask: torch.Tensor = n_valid > 0
-        th_mask: torch.Tensor = H.isin(
+        th_mask: torch.Tensor = isin(
             torch.arange(num_categories, device=device), list(self.object_ids)
         )
-        st_mask: torch.Tensor = H.isin(
+        st_mask: torch.Tensor = isin(
             torch.arange(num_categories, device=device), list(self.background_ids)
         )
 
@@ -430,14 +422,6 @@ class DVPSEvaluator(DVPSWriter):
 
         return df
 
-
-def _format_summary_number(num: T.Any, name: str) -> str:
-    res = str(num)
-    if "." in res:
-        return res.replace(".", name)
-    return res + name
-
-
 def _compute_dvpq_at_group(
     group: list[int],
     *,
@@ -450,11 +434,26 @@ def _compute_dvpq_at_group(
     num_categories,
     object_ids,
     background_ids,
+    key_segmentation_true: str,
+    key_segmentation_pred: str,
+    key_depth_true: str,
+    key_depth_pred: str,
 ):
-    true_seg = storage.get_at(TRUE_PANOPTIC, group).to(device, non_blocking=True)
-    pred_seg = storage.get_at(PRED_PANOPTIC, group).to(device, non_blocking=True)
-    true_dep = storage.get_at(TRUE_DEPTH, group).to(device, non_blocking=True)
-    pred_dep = storage.get_at(PRED_DEPTH, group).to(device, non_blocking=True)
+    r"""
+    Computes DVPQ for a group of frames. This function is safe for use in a parallel context.
+    """
+    true_seg = storage.get_at(key_segmentation_true, group).to(
+        device, non_blocking=True
+    )
+    pred_seg = storage.get_at(key_segmentation_pred, group).to(
+        device, non_blocking=True
+    )
+    true_dep = storage.get_at(key_depth_true, group).to(
+        device, non_blocking=True
+    )
+    pred_dep = storage.get_at(key_depth_pred, group).to(
+        device, non_blocking=True
+    )
     assert pred_dep.shape == true_dep.shape, (pred_dep.shape, true_dep.shape)
     assert pred_seg.shape == true_seg.shape, (pred_seg.shape, true_seg.shape)
     assert true_dep.dtype == torch.float32, true_dep.dtype
@@ -488,14 +487,14 @@ def _compute_dvpq_at_group(
         list(background_ids) + [invalid_depth_id]
     )  # if not allow_unknown_category else background_ids,
 
-    pred_seg = _preprocess_mask(
+    pred_seg = segmentation.panoptic_quality_preprocess(
         object_ids,
         background_ids,
         pred_seg,
         void_color=void_color,
         allow_unknown_category=allow_unknown_category,
     )
-    true_seg = _preprocess_mask(
+    true_seg = segmentation.panoptic_quality_preprocess(
         object_ids,
         background_ids,
         true_seg,
@@ -504,7 +503,7 @@ def _compute_dvpq_at_group(
     )
 
     return (
-        *_panoptic_quality_update_sample(
+        *segmentation.panoptic_quality_update_sample(
             pred_seg,
             true_seg,
             void_color=void_color,
@@ -513,3 +512,55 @@ def _compute_dvpq_at_group(
         ),
         abs_rel_mean,
     )
+
+
+def _format_summary_number(num: T.Any, name: str) -> str:
+    res = str(num)
+    if "." in res:
+        return res.replace(".", name)
+    return res + name
+
+
+def compute_stq(
+    element,
+    num_classes=19,
+    max_ins=10000,
+    ign_id=255,
+    num_things=8,
+    label_divisor=1e4,
+    ins_divisor=1e7,
+):
+    import numpy as np
+
+    y_pred, y_true = element
+    y_true = y_true.astype(np.int64)
+    y_pred = y_pred.astype(np.int64)
+
+    # semantic eval
+    semantic_label = y_true // max_ins
+    semantic_prediction = y_pred // max_ins
+    semantic_label = np.where(semantic_label != ign_id, semantic_label, num_classes)
+    semantic_prediction = np.where(
+        semantic_prediction != ign_id, semantic_prediction, num_classes
+    )
+    semantic_ids = np.reshape(semantic_label, [-1]) * label_divisor + np.reshape(
+        semantic_prediction, [-1]
+    )
+
+    # instance eval
+    instance_label = y_true % max_ins
+    label_mask = np.less(semantic_label, num_things)
+    prediction_mask = np.less(semantic_label, num_things)
+    is_crowd = np.logical_and(instance_label == 0, label_mask)
+
+    label_mask = np.logical_and(label_mask, np.logical_not(is_crowd))
+    prediction_mask = np.logical_and(prediction_mask, np.logical_not(is_crowd))
+
+    seq_preds = y_pred[prediction_mask]
+    seg_labels = y_true[label_mask]
+
+    non_crowd_intersection = np.logical_and(label_mask, prediction_mask)
+    intersection_ids = (
+        y_true[non_crowd_intersection] * ins_divisor + y_pred[non_crowd_intersection]
+    )
+    return semantic_ids, seq_preds, seg_labels, intersection_ids

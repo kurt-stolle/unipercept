@@ -1,10 +1,12 @@
 """
 Implements an evaluator for depth estimation tasks.
+
+Computes the metrics proposed by Eigen et al. (2014) for depth estimation tasks.
 """
 
 from __future__ import annotations
 
-import concurrent.futures
+import typing_extensions as TX
 import dataclasses as D
 import functools
 import typing as T
@@ -15,6 +17,7 @@ import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from torch import Tensor
+
 from torch.utils._pytree import tree_map
 from tqdm import tqdm
 from typing_extensions import override
@@ -22,26 +25,13 @@ from typing_extensions import override
 from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available, get_interactive
 
-from ._base import Evaluator, PlotMode
+from ._base import Evaluator, PlotMode, StoragePrefix
 
 if T.TYPE_CHECKING:
     from ..data.sets import Metadata
+    from ..model import InputData
 
 _logger = get_logger(__name__)
-
-__all__ = [
-    "DepthEvaluator",
-    "DepthWriter",
-    "DepthMetrics",
-    "PRED_DEPTH",
-    "TRUE_DEPTH",
-    "VALID_DEPTH",
-    "compute_depth_metrics",
-]
-
-PRED_DEPTH: T.Final[str] = "pred_depth"
-TRUE_DEPTH: T.Final[str] = "true_depth"
-VALID_DEPTH: T.Final[str] = "valid_depth"
 
 _FLOAT_DTYPE: T.Final = torch.float64
 _FLOAT_EPS: T.Final = torch.finfo(_FLOAT_DTYPE).eps
@@ -53,77 +43,106 @@ class DepthWriter(Evaluator):
     Writes depth maps to storage for evaluation purposes.
     """
 
-    info: Metadata = D.field(repr=False)
+    depth_plot_samples: int = 1
+    depth_plot_true: PlotMode = PlotMode.ONCE
+    depth_plot_pred: PlotMode = PlotMode.ALWAYS
+    depth_requires_true: bool = D.field(
+        default=True,
+        metadata={"help": "Raise an error if the target depth is not found"},
+    )
+    depth_requires_pred: bool = D.field(
+        default=True,
+        metadata={"help": "Raise an error if the predicted depth is not found"},
+    )
+    depth_key: str = D.field(
+        default="depth", metadata={"help": "Key for the depth map"}
+    )
 
-    plot_samples: int = 1
-    plot_true_depth: PlotMode = PlotMode.ONCE
-    plot_pred_depth: PlotMode = PlotMode.ALWAYS
+    @property
+    def depth_key_true(self):
+        return self.get_storage_key(self.depth_key, StoragePrefix.TRUE)
 
-    pred_key_depth = "depths"
-    true_key_depth = ("captures", "depths")
+    @property
+    def depth_key_pred(self):
+        return self.get_storage_key(self.depth_key, StoragePrefix.PRED)
 
-    true_group_index = -1  # the most recent group, assuming temporal ordering
+    @property
+    def depth_key_valid(self):
+        return self.get_storage_key(self.depth_key, StoragePrefix.VALID)
 
-    @classmethod
-    def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        """
-        This method is a stub for a ``from_metadata`` classmethod that would use the metadata of a dataset to
-        instantiate this evaluator.
-        """
-        from unipercept import get_info
-
-        info = get_info(name)
-        return cls(info=info, **kwargs)
-
-    @override
+    @TX.override
     def update(
-        self, storage: TensorDictBase, inputs: TensorDictBase, outputs: TensorDictBase
+        self, storage: TensorDictBase, inputs: InputData, outputs: TensorDictBase
     ):
         super().update(storage, inputs, outputs)
 
+        target_keys = {
+            self.depth_key_true,
+            self.depth_key_pred,
+            self.depth_key_valid,
+        }
         storage_keys = storage.keys(leaves_only=True, include_nested=True)
-        if (
-            TRUE_DEPTH in storage_keys
-            and PRED_DEPTH in storage_keys
-            and VALID_DEPTH in storage_keys
-        ):
+        assert storage_keys is not None
+        if target_keys.issubset(storage_keys):
             return
 
-        pred = outputs.get(self.pred_key_depth, None)
-        assert pred.dtype == torch.float32, pred.dtype
-        if pred is None:
-            raise RuntimeError(f"Missing key {self.pred_key_depth} in {outputs=}")
-        assert (
-            pred.ndim == 3
-        ), f"Expected 3D tensor for {self.pred_key_depth}, got {pred.shape=}"
+        input_images = inputs.captures.images
+        assert input_images is not None
+        input_batch = input_images.shape[0]
+        input_shape = input_images.shape[-2:]
 
-        true = inputs.get(self.true_key_depth, None)
-        assert true.dtype == torch.float32
-        if true is None:  # Generate dummy values for robust evaluation downstream
+        pred = outputs.get(self.depth_key, None)
+        if pred is None:
+            if self.depth_requires_pred:
+                msg = f"Missing key {self.depth_key} in {outputs.keys()=}"
+                raise RuntimeError(msg)
+            pred = torch.zeros(
+                (input_batch, *input_shape),
+                dtype=torch.float32,
+                device=input_images.device,
+            )
+        assert pred.dtype == torch.float32, pred.dtype
+        assert pred.ndim == 3, pred.shape
+        assert pred.shape[-2:] == input_shape, (pred.shape, input_shape)
+        assert pred.shape[0] == input_batch, (pred.shape, input_batch)
+
+        true = inputs.captures.depths
+        if true is None:
+            if self.depth_requires_true:
+                msg = f"Missing key {self.depth_key} in {inputs.keys()=}"
+                raise RuntimeError(msg)
             true = torch.full_like(pred, 0, dtype=torch.float32)
         else:
-            true = true[:, self.true_group_index, ...]
-        assert (
-            true.ndim == 3
-        ), f"Expected 3D tensor for {self.true_key_depth}, got {true.shape=}"
+            assert isinstance(true, torch.Tensor), type(true)
+            assert true.dtype == torch.float32
+            true = true[:, self.pair_index, ...]
+        assert true.ndim == 3, true.shape
+        assert true.shape[-2:] == input_shape, (true.shape, input_shape)
+        assert true.shape[0] == input_batch, (true.shape, input_batch)
 
         valid = (true > 1e-8).any(-1).any(-1)
 
-        for key, item in ((TRUE_DEPTH, true), (PRED_DEPTH, pred), (VALID_DEPTH, valid)):
+        for key, item in {
+            self.depth_key_true: true,
+            self.depth_key_pred: pred,
+            self.depth_key_valid: valid,
+        }.items():
             storage.set(key, item, inplace=True)
 
-    @override
+    @TX.override
     def compute(self, *args, **kwargs):
-        return {}
+        return super().compute(*args, **kwargs)
 
-    @override
+    @TX.override
     def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
         from unipercept.render import draw_image_depth
 
+        result = super().plot(storage)
+
         plot_keys = []
         for key, mode_attr in (
-            (TRUE_DEPTH, "plot_true_depth"),
-            (PRED_DEPTH, "plot_pred_depth"),
+            (self.depth_key_true, "depth_plot_true"),
+            (self.depth_key_pred, "depth_plot_pred"),
         ):
             mode = getattr(self, mode_attr)
             if mode == PlotMode.NEVER:
@@ -132,8 +151,7 @@ class DepthWriter(Evaluator):
                 setattr(self, mode_attr, PlotMode.NEVER)
             plot_keys.append(key)
 
-        result = {}
-        for i in range(self.plot_samples):
+        for i in range(self.depth_plot_samples):
             for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_depth(
                     storage.get_at(key, i).clone().float(), self.info
@@ -141,20 +159,15 @@ class DepthWriter(Evaluator):
         return result
 
 
-_KEY_VALID_PX = "valid"
-
-
 @D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
-    show_progress: bool = D.field(default_factory=get_interactive)
-    show_summary: bool = True
 
     @classmethod
-    @override
+    @TX.override
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
         return super().from_metadata(name, **kwargs)
 
-    @override
+    @TX.override
     def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs):
         num_samples = storage.batch_size[0]
         compute_at = functools.partial(self._compute_at, storage=storage, device=device)
@@ -184,18 +197,17 @@ class DepthEvaluator(DepthWriter):
 
         return metrics
 
-    @staticmethod
-    def _compute_at(n, *, storage, device):
-        valid = storage.get_at(VALID_DEPTH, n).item()
+    def _compute_at(self, n, *, storage, device):
+        valid = storage.get_at(self.depth_key_valid, n).item()
         if not valid:
             return None
-
-        pred = storage.get_at(PRED_DEPTH, n, None).to(device=device)
-        true = storage.get_at(TRUE_DEPTH, n, None).to(device=device)
-
-        if pred is None or true is None:
-            return None
-
+        pred = storage.get_at(self.depth_key_pred, n, None).to(
+            device=device, non_blocking=True
+        )
+        true = storage.get_at(self.depth_key_true, n, None).to(
+            device=device, non_blocking=True
+        )
+        assert pred is not None and true is not None, (pred, true)
         return compute_partial_depth_metrics(pred=pred, true=true)
 
 

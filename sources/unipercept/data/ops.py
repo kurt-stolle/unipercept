@@ -209,7 +209,7 @@ class GuidedRandomCrop(Op):
         min_unique_instances: int = 1,
         min_instance_area: float = 1e-2,
         min_valid_segmentation_area: float = 0.70,
-        min_valid_depth_area: float = 0.50,
+        min_valid_depth_area: float = 0.20,
         max_iterations: int = 40,
         step_factor: int = 4,
         **kwargs,

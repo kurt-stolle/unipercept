@@ -23,7 +23,7 @@ from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
 from unipercept.data.tensors import PanopticMap
-from unipercept.evaluators import segmentation, tracking, depth
+from unipercept.evaluators import segmentation, tracking, depth, stable_divide, isin
 from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (

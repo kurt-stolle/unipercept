@@ -11,6 +11,7 @@ import dataclasses as D
 import enum
 import functools
 import os
+import pprint
 import types
 import typing as T
 import uuid
@@ -133,7 +134,7 @@ def get_env(
 ) -> _R | None: ...
 
 
-@functools.cache
+@functools.lru_cache(maxsize=None)
 def get_env(
     __type: type[_R],
     /,
@@ -172,6 +173,7 @@ def get_env(
 
 # Some global constants for lazy configuration
 LAZY_TARGET: T.Final = "_target_"
+LAZY_ARGS: T.Final = "_args_"
 _PACKAGE_PREFIX: T.Final = "_config_"
 _OMEGA_DICT_FLAGS: T.Final = {"allow_objects": True}
 
@@ -349,40 +351,38 @@ def _filepath_to_name(path: Pathable) -> str | None:
 
 
 def load_config_remote(path: str):
+    """
+    Load a configuration from a remote source. Currently accepted external configuration
+    sources are:
+
+    - `Weights & Biases <https://wandb.ai/>`_ runs: ``wandb-run://<run_id>``
+
+    Users should prefer to load configurations via the unified API with
+    :func:`unipercept.read_config` instead of calling this method directly.
+    """
     from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
     from unipercept.integrations.wandb_integration import read_run as wandb_read_run
 
     if path.startswith(WANDB_RUN_PREFIX):
         run = wandb_read_run(path)
-        config = DictConfig(run.config)
-        return config
+        cfg = DictConfig(run.config)
+    else:
+        raise FileNotFoundError(path)
 
-    raise FileNotFoundError(path)
+    _maybe_show_config(path, cfg)
+    return cfg
 
 
-def load_config(path: str) -> DictConfig:
+def load_config_local(path: str):
     """
-    Load a config file.
+    Loads a configuration from a local source.
 
-    Parameters
-    ----------
-    path
-        The path to the config file. The file extension must be either ".py" or ".yaml".
-
-    Raises
-    ------
-    ValueError
-        If the file extension is not supported.
-    FileNotFoundError
-        If the file does not exist.
-
+    Users should prefer to load configurations via the unified API with
+    :func:`unipercept.read_config` instead of calling this method directly.
     """
     from unipercept import __version__ as up_version
 
     path = file_io.get_local_path(path)
-    if path is None or not file_io.isfile(path):
-        return load_config_remote(path)
-
     ext = os.path.splitext(path)[1]
     match ext.lower():
         case ".py":
@@ -429,7 +429,18 @@ def load_config(path: str) -> DictConfig:
             msg = "Unsupported file extension %s!"
             raise ValueError(msg, ext)
 
-    return _as_omegadict(obj)
+    cfg = _as_omegadict(obj)
+    _maybe_show_config(path, cfg)
+    return cfg
+
+
+def _maybe_show_config(path: str, cfg: DictConfig):
+    if get_env(bool, "UP_CONFIG_SHOW", default=False):
+        _logger.info(
+            "Loaded config from %s:\n%s",
+            path,
+            pprint.pformat(OmegaConf.to_container(cfg)),
+        )
 
 
 def save_config(cfg, path: str):
@@ -559,28 +570,35 @@ class _LazyCall(T.Generic[_P, _L]):
     """
     Wrap a callable so that when it's called, the call will not be executed,
     but returns a dict that describes the call.
-
-    LazyCall object has to be called with only keyword arguments. Positional
-    arguments are not yet supported.
     """
 
     def __init__(self, target: T.Callable[_P, _L]):
-        if not (callable(target) or isinstance(target, (str, abc.Mapping))):
-            raise TypeError(
-                f"target of LazyCall must be a callable or defines a callable! Got {target}"
+        if not callable(target) and not isinstance(target, (str, T.Mapping)):
+            msg = (
+                "Expected a callable object, string or configuration dictionary, "
+                f"got {target=} (type {type(target)})!"
             )
-        self._target = target
+            raise TypeError(msg)
+        self.target = target
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> DictConfig:
-        if D.is_dataclass(self._target):
+        if {LAZY_TARGET, LAZY_ARGS} & kwargs.keys():
+            msg = f"Cannot use reserved keys {LAZY_TARGET} or {LAZY_ARGS} in kwargs!"
+            raise ValueError(msg)
+
+        node = {}
+        if D.is_dataclass(self.target):
             # omegaconf object cannot hold dataclass type
             # https://github.com/omry/omegaconf/issues/784
-            target = generate_path(self._target)
+            node[LAZY_TARGET] = generate_path(self.target)
         else:
-            target = self._target
-        kwargs[LAZY_TARGET] = target
+            node[LAZY_TARGET] = self.target
+        if args and len(args) > 0:
+            node[LAZY_ARGS] = tuple(args)
 
-        return DictConfig(content=kwargs, flags=_OMEGA_DICT_FLAGS)
+        node.update(kwargs)
+
+        return DictConfig(content=node, flags=_OMEGA_DICT_FLAGS)
 
 
 def call(func: T.Callable[_P, _L], /) -> T.Callable[_P, _L]:
@@ -659,12 +677,11 @@ def instantiate(cfg: T.Mapping[T.Any, LazyObject[_L]], /) -> T.Mapping[T.Any, _L
 
 def instantiate(cfg: T.Any, /) -> T.Any:
     """
-    Recursively instantiate objects defined in dictionaries by "_target_" and
-    arguments.
+    Recursively instantiate objects defined in dictionaries with keys:
 
-    Our version differs from Detectron2's in that it never returns a
-    configuration object, but always returns the instantiated object (e.g. a
-    ListConfig is always converted to a list).
+    - Special key ``"_target_"``: defines the callable/objec to be instantiated.
+    - Special key ``"_args_"``: defines the positional arguments to be passed to the callable.
+    - Other keys define the keyword arguments to be passed to the callable.
     """
     if cfg is None or isinstance(
         cfg,
@@ -683,6 +700,9 @@ def instantiate(cfg: T.Any, /) -> T.Any:
     ):
         return cfg  # type: ignore
 
+    if get_env(bool, "UP_CONFIG_TRACE", default=False):
+        _logger.info("Instantiating %s", pprint.pprint(OmegaConf.to_container(cfg)))
+
     if isinstance(cfg, T.Sequence) and not isinstance(cfg, (T.Mapping, str, bytes)):
         cls = type(cfg)
         cls = _INST_SEQ_TYPEMAP.get(cls, cls)
@@ -696,6 +716,7 @@ def instantiate(cfg: T.Any, /) -> T.Any:
         return omegaconf.OmegaConf.to_object(cfg)
 
     if isinstance(cfg, T.Mapping) and "_target_" in cfg:
+
         # conceptually equivalent to hydra.utils.instantiate(cfg) with _convert_=all,
         # but faster: https://github.com/facebookresearch/hydra/issues/1200
         cfg = {k: instantiate(v) for k, v in cfg.items()}
@@ -713,12 +734,20 @@ def instantiate(cfg: T.Any, /) -> T.Any:
             except Exception:  # noqa: B902, PIE786
                 # target could be anything, so the above could fail
                 cls_name = str(cls)
-        assert callable(cls), f"_target_ {cls} does not define a callable object"
+        if not callable(cls):
+            msg = f"Non-callable object found: {LAZY_TARGET}={cls!r}!"
+            raise TypeError(msg)
+
+        cfg_args = cfg.pop(LAZY_ARGS, ())
+        if not isinstance(cfg_args, T.Sequence):
+            msg = f"Expected sequence for {LAZY_ARGS}, but got {type(cfg_args)}!"
+            raise TypeError(msg)
+
         try:
-            return cls(**cfg)
-        except TypeError as err:
-            msg = f"Error instantiating {cls_name} with arguments {cfg}!"
-            raise TypeError(msg) from err
+            return cls(*cfg_args, **cfg)
+        except Exception as err:
+            msg = f"Error instantiating lazy object {cls_name}.\nConfiguration node: {pprint.pformat(cfg)}!"
+            raise RuntimeError(msg) from err
 
     if isinstance(cfg, (dict, omegaconf.DictConfig)):
         return {k: instantiate(v) for k, v in cfg.items()}  # type: ignore

@@ -8,7 +8,7 @@ import torch
 import typing_extensions as TX
 from tensordict import TensorDict
 
-from unipercept.evaluators import PRED_PANOPTIC, TRUE_PANOPTIC, PanopticEvaluator
+import unipercept.evaluators.segmentation as segeval
 
 
 def test_panoptic_evaluator(
@@ -25,10 +25,20 @@ def test_panoptic_evaluator(
 
     print(f"GT: {true_panoptic.unique().tolist()}")
 
+    evaluator = PanopticEvaluator.from_metadata(
+        "cityscapes",
+        show_progress=True,
+        show_summary=True,
+        show_details=True,
+        segmentation_task=segeval.SegmentationTask.PANOPTIC_SEGMENTATION,
+    )
+
     storage = TensorDict(
         {
-            TRUE_PANOPTIC: einops.repeat(true_panoptic, "h w -> b h w", b=sample_amt),
-            PRED_PANOPTIC: torch.cat(
+            "true_panoptic_segmentation": einops.repeat(
+                true_panoptic, "h w -> b h w", b=sample_amt
+            ),
+            "pred_panoptic_segmentation": torch.cat(
                 [
                     pred_panoptic.unsqueeze(0),
                     PanopticMap.from_parts(
@@ -44,10 +54,9 @@ def test_panoptic_evaluator(
         },
         batch_size=[sample_amt, sample_h, sample_w],
     )
-    storage[PRED_PANOPTIC]
     storage.memmap_()
 
-    evaluator = PanopticEvaluator.from_metadata(
+    evaluator = segeval.PanopticSegmentationEvaluator.from_metadata(
         "cityscapes", show_progress=True, show_summary=True, show_details=True
     )
     metrics = evaluator.compute(storage, device="cpu")

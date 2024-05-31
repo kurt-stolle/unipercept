@@ -17,19 +17,21 @@ import typing as T
 import pandas as pd
 import torch
 import torch.types
+import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from tqdm import tqdm
-import typing_extensions as TX
+
 from unipercept import file_io
 from unipercept.data.tensors import PanopticMap
 from unipercept.data.types.coco import COCOResultPanoptic
-from unipercept.evaluators._common import isin, stable_divide
-from unipercept.evaluators._base import (
+from unipercept.evaluators import (
     Evaluator,
     EvaluatorComputeKWArgs,
     PlotMode,
     StoragePrefix,
+    isin,
+    stable_divide,
 )
 from unipercept.log import get_logger
 from unipercept.state import check_main_process, cpus_available
@@ -76,26 +78,36 @@ class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
     )
     segmentation_task: SegmentationTask = D.field(
         default=SegmentationTask.PANOPTIC_SEGMENTATION,
-        metadata={"help": "The type of segmentation task."},
+        metadata={
+            "help": (
+                "The type of segmentation task. Used to determine the default keys and "
+                "validate the predicated output. Ground truths are always in panoptic "
+                "segmentation format."
+            )
+        },
     )
 
-    def __post_init__(self):
+    def __post_init__(self, *args, **kwargs):
+        super().__post_init__(*args, **kwargs)
         if isinstance(self.segmentation_task, str):
             self.segmentation_task = SegmentationTask(self.segmentation_task)
         if self.segmentation_key is None:
             self.segmentation_key = self.segmentation_task.value
 
     @property
-    def key_segmentation_pred(self) -> str:
-        return self.get_storage_key(self.segmentation_key, StoragePrefix.PRED)
+    def segmentation_key_pred(self) -> str:
+        assert self.segmentation_key is not None
+        return self._get_storage_key(self.segmentation_key, StoragePrefix.PRED)
 
     @property
-    def key_segmentation_true(self) -> str:
-        return self.get_storage_key(self.segmentation_key, StoragePrefix.PRED)
+    def segmentation_key_true(self) -> str:
+        assert self.segmentation_key is not None
+        return self._get_storage_key(self.segmentation_key, StoragePrefix.TRUE)
 
     @property
-    def key_segmentation_valid(self) -> str:
-        return self.get_storage_key(self.segmentation_key, StoragePrefix.VALID)
+    def segmentation_key_valid(self) -> str:
+        assert self.segmentation_key is not None
+        return self._get_storage_key(self.segmentation_key, StoragePrefix.VALID)
 
     @TX.override
     def update(
@@ -107,9 +119,9 @@ class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
         super().update(storage, inputs, outputs)
 
         target_keys = {
-            self.key_segmentation_valid,
-            self.key_segmentation_pred,
-            self.key_segmentation_valid,
+            self.segmentation_key_valid,
+            self.segmentation_key_pred,
+            self.segmentation_key_valid,
         }
         storage_keys = storage.keys(include_nested=True, leaves_only=True)
         assert storage_keys is not None
@@ -136,8 +148,7 @@ class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
         assert pred.shape[0] == input_batch, f"{pred.shape=} {input_batch=}"
 
         true = inputs.captures.segmentations
-        assert true is not None
-        if true is None:  # Generate dummy values for robust evaluation downstream
+        if true is None:
             if self.segmentation_requires_true:
                 msg = f"Panoptic segmentation target not found in {inputs=}"
                 raise RuntimeError(msg)
@@ -151,9 +162,9 @@ class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
         valid = (true >= 0).any(dim=(-1)).any(dim=-1)
 
         for key, item in {
-            self.key_segmentation_pred: pred,
-            self.key_segmentation_true: true,
-            self.key_segmentation_valid: valid,
+            self.segmentation_key_pred: pred,
+            self.segmentation_key_true: true,
+            self.segmentation_key_valid: valid,
         }.items():
             storage.set(key, item, inplace=True)
 
@@ -165,8 +176,8 @@ class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
 
         plot_keys = []
         plot_mapping = {
-            self.key_segmentation_true: "segmentation_plot_true",
-            self.key_segmentation_pred: "segmentation_plot_pred",
+            self.segmentation_key_true: "segmentation_plot_true",
+            self.segmentation_key_pred: "segmentation_plot_pred",
         }
         for key, mode_attr in plot_mapping.items():
             mode = getattr(self, mode_attr)
@@ -197,8 +208,10 @@ class COCOWriter(SegmentationWriter):
         storage: TensorDictBase,
         *,
         path: str,
-        **kwargs: T.Unpack[EvaluatorComputeKWArgs],
-    ) -> None:
+        device: torch.types.Device,
+    ):
+        results = super().compute(storage, path=path, device=device)
+
         path_files = file_io.Path(path) / "coco_panoptic"
         path_json = path_files.with_suffix(".json")
 
@@ -232,28 +245,30 @@ class COCOWriter(SegmentationWriter):
         with open(path_json, "w") as f:
             json.dump(coco_res, f)
 
+        return results
+
+    @staticmethod
+    def _export_coco_at(
+        i: int, *, storage, translations_dataset, path_files
+    ) -> COCOResultPanoptic | None:
+        valid = storage.get_at(VALID_PANOPTIC, i).item()
+        if not valid:
+            return None
+        true = T.cast(torch.Tensor, storage.get_at(PRED_PANOPTIC, i))
+        true = true.as_subclass(PanopticMap)
+        true.translate_semantic_(translations_dataset, inverse=True)
+        coco_img, coco_info = true.to_coco()
+        path_file = (path_files / str(i)).with_suffix(".png")
+        coco_img.save(path_file, format="PNG")
+        return {
+            "image_id": i,
+            "file_name": path_file.name,
+            "segments_info": coco_info,
+        }
+
 
 # A (category_id, instance_id) tuple that uniquely identifies a panoptic segment.
 _ColorType: T.TypeAlias = tuple[int, int]
-
-
-def _export_coco_at(
-    i: int, *, storage, translations_dataset, path_files
-) -> COCOResultPanoptic | None:
-    valid = storage.get_at(VALID_PANOPTIC, i).item()
-    if not valid:
-        return None
-    true = T.cast(torch.Tensor, storage.get_at(PRED_PANOPTIC, i))
-    true = true.as_subclass(PanopticMap)
-    true.translate_semantic_(translations_dataset, inverse=True)
-    coco_img, coco_info = true.to_coco()
-    path_file = (path_files / str(i)).with_suffix(".png")
-    coco_img.save(path_file, format="PNG")
-    return {
-        "image_id": i,
-        "file_name": path_file.name,
-        "segments_info": coco_info,
-    }
 
 
 @D.dataclass(kw_only=True)
@@ -283,16 +298,18 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
     Computes PQ metrics for panoptic segmentation tasks.
     """
 
-    show_summary: bool = True
-    show_details: bool = False
-    report_details: bool = False
-
-    pq_definition: PQDefinition = PQDefinition.ORIGINAL
-
-    @classmethod
-    @TX.override
-    def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        return super().from_metadata(name, **kwargs)
+    panoptic_with_details: bool = D.field(
+        default=False,
+        metadata={
+            "help": "Show detailed metrics (i.e. for each category)",
+        },
+    )
+    panoptic_definition: PQDefinition = D.field(
+        default=PQDefinition.ORIGINAL,
+        metadata={
+            "help": "The definition of the PQ metric to compute. Can be 'original' or 'balanced'.",
+        },
+    )
 
     @property
     def object_ids(self) -> frozenset[int]:
@@ -306,12 +323,12 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
         metrics = super().compute(storage, **kwargs)
 
-        if self.pq_definition & PQDefinition.ORIGINAL:
-            metrics["original"] = self.compute_pq(
+        if self.panoptic_definition & PQDefinition.ORIGINAL:
+            metrics["original"] = self._compute_panoptic_quality(
                 storage, device=kwargs["device"], allow_stuff_instances=True
             )
-        if self.pq_definition & PQDefinition.BALANCED:
-            metrics["balanced"] = self.compute_pq(
+        if self.panoptic_definition & PQDefinition.BALANCED:
+            metrics["balanced"] = self._compute_panoptic_quality(
                 storage, device=kwargs["device"], allow_stuff_instances=False
             )
 
@@ -320,7 +337,7 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
 
         return metrics
 
-    def compute_pq(
+    def _compute_panoptic_quality(
         self,
         storage: TensorDictBase,
         *,
@@ -352,9 +369,9 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
             void_color=void_color,
             allow_stuff_instances=allow_stuff_instances,
             num_categories=num_categories,
-            key_segmentation_true=self.key_segmentation_true,
-            key_segmentation_pred=self.key_segmentation_pred,
-            key_segmentation_valid=self.key_segmentation_valid,
+            key_segmentation_true=self.segmentation_key_true,
+            key_segmentation_pred=self.segmentation_key_pred,
+            key_segmentation_valid=self.segmentation_key_valid,
         )
 
         progress_bar = tqdm(
@@ -398,7 +415,7 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
             allow_stuff_instances=allow_stuff_instances,
         )
 
-        if self.report_details:
+        if self.panoptic_with_details:
             out = summary | details
         else:
             out = summary

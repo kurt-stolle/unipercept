@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import abc
 import contextlib
-import enum as E
 import dataclasses as D
+import enum as E
 import typing as T
 
 import pandas as pd
@@ -16,15 +16,16 @@ import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
-from unipercept.log import get_logger
+from unipercept.log import Logger, get_logger
 from unipercept.state import check_main_process, get_interactive
 
 if T.TYPE_CHECKING:
-    from unipercept.model import InputData
     from tensordict import TensorDictBase
-    from unipercept.data.sets import Metadata
 
-__all__ = ["Evaluator", "PlotMode"]
+    from unipercept.data.sets import Metadata
+    from unipercept.model import InputData
+
+__all__ = ["Evaluator", "PlotMode", "StoragePrefix", "EvaluatorComputeKWArgs"]
 
 
 _logger = get_logger(__name__)
@@ -62,19 +63,21 @@ class Evaluator(metaclass=abc.ABCMeta):
     Implements an evaluator for a given task.
     """
 
+    # ---------- #
+    # Public API #
+    # ---------- #
+
     @classmethod
     def from_metadata(cls, name: str, **kwargs) -> T.Self:
         from unipercept import get_info
 
         return cls(info=get_info(name), **kwargs)
 
-    def __new__(cls, *args, **kwargs):
-        if cls is Evaluator:
-            msg = "Cannot instantiate base class Evaluator directly."
-            raise RuntimeError(msg)
-        return super().__new__(cls)
-
-    info: Metadata = D.field(repr=False)
+    info: Metadata = D.field(
+        repr=False,
+        metadata={"help": "Metadata of the dataset under evaluation."},
+    )
+    logger: Logger = D.field(init=False, repr=False)
 
     show_progress: bool = D.field(
         default_factory=get_interactive,
@@ -102,6 +105,12 @@ class Evaluator(metaclass=abc.ABCMeta):
         },
     )
 
+    def __post_init__(self, *args, **kwargs):
+        self.logger = get_logger(f"{__name__} ({self.__class__.__name__})")
+
+    # ---------------- #
+    # Abstract methods #
+    # ---------------- #
     @abc.abstractmethod
     def update(
         self,
@@ -126,14 +135,20 @@ class Evaluator(metaclass=abc.ABCMeta):
     ) -> dict[str, pil_image.Image]:
         return {}
 
-    def _show_table(self, msg: str, tab: pd.DataFrame) -> None:
+    # --------------- #
+    # Utility methods #
+    # --------------- #
+
+    def _show_table(self, msg: str, tab: pd.DataFrame | dict[str, T.Any]) -> None:
         from unipercept.log import create_table
 
         # tab_fmt = tab.to_markdown(index=False)
+        if isinstance(tab, pd.DataFrame):
+            tab_fmt = create_table(tab.to_dict(orient="list"))
+        else:
+            tab_fmt = create_table(tab, format="wide")
 
-        tab_fmt = create_table(tab.to_dict(orient="list"))
-
-        _logger.info("%s:\n%s", msg, tab_fmt)
+        self.logger.info("%s:\n%s", msg, tab_fmt)
 
     def _progress_bar(self, *args, **kwargs):
         from tqdm import tqdm
@@ -145,7 +160,7 @@ class Evaluator(metaclass=abc.ABCMeta):
             **kwargs,
         )
 
-    def get_storage_key(self, key: str, prefix: StoragePrefix | str) -> str:
+    def _get_storage_key(self, key: str, prefix: StoragePrefix | str) -> str:
         if isinstance(prefix, StoragePrefix):
             kind = prefix.value
         else:

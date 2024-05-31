@@ -146,7 +146,7 @@ def read_config(config: ConfigParam) -> DictConfig:
         A DictConfig object.
     """
     from unipercept import file_io
-    from unipercept.config import load_config, load_config_remote
+    from unipercept.config import load_config_local, load_config_remote
     from unipercept.engine._engine import _sort_children_by_suffix
 
     if isinstance(config, str):
@@ -166,7 +166,7 @@ def read_config(config: ConfigParam) -> DictConfig:
         if config_path.suffix not in (".py", ".yaml"):
             msg = f"Configuration file must be a .py or .yaml file, got {config_path}"
             raise ValueError(msg)
-        obj = load_config(str(config_path))
+        obj = load_config_local(str(config_path))
         if not isinstance(obj, DictConfig):
             msg = f"Expected a DictConfig, got {obj}"
             raise TypeError(msg)

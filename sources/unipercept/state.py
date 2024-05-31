@@ -4,28 +4,30 @@ The Accelerate library is adopted to handle distributed training and inference.
 """
 
 from __future__ import annotations
-import functools as F
-import threading
-import enum as E
-from torch import Tensor
-from torch.futures import Future, wait_all, collect_all
-import types
+
 import abc
+import enum as E
+import functools as F
 import os
 import sys
+import threading
+import types
 import typing as T
-import typing_extensions as TX
-import accelerate.utils
+
 import accelerate.state
+import accelerate.utils
 import torch
 import torch.distributed as dist
 import torch.types
 import torch.utils.data
+import typing_extensions as TX
 from tensordict import TensorDict, TensorDictBase, is_tensor_collection
-from unipercept.utils.tensorclass import Tensorclass
+from torch import Tensor
 from torch.autograd import Function
-from torch.utils._pytree import tree_flatten, tree_unflatten, TreeSpec
-import torch
+from torch.futures import Future, collect_all, wait_all
+from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
+
+from unipercept.utils.tensorclass import Tensorclass
 
 __all__ = []
 

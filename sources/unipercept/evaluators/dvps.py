@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import concurrent.futures
 import dataclasses as D
+import enum as E
 import functools
 import itertools
 import typing as T
 import warnings
+
 import pandas as pd
 import torch
 import torch.types
@@ -23,14 +25,13 @@ from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
 from unipercept.data.tensors import PanopticMap
-from unipercept.evaluators import segmentation, tracking, depth, stable_divide, isin
+from unipercept.evaluators import depth, isin, segmentation, stable_divide, tracking
 from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (
     defaultdict_recurrent,
     defaultdict_recurrent_to_dict,
 )
-import enum as E
 
 _logger = get_logger(__name__)
 
@@ -76,12 +77,10 @@ class DVPSEvaluator(
     dvpq_thresholds: list[float] = D.field(default_factory=lambda: [0.5, 0.25, 0.1])
     dstq_thresholds: list[float] = D.field(default_factory=lambda: [1.25, 1.1])
 
-    @classmethod
-    @TX.override
-    def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        from unipercept import get_info
+    def __post_init__(self, *args, **kwargs):
+        super().__post_init__(*args, **kwargs)
 
-        return cls(info=get_info(name), **kwargs)
+        self.dvps_metrics = frozenset(self.dvps_metrics)
 
     @property
     def object_ids(self) -> frozenset[int]:
@@ -106,10 +105,10 @@ class DVPSEvaluator(
         indices_per_sequence: dict[int, list[int]] = {}
         for i in range(num_samples):
             valid = T.cast(
-                torch.Tensor, storage.get_at(self.key_segmentation_valid, i, None)
+                torch.Tensor, storage.get_at(self.segmentation_key_valid, i, None)
             )
             if valid is None:
-                msg = f"Missing {self.key_segmentation_valid} in storage."
+                msg = f"Missing {self.segmentation_key_valid} in storage."
                 raise ValueError(msg)
             if not valid.item():
                 print("Skipping invalid sample")
@@ -121,7 +120,7 @@ class DVPSEvaluator(
         # Sort each sequence by frame id
         for indices in indices_per_sequence.values():
             indices.sort(
-                key=lambda i: storage.get_at(self.key_segmentation_valid, i).item()
+                key=lambda i: storage.get_at(self.segmentation_key_valid, i).item()
             )
 
         if DVPSMetric.VPQ in self.dvps_metrics:
@@ -314,8 +313,8 @@ class DVPSEvaluator(
             num_categories=num_categories,
             object_ids=self.object_ids,
             background_ids=self.background_ids,
-            key_segmentation_true=self.key_segmentation_true,
-            key_segmentation_pred=self.key_segmentation_pred,
+            key_segmentation_true=self.segmentation_key_true,
+            key_segmentation_pred=self.segmentation_key_pred,
             key_depth_true=self.depth_key_true,
             key_depth_pred=self.depth_key_pred,
         )
@@ -422,6 +421,7 @@ class DVPSEvaluator(
 
         return df
 
+
 def _compute_dvpq_at_group(
     group: list[int],
     *,
@@ -448,12 +448,8 @@ def _compute_dvpq_at_group(
     pred_seg = storage.get_at(key_segmentation_pred, group).to(
         device, non_blocking=True
     )
-    true_dep = storage.get_at(key_depth_true, group).to(
-        device, non_blocking=True
-    )
-    pred_dep = storage.get_at(key_depth_pred, group).to(
-        device, non_blocking=True
-    )
+    true_dep = storage.get_at(key_depth_true, group).to(device, non_blocking=True)
+    pred_dep = storage.get_at(key_depth_pred, group).to(device, non_blocking=True)
     assert pred_dep.shape == true_dep.shape, (pred_dep.shape, true_dep.shape)
     assert pred_seg.shape == true_seg.shape, (pred_seg.shape, true_seg.shape)
     assert true_dep.dtype == torch.float32, true_dep.dtype

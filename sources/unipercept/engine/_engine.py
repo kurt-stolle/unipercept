@@ -284,7 +284,7 @@ class Engine:
         Attempt to locate the configuration YAML file for the current project.
         If that does not exist, return None. If it does exist, return the configuration object.
         """
-        from unipercept.config import load_config
+        from unipercept.config import load_config_local
 
         if self._config is not None:
             return self._config
@@ -297,7 +297,7 @@ class Engine:
         _logger.info("Loading configuration from %s", path)
 
         try:
-            lazy = load_config(str(path))
+            lazy = load_config_local(str(path))
         except Exception as e:  # noqa: PIE786
             msg = f"Could not load configuration from {path!r} {e}"
             _logger.warning(msg)

@@ -1,10 +1,18 @@
 """
 Canonical logger used throughout the project.
+
+This module follows the same semantics as defined in the PyTorch logging.
+
+See Also
+--------
+- `PyTorch Logging <https://pytorch.org/docs/stable/_modules/torch/_logging.html>`_
+- `Design Document <https://docs.google.com/document/d/1ZRfTWKa8eaPq1AxaiHrq4ASTPouzzlPiuquSBEJYwS8/edit>`_
 """
 
 from __future__ import annotations
 
 import atexit
+import collections
 import functools
 import io
 import logging
@@ -22,18 +30,67 @@ from typing_extensions import override
 
 __all__ = []
 
-# Logging levels are defined by integer values, this mapping makes it easier to use strings, e.g. in a CLI setting.
-LOG_LEVELS: T.Final[dict[str, int]] = {
-    "debug": logging.DEBUG,
-    "info": logging.INFO,
-    "warning": logging.WARNING,
-    "error": logging.ERROR,
-    "critical": logging.CRITICAL,
-    "passive": -1,
-}
+Logger: T.TypeAlias = logging.Logger
 
-# Default logging level, can be overridden by setting the UNI_LOG_LEVEL environment variable.
-DEFAULT_LEVEL: T.Final[str] = os.getenv("UNI_LOG_LEVEL", "debug")
+# Logging levels are defined by integer values, this mapping makes it easier to use strings, e.g. in a CLI setting.
+LOG_LEVELS: T.Final[T.OrderedDict[str, int]] = T.OrderedDict(
+    {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+        "critical": logging.CRITICAL,
+    }
+)
+
+
+# Default logging level, can be overridden by setting the UN_LOG_LEVEL environment variable.
+@functools.lru_cache(maxsize=None)
+def _get_logging_level_map() -> collections.defaultdict[str, str]:
+    """
+    Returns a mapping of (logger name) -> (logging level).
+
+    By default, all loggers are set to the level of the root logger, which has
+    a default value set by the environment variable ``UP_LOGS_LEVEL``, by default
+    ``logging.INFO``.
+
+    Individual modules' log levels can be overridden by setting the environment
+    variable ``UP_LOGS``.
+    The environment variable should be a comma-separated list of logger names and
+    levels. We allow two formats for each entry:
+
+        1. Explicitly pass the module name and log level as ``module name:log level``.
+           Example: ``module1:info,module2:debug``.
+        2. Prepend the module name with one or multiple `+` or `-` signs to respectively
+           increasee verbosity. The adjustment is centered around the default log level
+           as specified by the ``UP_LOGS_LEVEL`` environment variable (see above).
+           Example: ``+module1,-module2,++module3``.
+
+    Entries are parsed in the order above, so combinations are allowed, though
+    this is not recommended for readability.
+    """
+
+    level_options = list(LOG_LEVELS.keys())
+    level_base = os.getenv("UP_LOGS_LEVEL", "info").lower()
+    result = collections.defaultdict(lambda: LOG_LEVELS[level_base])
+
+    for spec in os.getenv("UP_LOGS", "").lower().split(","):
+        spec = spec.strip()
+        if not any(c in spec for c in "+-:"):
+            continue
+        spec, level = spec.split(":") if ":" in spec else (spec, level_base)
+        if level not in level_options:
+            msg = f"Unknown log level: {level}. Options are: {', '.join(level_options)}"
+            raise ValueError(msg)
+        module_name = spec.lstrip("+-")
+        spec_adjust = spec[: len(spec) - len(module_name)]
+        rel_amount = int(spec_adjust.count("+")) - int(spec_adjust.count("-"))
+        cur_level = level_options.index(level)
+        new_level = min(len(LOG_LEVELS), max(0, cur_level + rel_amount))
+
+        result[module_name] = level_options[new_level]
+
+    return result
 
 
 def log_every_n(
@@ -215,23 +272,27 @@ def _canonicalize_name(name: str) -> str:
     """
     from pathlib import Path
 
-    if name.endswith(".py"):
-        file = Path(name)
-        root = Path(__file__).parent
-        if file.is_relative_to(root):
-            name = file.relative_to(root).with_suffix("").as_posix()
-            name = name.replace("/", ".")
-        else:
-            raise ValueError(f"Cannot canonicalize name: {name}")
+    result = []
+    for name in name.split(" "):
+        if name.endswith(".py"):
+            file = Path(name)
+            root = Path(__file__).parent
+            if file.is_relative_to(root):
+                name = file.relative_to(root).with_suffix("").as_posix()
+                name = name.replace("/", ".")
+            else:
+                raise ValueError(f"Cannot canonicalize name: {name}")
 
-    try:
-        name_parts = name.split(".")
-        while name_parts[-1].startswith("_"):
-            name_parts.pop()
-        name = ".".join(name_parts)
-    except IndexError:
-        name = "unipercept"
-    return name
+        try:
+            name_parts = name.split(".")
+            while name_parts[-1].startswith("_"):
+                name_parts.pop()
+            name = ".".join(name_parts)
+        except IndexError:
+            name = "unknown"
+
+        result.append(name)
+    return " ".join(result)
 
 
 def _get_level(name_or_code: int | str) -> int:
@@ -256,7 +317,7 @@ def _get_handler(
     color=True,
     propagate: bool = False,
     stdout: bool = True,
-    level: str | int = DEFAULT_LEVEL,
+    level: str | int | None = None,
 ):
     """
     Get a logger with a default verbose formatter, cached to ensure that the same logger handler is shared across
@@ -271,8 +332,11 @@ def _get_handler(
 
     # Determine the full name and the short name
     root_name, *sub_name = name.split(".", 1)
+    module_name, *artifact_name = name.split(" ", 1)
 
     # Translate the logging level
+    if level is None:
+        level = _get_logging_level_map()[module_name]
     level = _get_level(level)
 
     # Find the process index in distributed settings

@@ -62,18 +62,44 @@ def caller_identity() -> tuple[str, tuple[str, int, str]]:  # type: ignore
 
 def generate_path(obj: T.Any) -> str:
     """
-    Inverse of ``locate()``.
+    Inverse of ``locate()``. Generates the fully qualified name of an object.
+    Handles cases where the object is not directly importable, e.g. due to
+    nested classes or private modules.
+
+    The generated path is simplified by removing redundant module parts, e.g.
+    ``module.submodule._impl.class`` may become ``module.submodule.class`` if
+    the later also resolves to the same object.
+
+    Bound methods are supported by inspecting the ``__self__`` attribute.
 
     Parameters
     ----------
-    t
-        An object with ``__module__`` and ``__qualname__``
+    obj
+        The object to generate the path for.
 
     Returns
     -------
     str
         The fully qualified name of the object.
     """
+
+    def __check(path: str, obj: T.Any) -> bool:
+        # Check if the path resolves to the same object
+        try:
+            check_ok = locate_object(path) is obj
+        except ImportError:
+            check_ok = False
+        return check_ok
+
+    try:
+        self = obj.__self__
+    except AttributeError:
+        self = None
+
+    if self is not None:
+        self_path = generate_path(self)
+        return f"{self_path}.{obj.__name__}"
+
     module, qualname = obj.__module__, obj.__qualname__
 
     # Compress the path to this object, e.g. ``module.submodule._impl.class``
@@ -83,20 +109,22 @@ def generate_path(obj: T.Any) -> str:
     module_parts = module.split(".")
     for k in range(1, len(module_parts)):
         prefix = ".".join(module_parts[:k])
-        candidate = f"{prefix}.{qualname}"
-        try:
-            if locate_object(candidate) is obj:
-                return candidate
-        except ImportError:
-            pass
-    return f"{module}.{qualname}"
+        path = f"{prefix}.{qualname}"
+        if __check(path, obj):
+            return path
+
+    # Default to the full path plus qualname
+    path = f"{module}.{qualname}"
+    if not __check(path, obj):
+        msg = f"Cannot generate path for object {obj}!"
+        raise ImportError(msg)
+
+    return path
 
 
 def locate_object(path: str) -> T.Any:
     """
     Dynamically locates and returns an object by its fully qualified name.
-
-    Based on Detectron2's `locate` function.
 
     Parameters
     ----------

@@ -6,7 +6,6 @@ Computes the metrics proposed by Eigen et al. (2014) for depth estimation tasks.
 
 from __future__ import annotations
 
-import typing_extensions as TX
 import dataclasses as D
 import functools
 import typing as T
@@ -14,10 +13,10 @@ import typing as T
 import torch
 import torch.multiprocessing as M
 import torch.types
+import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from torch import Tensor
-
 from torch.utils._pytree import tree_map
 from tqdm import tqdm
 from typing_extensions import override
@@ -60,15 +59,15 @@ class DepthWriter(Evaluator):
 
     @property
     def depth_key_true(self):
-        return self.get_storage_key(self.depth_key, StoragePrefix.TRUE)
+        return self._get_storage_key(self.depth_key, StoragePrefix.TRUE)
 
     @property
     def depth_key_pred(self):
-        return self.get_storage_key(self.depth_key, StoragePrefix.PRED)
+        return self._get_storage_key(self.depth_key, StoragePrefix.PRED)
 
     @property
     def depth_key_valid(self):
-        return self.get_storage_key(self.depth_key, StoragePrefix.VALID)
+        return self._get_storage_key(self.depth_key, StoragePrefix.VALID)
 
     @TX.override
     def update(
@@ -161,16 +160,12 @@ class DepthWriter(Evaluator):
 
 @D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
-
-    @classmethod
-    @TX.override
-    def from_metadata(cls, name: str, **kwargs) -> T.Self:
-        return super().from_metadata(name, **kwargs)
-
     @TX.override
     def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs):
         num_samples = storage.batch_size[0]
-        compute_at = functools.partial(self._compute_at, storage=storage, device=device)
+        compute_at = functools.partial(
+            self._compute_depth_metrics_at_index, storage=storage, device=device
+        )
         metrics_list: list[DepthMetrics] = []
 
         progress_bar = tqdm(
@@ -190,14 +185,15 @@ class DepthEvaluator(DepthWriter):
         metrics = tree_map(lambda x: x.item(), metrics._asdict())
 
         if self.show_summary:
-            _logger.info("Depth summary:\n%s", create_table(metrics, format="wide"))
+            msg = "Depth evaluation metrics"
+            self._show_table(msg, metrics)
 
         # Add metrics from parent class
         metrics.update(super().compute(storage, device=device))
 
         return metrics
 
-    def _compute_at(self, n, *, storage, device):
+    def _compute_depth_metrics_at_index(self, n, *, storage, device):
         valid = storage.get_at(self.depth_key_valid, n).item()
         if not valid:
             return None

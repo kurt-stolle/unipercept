@@ -2,10 +2,12 @@ r"""
 2D positional embeddings as used in Vision Transformer.
 """
 
+from __future__ import annotations
+
 import math
-import typing_extensions as TX
 
 import torch
+import typing_extensions as TX
 from torch import nn
 
 

@@ -4,18 +4,19 @@ Tracking evaluators for object tracking tasks, e.g. HOTA, MOTA, IDF1, etc.
 
 from __future__ import annotations
 
-import typing as T
-import typing_extensions as TX
 import dataclasses as D
+import typing as T
 
+import typing_extensions as TX
 from PIL import Image as pil_image
 
 from unipercept.evaluators import Evaluator
 from unipercept.log import get_logger
 
 if T.TYPE_CHECKING:
-    from unipercept.model import InputData
     from tensordict import TensorDictBase
+
+    from unipercept.model import InputData
 
 _logger = get_logger(__name__)
 
@@ -28,11 +29,11 @@ class VideoIDWriter(Evaluator):
 
     @property
     def key_video_sequence(self) -> str:
-        return self.get_storage_key("sequence", "video")
+        return self._get_storage_key("sequence", "video")
 
     @property
     def key_video_frame(self) -> str:
-        return self.get_storage_key("frame", "video")
+        return self._get_storage_key("frame", "video")
 
     @TX.override
     def update(

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import typing as T
+
 import torch
 from torch import Tensor, nn
-import typing as T
 
 
 def build_calibration_matrix(

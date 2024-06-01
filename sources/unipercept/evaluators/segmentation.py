@@ -1005,7 +1005,6 @@ def panoptic_quality_update_sample(
             pred_areas,
             tgt_areas,
             inter_areas,
-            void_color,
         )
         sem_id = target_color[0]
         if target_color[0] not in background_ids and iou > 0.5:

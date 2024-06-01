@@ -28,23 +28,23 @@ __all__ = [
 
 
 def compute_scale_invariant_loss(
-    x: torch.Tensor, y: torch.Tensor, gamma: float = 1.0
+    x: torch.Tensor, y: torch.Tensor, gamma: float = 1.0, eps=1e-8
 ) -> torch.Tensor:
     r"""
     Scale invariant logarithmic error.
     """
-    log_err = x.log() - y.log()
+    log_err = (x.log() - y.log()).clamp_min(eps)
     n = y.numel()
     sile_1 = log_err.square().mean()
-    sile_2 = log_err.sum().square() / (n**2)
-    return sile_1 - gamma * sile_2
+    sile_2 = gamma * log_err.sum().square() / (n * n)
+    return (sile_1 - sile_2).clamp_min(0.0)
 
 
 def compute_absolute_relative_loss(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     r"""
     Absolute relative error.
     """
-    return (1 - x / y).abs().mean()
+    return (1 - x / y).abs().mean().clamp_min(0.0)
 
 
 def compute_square_relative_loss(
@@ -53,7 +53,7 @@ def compute_square_relative_loss(
     r"""
     Squared relative error.
     """
-    return (1 - x / y).square().mean().clamp(eps).sqrt()
+    return (1 - x / y).square().mean().clamp_min(eps).sqrt()
 
 
 class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
@@ -77,7 +77,7 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         self.weight_sre = weight_sre
 
     @override
-    @torch.autocast("cuda", enabled=False)
+    @torch.autocast("cuda", dtype=torch.float32)
     def forward(
         self,
         true: torch.Tensor,
@@ -87,8 +87,8 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         assert mask.dtype == torch.bool, mask.dtype
         if not mask.any():
             return pred.sum() * 0.0
-        true = true[mask].float().clamp(self.eps)
-        pred = pred[mask].float().clamp(self.eps)
+        true = true[mask].clamp(self.eps)
+        pred = pred[mask].clamp(self.eps)
         if self.weight_are > 0:
             are = self._compute_are(pred, true) * self.weight_are
         else:
@@ -112,7 +112,7 @@ class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         return loss.sum() * self.scale
 
     def _compute_sile(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-        return compute_scale_invariant_loss(pred, true)
+        return compute_scale_invariant_loss(pred, true, self.eps)
 
     def _compute_are(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
         return compute_absolute_relative_loss(pred, true)

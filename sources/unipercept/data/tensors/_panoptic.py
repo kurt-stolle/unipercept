@@ -17,7 +17,7 @@ from unipercept.utils.typings import Pathable
 
 from .registry import pixel_maps
 
-__all__ = ["PanopticMap", "LabelsFormat"]
+__all__ = ["PanopticMap", "LabelsFormat", "PanopticMapLike"]
 
 if T.TYPE_CHECKING:
     from ..sets import Metadata
@@ -543,3 +543,6 @@ class PanopticMap(_Mask):
         except ValueError:
             return False
         return True
+
+
+PanopticMapLike: T.TypeAlias = PanopticMap | Tensor

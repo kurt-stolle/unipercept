@@ -22,6 +22,30 @@ NormSpec: T.TypeAlias = str | NormFactory | type[nn.Module] | nn.Module | None
 _M = T.TypeVar("_M", bound=nn.Module)
 
 
+def get_default_bias(value: bool | None, norm: nn.Module) -> bool:
+    """
+    Check whether a norm module makes the bias of a module (e.g. Conv2d or Linear) redundant.
+
+    A bias parameter is only needed of the norm module has been explicitly set to
+    not include a bias term.
+    """
+    if not isinstance(norm, nn.Module):
+        msg = f"Expected a nn.Module, got {type(norm)}. Did you forget to call get_norm()?"
+        raise ValueError(msg)
+
+    # If the value is not None, return that value
+    if value is not None:
+        return value
+
+    # Check if the norm module has a bias term via some heuristics
+    if hasattr(norm, "affine"):
+        return not norm.affine
+    if hasattr(norm, "bias"):
+        return norm.bias is None
+
+    return False
+
+
 def get_norm(spec: NormSpec, num_channels: int, **kwargs) -> nn.Module:
     """
     Resolve a norm module from a string, a factory function or a module instance. When a module instance is provided,

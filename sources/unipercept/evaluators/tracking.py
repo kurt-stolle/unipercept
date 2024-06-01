@@ -10,8 +10,10 @@ import typing as T
 import typing_extensions as TX
 from PIL import Image as pil_image
 
-from unipercept.evaluators import Evaluator
 from unipercept.log import get_logger
+
+from ._base import Evaluator, EvaluatorComputeKWArgs, PlotMode, StoragePrefix
+from ._common import isin, stable_divide
 
 if T.TYPE_CHECKING:
     from tensordict import TensorDictBase
@@ -61,3 +63,51 @@ class VideoIDWriter(Evaluator):
     @TX.override
     def plot(self, *args, **kwargs):
         return super().plot(*args, **kwargs)
+
+
+class CLEARTrackingEvaluator(VideoIDWriter):
+    r"""
+    Evaluates multiple object tracking using the CLEAR [1] metrics.
+
+    References
+    ----------
+    [1] Bernardin et al., `Evaluating multiple object tracking performance: the CLEAR MOT metrics <https://dl.acm.org/doi/pdf/10.1155/2008/246309>`_ (2008)
+    """
+
+    @TX.override
+    def compute(
+        self,
+        storage: TensorDictBase,
+        inputs: InputData,
+        outputs: TensorDictBase,
+        **kwargs,
+    ):
+        result = super().compute(storage, inputs, outputs, **kwargs)
+
+        return result
+
+
+class HOTATrackingEvaluator(VideoIDWriter):
+    r"""
+    Evaluates multiple object tracking using the HOTA [1] metrics.
+
+    See Also
+    --------
+    - Official `reference implementation <https://github.com/nekorobov/HOTA-metrics>`_ by the auhors of [1].
+
+    References
+    ----------
+    [1] Luiten et al., `HOTA: A Higher Order Metric for Evaluating Multi-object Tracking <https://link.springer.com/article/10.1007/s11263-020-01375-2>`_ (2020)
+    """
+
+    @TX.override
+    def compute(
+        self,
+        storage: TensorDictBase,
+        inputs: InputData,
+        outputs: TensorDictBase,
+        **kwargs,
+    ):
+        result = super().compute(storage, inputs, outputs, **kwargs)
+
+        return result

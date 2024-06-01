@@ -209,9 +209,10 @@ class GuidedRandomCrop(Op):
         min_unique_instances: int = 1,
         min_instance_area: float = 1e-2,
         min_valid_segmentation_area: float = 0.70,
-        min_valid_depth_area: float = 0.20,
+        min_valid_depth_area: float = 0.10,
         max_iterations: int = 40,
         step_factor: int = 4,
+        reject_on_failure: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -241,6 +242,7 @@ class GuidedRandomCrop(Op):
         self.min_valid_segmentation_area = min_valid_segmentation_area
         self.min_valid_depth_area = min_valid_depth_area
         self.max_iterations = max_iterations
+        self.reject_on_failure = reject_on_failure
 
     def _find_crop(
         self, panoptic: PanopticMap, depth: DepthMap | None
@@ -316,7 +318,9 @@ class GuidedRandomCrop(Op):
         msg = f"Failed to find a valid crop after {self.max_iterations} iterations!"
         if self._verbose:
             _logger.warning(msg)
-        raise OpReject(msg)
+        if self.reject_on_failure:
+            raise OpReject(msg)
+        return random.choice(top_choices), random.choice(left_choices)
 
     @override
     def _run(self, inputs: InputData) -> InputData:

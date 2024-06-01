@@ -20,21 +20,17 @@ import torch.types
 import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
+from torch import Tensor, nn
 from tqdm import tqdm
 
 from unipercept import file_io
-from unipercept.data.tensors import PanopticMap
+from unipercept.data.tensors import PanopticMap, PanopticMapLike
 from unipercept.data.types.coco import COCOResultPanoptic
-from unipercept.evaluators import (
-    Evaluator,
-    EvaluatorComputeKWArgs,
-    PlotMode,
-    StoragePrefix,
-    isin,
-    stable_divide,
-)
 from unipercept.log import get_logger
-from unipercept.state import check_main_process, cpus_available
+from unipercept.state import check_main_process
+
+from ._base import Evaluator, EvaluatorComputeKWArgs, PlotMode, StoragePrefix
+from ._common import isin, stable_divide
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData
@@ -147,6 +143,14 @@ class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
         assert pred.shape[-2:] == input_size, f"{pred.shape=} {input_size=}"
         assert pred.shape[0] == input_batch, f"{pred.shape=} {input_batch=}"
 
+        if (
+            self.segmentation_task == SegmentationTask.SEMANTIC_SEGMENTATION
+            and pred.max() < PanopticMap.DIVISOR
+        ):
+            # Simple heuristic to determine if the output is not encoded as PanopticMap by
+            # checking if the maximum value is less than the divisor.
+            pred = PanopticMap.from_parts(pred, torch.zeros_like(pred))
+
         true = inputs.captures.segmentations
         if true is None:
             if self.segmentation_requires_true:
@@ -254,7 +258,7 @@ class COCOWriter(SegmentationWriter):
         valid = storage.get_at(VALID_PANOPTIC, i).item()
         if not valid:
             return None
-        true = T.cast(torch.Tensor, storage.get_at(PRED_PANOPTIC, i))
+        true = T.cast(Tensor, storage.get_at(PRED_PANOPTIC, i))
         true = true.as_subclass(PanopticMap)
         true.translate_semantic_(translations_dataset, inverse=True)
         coco_img, coco_info = true.to_coco()
@@ -267,24 +271,196 @@ class COCOWriter(SegmentationWriter):
         }
 
 
+@D.dataclass(kw_only=True)
+class SemanticSegmentationEvaluator(SegmentationWriter):
+    """
+    Evaluates semantic segmentation metrics.
+
+    The following metrics are computed:
+    - Pixel accuracy (PA)
+    - Mean intersection over union (mIoU)
+    """
+
+    show_details = True  # override default (False) from base class
+
+    semseg_with_details: bool = D.field(
+        default=False,
+        metadata={
+            "help": "Show detailed metrics (i.e. for each category)",
+        },
+    )
+
+    @TX.override
+    def compute(
+        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
+    ) -> dict[str, T.Any]:
+        results = super().compute(storage, **kwargs)
+
+        #  device = torch.device("cpu")  # TODO: GPU?
+
+        num_cats = self.info.semantic_amount
+        sample_amt = storage.batch_size[0]
+        assert sample_amt > 0, sample_amt
+        miou_per_cat = torch.zeros(num_cats, dtype=torch.int, device=device)
+        miou_all = torch.zeros((1,), dtype=torch.int, device=device)
+        miou_samples = 0
+        compute_at = functools.partial(
+            self._compute_semantic_metrics_at_index,
+            storage=storage,
+            device=device,
+            num_categories=num_cats,
+            key_segmentation_true=self.segmentation_key_true,
+            key_segmentation_pred=self.segmentation_key_pred,
+            key_segmentation_valid=self.segmentation_key_valid,
+        )
+        progress_bar = tqdm(
+            desc="Semantic segmentation metrics",
+            dynamic_ncols=True,
+            total=sample_amt,
+            disable=not check_main_process(local=True) or not self.show_progress,
+        )
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+                for result in pool.map(compute_at, range(sample_amt)):
+                    progress_bar.update(1)
+                    if result is None:
+                        continue
+                    miou_per_cat += result[0]
+                    miou_all += result[1]
+                    miou_samples += 1
+        finally:
+            progress_bar.close()
+
+        miou_per_cat /= miou_samples
+        miou_all /= miou_samples
+
+        results["semseg.mIoU.all"] = miou_all.item()
+
+        if self.show_summary:
+            self.logger.info("Semantic segmentation evaluation: mIoU = %.2f", miou_all)
+        if self.show_details:
+            df = pd.DataFrame(
+                {
+                    "Category": list(self.info.semantic_classes.keys()),
+                    "mIoU": miou_per_cat.cpu().numpy(),
+                }
+            )
+            self._show_table("Semantic segmentation details", df)
+        if self.semseg_with_details:
+            for i, semcls in self.info.semantic_classes.items():
+                results[f"semseg.mIoU.{semcls.name}"] = miou_per_cat[i].item()
+
+        return results
+
+    @staticmethod
+    def _compute_semantic_metrics_at_index(
+        i,
+        *,
+        storage: TensorDictBase,
+        device: torch.types.Device,
+        num_categories: int,
+        key_segmentation_true: str,
+        key_segmentation_pred: str,
+        key_segmentation_valid: str,
+    ):
+        valid = storage.get_at(key_segmentation_valid, i)
+        if not valid:
+            return None
+        pred = storage.get_at(key_segmentation_pred, i).to(
+            device=device, non_blocking=True
+        )
+        true = storage.get_at(key_segmentation_true, i).to(
+            device=device, non_blocking=True
+        )
+        inter, union = segmentation_intersection_union(true, pred, num_categories)
+        return segmentation_mean_iou(inter, union)
+
+
+def segmentation_mean_iou(
+    inter: PanopticMapLike, union: PanopticMapLike
+) -> T.Tuple[Tensor, Tensor]:
+    """
+    Accumulate the intersection and union tensors for mIoU calculation.
+
+    See :func:`segmentation_miou_update_sample`, which outputs the inter and union samples.
+    """
+    miou = stable_divide(inter, union)
+    return miou, miou.mean()
+
+
+def segmentation_intersection_union(
+    true: PanopticMapLike, pred: PanopticMapLike, num_categories: int
+) -> tuple[Tensor, Tensor]:
+    """
+    Single sample update for mIoU calculation.
+    """
+    pred = pred.flatten()
+    true = true.flatten()
+
+    ignore_mask = true < 0
+    true = true[~ignore_mask]
+    pred = pred[~ignore_mask]
+
+    unknown_mask = pred < 0
+    pred[unknown_mask] = num_categories  # set all negative values to new void category
+    num_categories += 1  # add void category
+
+    pred = PanopticMap.get_semantic_map(pred)
+    assert pred.max() < num_categories, f"{pred.max()=} > {num_categories}"
+    true = PanopticMap.get_semantic_map(true)
+    assert true.max() < num_categories, f"{true.max()=} > {num_categories}"
+
+    pred = nn.functional.one_hot(pred.long(), num_classes=num_categories)[
+        :, :-1
+    ].movedim(-1, 1)
+    true = nn.functional.one_hot(true.long(), num_classes=num_categories)[
+        :, :-1
+    ].movedim(-1, 1)
+
+    dim = list(range(1, pred.ndim))
+    inter = (pred & true).sum(dim=dim)
+    union = true.sum(dim=dim) + pred.sum(dim=dim) - inter
+
+    return inter, union
+
+
+def segmentation_miou(
+    true: PanopticMapLike | T.List[PanopticMapLike],
+    pred: PanopticMapLike | T.List[PanopticMapLike],
+    num_categories: int,
+) -> T.Tuple[Tensor, Tensor]:
+    """
+    Perform update and accumulation over multiple samples for mIoU calculation.
+    """
+    if isinstance(true, list):
+        assert isinstance(pred, list)
+        inter = torch.zeros(num_categories, dtype=torch.long, device=true[0].device)
+        union = torch.zeros_like(inter)
+        for t, p in zip(true, pred):
+            i, u = segmentation_intersection_union(t, p, num_categories)
+            inter += i
+            union += u
+    elif isinstance(true, Tensor):
+        assert isinstance(pred, Tensor)
+        inter, union = segmentation_intersection_union(true, pred, num_categories)
+    else:
+        msg = f"Expected {true=} and {pred=} to be either list or tensor"
+        raise TypeError(msg)
+    return segmentation_mean_iou(inter, union)
+
+
 # A (category_id, instance_id) tuple that uniquely identifies a panoptic segment.
 _ColorType: T.TypeAlias = tuple[int, int]
 
 
-@D.dataclass(kw_only=True)
-class SemanticSegmentationEvaluator(SegmentationWriter):
-    def compute():
-        pass
-
-
 class PQMetrics(T.NamedTuple):
-    pq: torch.Tensor
-    sq: torch.Tensor
-    rq: torch.Tensor
-    iou: torch.Tensor
-    tp: torch.Tensor
-    fp: torch.Tensor
-    fn: torch.Tensor
+    pq: Tensor
+    sq: Tensor
+    rq: Tensor
+    iou: Tensor
+    tp: Tensor
+    fp: Tensor
+    fn: Tensor
 
 
 class PQDefinition(E.IntEnum):
@@ -296,15 +472,20 @@ class PQDefinition(E.IntEnum):
 class PanopticSegmentationEvaluator(SegmentationWriter):
     """
     Computes PQ metrics for panoptic segmentation tasks.
+
+
+    See Also
+    --------
+    - Official `reference implementation <https://github.com/cocodataset/panopticapi/blob/master/panopticapi/evaluation.py>`_
     """
 
-    panoptic_with_details: bool = D.field(
+    panseg_with_details: bool = D.field(
         default=False,
         metadata={
             "help": "Show detailed metrics (i.e. for each category)",
         },
     )
-    panoptic_definition: PQDefinition = D.field(
+    panseg_definition: PQDefinition = D.field(
         default=PQDefinition.ORIGINAL,
         metadata={
             "help": "The definition of the PQ metric to compute. Can be 'original' or 'balanced'.",
@@ -323,11 +504,11 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
     def compute(self, storage: TensorDictBase, **kwargs) -> dict[str, T.Any]:
         metrics = super().compute(storage, **kwargs)
 
-        if self.panoptic_definition & PQDefinition.ORIGINAL:
+        if self.panseg_definition & PQDefinition.ORIGINAL:
             metrics["original"] = self._compute_panoptic_quality(
                 storage, device=kwargs["device"], allow_stuff_instances=True
             )
-        if self.panoptic_definition & PQDefinition.BALANCED:
+        if self.panseg_definition & PQDefinition.BALANCED:
             metrics["balanced"] = self._compute_panoptic_quality(
                 storage, device=kwargs["device"], allow_stuff_instances=False
             )
@@ -360,7 +541,7 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
             sample_amt > 0
         ), f"Batch size must be greater than zero, got {sample_amt=}"
         compute_at = functools.partial(
-            _compute_at,
+            self._compute_panoptic_quality_at_index,
             storage=storage,
             object_ids=self.object_ids,
             background_ids=self.background_ids,
@@ -375,7 +556,7 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
         )
 
         progress_bar = tqdm(
-            desc="Computing panoptic metrics",
+            desc="Panoptic segmentation metrics",
             dynamic_ncols=True,
             total=sample_amt,
             disable=not check_main_process(local=True) or not self.show_progress,
@@ -415,7 +596,7 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
             allow_stuff_instances=allow_stuff_instances,
         )
 
-        if self.panoptic_with_details:
+        if self.panseg_with_details:
             out = summary | details
         else:
             out = summary
@@ -431,12 +612,12 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
         allow_stuff_instances,
         num_categories,
     ):
-        tn_mask: torch.Tensor = n_valid > 0
-        th_mask: torch.Tensor = isin(
+        tn_mask: Tensor = n_valid > 0
+        th_mask: Tensor = isin(
             torch.arange(num_categories, device=metrics.pq.device),
             list(self.object_ids),
         )
-        st_mask: torch.Tensor = isin(
+        st_mask: Tensor = isin(
             torch.arange(num_categories, device=metrics.pq.device),
             list(self.background_ids),
         )
@@ -468,7 +649,7 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
                     # "FN": metrics.fn[mask].sum().item() / n_masked,
                 }
         if self.show_summary:
-            df = _tabulate(summary)
+            df = self._tabulate(summary)
             msg = f"Panoptic summary ({allow_stuff_instances=}, {allow_unknown_category=})"
             self._show_table(msg, df)
         return summary
@@ -512,71 +693,75 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
                     # "FN": metrics.fn[i].sum().item() / n_masked,
                 }
         if self.show_details:
-            df = _tabulate(details)
+            df = self._tabulate(details)
             msg = f"Panoptic details ({allow_stuff_instances=}, {allow_unknown_category=})"
             self._show_table(msg, df)
         return details
 
-
-def _tabulate(result: dict[str, dict[str, float]]) -> pd.DataFrame:
-    data: dict[str, list[float]] = {}
-    groups = []
-    for group_name, metrics in result.items():
-        groups.append(group_name.capitalize())
-        for metric_name, metric_value in metrics.items():
-            data[metric_name] = data.get(metric_name, []) + [metric_value]
-    data_list = []
-    for key, values in data.items():
-        data_list.append([key] + values)
-    df = pd.DataFrame(
-        data_list,
-        columns=["Metric"] + groups,
-    )
-    return df
-
-
-def _compute_at(
-    n,
-    *,
-    storage,
-    object_ids,
-    background_ids,
-    device,
-    allow_unknown_category,
-    void_color,
-    allow_stuff_instances,
-    num_categories,
-    key_segmentation_true: str,
-    key_segmentation_pred: str,
-    key_segmentation_valid: str,
-):
-    valid = storage.get_at(key_segmentation_valid, n)
-    if not valid:
-        return None
-    pred = storage.get_at(key_segmentation_pred, n).to(device=device, non_blocking=True)
-    true = storage.get_at(key_segmentation_true, n).to(device=device, non_blocking=True)
-    pred = panoptic_quality_preprocess(
+    @staticmethod
+    def _compute_panoptic_quality_at_index(
+        n,
+        *,
+        storage,
         object_ids,
         background_ids,
-        pred,
-        void_color=void_color,
-        allow_unknown_category=allow_unknown_category,
-    )
-    true = panoptic_quality_preprocess(
-        object_ids,
-        background_ids,
-        true,
-        void_color=void_color,
-        allow_unknown_category=True,
-    )
-    result = panoptic_quality_update_sample(
-        pred,
-        true,
-        void_color=void_color,
-        background_ids=background_ids if not allow_stuff_instances else None,
-        num_categories=num_categories,
-    )
-    return result
+        device,
+        allow_unknown_category,
+        void_color,
+        allow_stuff_instances,
+        num_categories,
+        key_segmentation_true: str,
+        key_segmentation_pred: str,
+        key_segmentation_valid: str,
+    ):
+        valid = storage.get_at(key_segmentation_valid, n)
+        if not valid:
+            return None
+        pred = storage.get_at(key_segmentation_pred, n).to(
+            device=device, non_blocking=True
+        )
+        true = storage.get_at(key_segmentation_true, n).to(
+            device=device, non_blocking=True
+        )
+        pred = panoptic_quality_preprocess(
+            object_ids,
+            background_ids,
+            pred,
+            void_color=void_color,
+            allow_unknown_category=allow_unknown_category,
+        )
+        true = panoptic_quality_preprocess(
+            object_ids,
+            background_ids,
+            true,
+            void_color=void_color,
+            allow_unknown_category=True,
+        )
+        result = panoptic_quality_update_sample(
+            pred,
+            true,
+            void_color=void_color,
+            background_ids=background_ids if not allow_stuff_instances else None,
+            num_categories=num_categories,
+        )
+        return result
+
+    @staticmethod
+    def _tabulate(result: dict[str, dict[str, float]]) -> pd.DataFrame:
+        data: dict[str, list[float]] = {}
+        groups = []
+        for group_name, metrics in result.items():
+            groups.append(group_name.capitalize())
+            for metric_name, metric_value in metrics.items():
+                data[metric_name] = data.get(metric_name, []) + [metric_value]
+        data_list = []
+        for key, values in data.items():
+            data_list.append([key] + values)
+        df = pd.DataFrame(
+            data_list,
+            columns=["Metric"] + groups,
+        )
+        return df
 
 
 def _nested_tuple(nested_list: list) -> tuple:
@@ -600,7 +785,7 @@ def _nested_tuple(nested_list: list) -> tuple:
     )
 
 
-def _to_tuple(t: torch.Tensor) -> tuple:
+def _to_tuple(t: Tensor) -> tuple:
     r"""
     Convert a tensor into a nested tuple.
 
@@ -616,7 +801,7 @@ def _to_tuple(t: torch.Tensor) -> tuple:
     return _nested_tuple(t.tolist())
 
 
-def _get_color_areas(inputs: torch.Tensor) -> dict[tuple, torch.Tensor]:
+def _get_color_areas(inputs: Tensor) -> dict[tuple, Tensor]:
     r"""
     Measure the size of each instance.
 
@@ -629,7 +814,6 @@ def _get_color_areas(inputs: torch.Tensor) -> dict[tuple, torch.Tensor]:
     -------
         A dictionary specifying the `(category_id, instance_id)` and the corresponding
         number of occurrences.
-
     """
     unique_keys, unique_keys_area = torch.unique(inputs, dim=0, return_counts=True)
     # dictionary indexed by color tuples
@@ -666,7 +850,7 @@ def panoptic_quality_preprocess(
     inputs: PanopticMap,
     void_color: tuple[int, int],
     allow_unknown_category: bool,
-) -> torch.Tensor:
+) -> Tensor:
     """
     Preprocesses an input tensor for metric calculation. Inputs should be **unbatched**.
 
@@ -714,147 +898,134 @@ def panoptic_quality_preprocess(
     return out
 
 
-def compute_iou(
-    pred_color: _ColorType,
-    target_color: _ColorType,
-    pred_areas: dict[_ColorType, torch.Tensor],
-    target_areas: dict[_ColorType, torch.Tensor],
-    intersection_areas: dict[tuple[_ColorType, _ColorType], torch.Tensor],
-    void_color: _ColorType,
-) -> torch.Tensor:
-    """
-    Helper function that calculates the IoU from precomputed areas of segments and their intersections.
-    """
-    if pred_color[0] != target_color[0]:
-        raise ValueError(
-            "Attempting to compute IoU on segments with different category ID: "
-            f"pred {pred_color[0]}, target {target_color[0]}"
-        )
-    if pred_color == void_color:
-        raise ValueError("Attempting to compute IoU on a void segment.")
-    intersection = intersection_areas[(pred_color, target_color)]
-    pred_area = pred_areas[pred_color]
-    target_area = target_areas[target_color]
-    pred_void_area = intersection_areas.get((pred_color, void_color), 0)
-    void_target_area = intersection_areas.get((void_color, target_color), 0)
-    union = pred_area - pred_void_area + target_area - void_target_area - intersection
-    return intersection / union
-
-
-def _filter_false_negatives(
-    target_areas: dict[_ColorType, torch.Tensor],
-    target_segment_matched: T.Set[_ColorType],
-    intersection_areas: dict[tuple[_ColorType, _ColorType], torch.Tensor],
-    void_color: tuple[int, int],
-) -> T.Iterator[int]:
-    """
-    Filter false negative segments and yield their category IDs.
-
-    False negatives occur when a ground truth segment is not matched with a prediction.
-    Areas that are mostly void in the prediction are ignored.
-    """
-    false_negative_colors = set(target_areas) - target_segment_matched
-    false_negative_colors.discard(void_color)
-    for target_color in false_negative_colors:
-        void_target_area = intersection_areas.get((void_color, target_color), 0)
-        if void_target_area / target_areas[target_color] <= 0.5:
-            yield target_color[0]
-
-
-def _filter_false_positives(
-    pred_areas: dict[_ColorType, torch.Tensor],
-    pred_segment_matched: T.Set[_ColorType],
-    intersection_areas: dict[tuple[_ColorType, _ColorType], torch.Tensor],
-    void_color: tuple[int, int],
-) -> T.Iterator[int]:
-    """
-    Filter false positive segments and yield their category IDs.
-
-    False positives occur when a predicted segment is not matched with a corresponding target one.
-    Areas that are mostly void in the target are ignored.
-    """
-    false_positive_colors = set(pred_areas) - pred_segment_matched
-    false_positive_colors.discard(void_color)
-    for pred_color in false_positive_colors:
-        pred_void_area = intersection_areas.get((pred_color, void_color), 0)
-        if pred_void_area / pred_areas[pred_color] <= 0.5:
-            yield pred_color[0]
-
-
 def panoptic_quality_update_sample(
-    flatten_preds: torch.Tensor,
-    flatten_target: torch.Tensor,
+    flatten_preds: Tensor,
+    flatten_target: Tensor,
     void_color: tuple[int, int],
     num_categories: int,
     background_ids: T.Optional[T.FrozenSet[int]] = None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """
     Calculate stat scores required to compute the metric for a single sample.
     """
+
+    def _compute_iou(
+        pred_color: _ColorType,
+        target_color: _ColorType,
+        pred_areas: dict[_ColorType, Tensor],
+        target_areas: dict[_ColorType, Tensor],
+        intersection_areas: dict[tuple[_ColorType, _ColorType], Tensor],
+    ) -> Tensor:
+        if pred_color[0] != target_color[0]:
+            raise ValueError(
+                "Attempting to compute IoU on segments with different category ID: "
+                f"pred {pred_color[0]}, target {target_color[0]}"
+            )
+        if pred_color == void_color:
+            raise ValueError("Attempting to compute IoU on a void segment.")
+        intersection = intersection_areas[(pred_color, target_color)]
+        pred_area = pred_areas[pred_color]
+        target_area = target_areas[target_color]
+        pred_void_area = intersection_areas.get((pred_color, void_color), 0)
+        void_target_area = intersection_areas.get((void_color, target_color), 0)
+        union = (
+            pred_area - pred_void_area + target_area - void_target_area - intersection
+        )
+        return intersection / union
+
+    def _filter_fn(
+        target_areas: dict[_ColorType, Tensor],
+        target_segment_matched: T.Set[_ColorType],
+        intersection_areas: dict[tuple[_ColorType, _ColorType], Tensor],
+    ) -> T.Iterator[int]:
+        """
+        Filter false negative segments and yield their category IDs.
+
+        False negatives occur when a ground truth segment is not matched with a prediction.
+        Areas that are mostly void in the prediction are ignored.
+        """
+        false_negative_colors = set(target_areas) - target_segment_matched
+        false_negative_colors.discard(void_color)
+        for target_color in false_negative_colors:
+            void_target_area = intersection_areas.get((void_color, target_color), 0)
+            if void_target_area / target_areas[target_color] <= 0.5:
+                yield target_color[0]
+
+    def _filter_fp(
+        pred_areas: dict[_ColorType, Tensor],
+        pred_segment_matched: T.Set[_ColorType],
+        intersection_areas: dict[tuple[_ColorType, _ColorType], Tensor],
+    ) -> T.Iterator[int]:
+        """
+        Filter false positive segments and yield their category IDs.
+
+        False positives occur when a predicted segment is not matched with a corresponding target one.
+        Areas that are mostly void in the target are ignored.
+        """
+        false_positive_colors = set(pred_areas) - pred_segment_matched
+        false_positive_colors.discard(void_color)
+        for pred_color in false_positive_colors:
+            pred_void_area = intersection_areas.get((pred_color, void_color), 0)
+            if pred_void_area / pred_areas[pred_color] <= 0.5:
+                yield pred_color[0]
+
     background_ids = background_ids or frozenset()
     device = flatten_preds.device
 
     iou_sum = torch.zeros(num_categories, dtype=torch.double, device=device)
-    true_positives = torch.zeros(num_categories, dtype=torch.int, device=device)
-    false_positives = torch.zeros(num_categories, dtype=torch.int, device=device)
-    false_negatives = torch.zeros(num_categories, dtype=torch.int, device=device)
+    tp = torch.zeros(num_categories, dtype=torch.int, device=device)
+    fp = torch.zeros(num_categories, dtype=torch.int, device=device)
+    fn = torch.zeros(num_categories, dtype=torch.int, device=device)
 
-    # calculate the area of each prediction, ground truth and pairwise intersection.
-    # NOTE: mypy needs `cast()` because the annotation for `_get_color_areas` is too generic.
-    pred_areas = T.cast(dict[_ColorType, torch.Tensor], _get_color_areas(flatten_preds))
-    target_areas = T.cast(
-        dict[_ColorType, torch.Tensor], _get_color_areas(flatten_target)
-    )
+    # Calculate the area of each prediction, ground truth and pairwise intersection.
+    pred_areas = T.cast(dict[_ColorType, Tensor], _get_color_areas(flatten_preds))
+    tgt_areas = T.cast(dict[_ColorType, Tensor], _get_color_areas(flatten_target))
     # intersection matrix of shape [num_pixels, 2, 2]
-    intersection_matrix = torch.transpose(
+    inter_matrix = torch.transpose(
         torch.stack((flatten_preds, flatten_target), -1), -1, -2
     )
-    assert intersection_matrix.shape == (flatten_preds.shape[0], 2, 2)
-    intersection_areas = T.cast(
-        dict[tuple[_ColorType, _ColorType], torch.Tensor],
-        _get_color_areas(intersection_matrix),
+    assert inter_matrix.shape == (flatten_preds.shape[0], 2, 2)
+    inter_areas = T.cast(
+        dict[tuple[_ColorType, _ColorType], Tensor],
+        _get_color_areas(inter_matrix),
     )
 
     # select intersection of things of same category with iou > 0.5
     pred_segment_matched = set()
-    target_segment_matched = set()
-    for pred_color, target_color in intersection_areas.keys():
+    tgt_seg_matched = set()
+    for pred_color, target_color in inter_areas.keys():
         # test only non void, matching category
         if target_color == void_color:
             continue
         if pred_color[0] != target_color[0]:
             continue
-        iou = compute_iou(
+        iou = _compute_iou(
             pred_color,
             target_color,
             pred_areas,
-            target_areas,
-            intersection_areas,
+            tgt_areas,
+            inter_areas,
             void_color,
         )
         sem_id = target_color[0]
         if target_color[0] not in background_ids and iou > 0.5:
             pred_segment_matched.add(pred_color)
-            target_segment_matched.add(target_color)
+            tgt_seg_matched.add(target_color)
             iou_sum[sem_id] += iou
-            true_positives[sem_id] += 1
+            tp[sem_id] += 1
         elif target_color[0] in background_ids and iou > 0:
             iou_sum[sem_id] += iou
 
-    for cat_id in _filter_false_negatives(
-        target_areas, target_segment_matched, intersection_areas, void_color
-    ):
+    for cat_id in _filter_fn(tgt_areas, tgt_seg_matched, inter_areas):
         if cat_id not in background_ids:
-            false_negatives[cat_id] += 1
+            fn[cat_id] += 1
 
-    for cat_id in _filter_false_positives(
-        pred_areas, pred_segment_matched, intersection_areas, void_color
-    ):
+    for cat_id in _filter_fp(pred_areas, pred_segment_matched, inter_areas):
         if cat_id not in background_ids:
-            false_positives[cat_id] += 1
+            fp[cat_id] += 1
 
-    for cat_id, _ in target_areas:
+    for cat_id, _ in tgt_areas:
         if cat_id in background_ids:
-            true_positives[cat_id] += 1
+            tp[cat_id] += 1
 
-    return iou_sum, true_positives, false_positives, false_negatives
+    return iou_sum, tp, fp, fn

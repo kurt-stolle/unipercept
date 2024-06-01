@@ -1022,7 +1022,7 @@ class Engine:
 
         self._signal.should_save = True
         self._signal.should_evaluate = True
-        self._train_handle_signals(None, model, optimizer, **kwargs)
+        self._train_handle_signals(None, model, optimizer, None, **kwargs)
 
         # Compute flops
         self._state.total_flops += self._flops
@@ -1421,7 +1421,7 @@ class Engine:
         tr_loss: T.Dict[str, Tensor] | None,
         model: nn.Module,
         optimizer: AcceleratedOptimizer,
-        timings_accumulator: ProfileAccumulator,
+        timings_accumulator: ProfileAccumulator | None,
         *,
         trial: Trial | None,
     ) -> None:
@@ -1455,11 +1455,12 @@ class Engine:
             # self.store_flops()
 
             # Timings
-            if timings_accumulator.steps_recorded > 0:
-                timings_summary = timings_accumulator.to_summary()
-                for k, v in timings_summary["mean"].to_dict().items():
-                    logs["engine/time_train_" + k] = v
-            timings_accumulator.reset()
+            if timings_accumulator is not None:
+                if timings_accumulator.steps_recorded > 0:
+                    timings_summary = timings_accumulator.to_summary()
+                    for k, v in timings_summary["mean"].to_dict().items():
+                        logs["engine/time_train_" + k] = v
+                timings_accumulator.reset()
             # _logger.info("Timing report:\n%s", create_table(timings_summary.reset_index(), format="wide"))
 
             # Push logs

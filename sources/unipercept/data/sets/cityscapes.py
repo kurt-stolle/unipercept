@@ -11,12 +11,9 @@ import re
 import typing as T
 from dataclasses import dataclass
 from datetime import datetime
-from importlib import metadata
 from typing import Iterable, Literal, Mapping
 
-import torch.utils.data
 import typing_extensions as TX
-from tensordict import TensorDictBase
 from typing_extensions import override
 
 from unipercept import file_io
@@ -28,14 +25,10 @@ from unipercept.data.sets._base import (
     SType,
     create_metadata,
 )
-from unipercept.evaluators import Evaluator
-from unipercept.model import ModelOutput
 from unipercept.utils.formatter import formatter
 
 if T.TYPE_CHECKING:
-    import unipercept as up
-    from unipercept.data import DataLoaderFactory
-    from unipercept.data.types.coco import COCOResultPanoptic
+    import unipercept.data.types as datatypes
 
 __all__ = ["CityscapesDataset", "CityscapesVPSDataset"]
 
@@ -136,9 +129,9 @@ class CameraCalibration:
 
     extrinsic: CameraExtrinsic
     intrinsic: CameraIntrinsic
-    size: "up.data.types.HW"
+    size: "datatypes.HW"
 
-    def to_canonical(self) -> up.data.types.PinholeModelParameters:
+    def to_canonical(self) -> datatypes.PinholeModelParameters:
         """
         Transforms the calibration to the canonical format.
         """
@@ -362,15 +355,15 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         """
         return frame + 1
 
-    def _get_id2sources(self) -> Mapping[FileID, up.data.types.CaptureSources]:
-        sources_map: dict[FileID, up.data.types.CaptureSources] = {}
+    def _get_id2sources(self) -> Mapping[FileID, datatypes.CaptureSources]:
+        sources_map: dict[FileID, datatypes.CaptureSources] = {}
 
         # Create mapping of ID -> dt.CaptureSources
         for id, file_path in map(
             FileID.attach_id,
             UniCoreFileLister(self.path_image, masks="*.png", recursive=True),
         ):
-            partial_sources: up.data.types.CaptureSources = {
+            partial_sources: datatypes.CaptureSources = {
                 "image": {
                     "path": file_path,
                 },
@@ -398,7 +391,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
                         + ", ".join([str(k) for k in sources_map.keys()])
                     )
 
-                resource: up.data.types.FileResourceWithMeta = {
+                resource: datatypes.FileResourceWithMeta = {
                     "path": file_path,
                     "meta": {},
                 }
@@ -456,15 +449,15 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         return sequence_map
 
     @override
-    def _build_manifest(self) -> up.data.types.Manifest:
+    def _build_manifest(self) -> datatypes.Manifest:
         sources_map = self._get_id2sources()
         sequence_map = self._get_seq2ids(sorted(sources_map.keys()))
 
         # Convert to mapping of string -> dt.CaptureRecord
-        sequences: Mapping[str, up.data.types.ManifestSequence] = {}
+        sequences: Mapping[str, datatypes.ManifestSequence] = {}
         for seq_key, ids in sequence_map.items():
             camera = CAMERA.to_canonical()  # TODO: read from json
-            captures: list[up.data.types.CaptureRecord] = [
+            captures: list[datatypes.CaptureRecord] = [
                 {
                     "primary_key": id.primary_key,  # get_primary_key(seq_key, i),
                     "sources": sources_map[id],
@@ -473,7 +466,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
             ]
 
             # Create sequence item
-            seq_item: up.data.types.ManifestSequence = {
+            seq_item: datatypes.ManifestSequence = {
                 "camera": camera,
                 "fps": 17 / self._get_next_frame(0),
                 "captures": captures,

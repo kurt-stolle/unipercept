@@ -24,14 +24,19 @@ from einops import rearrange
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
+import unipercept.evaluators.depth as depth
+import unipercept.evaluators.segmentation as segmentation
+import unipercept.evaluators.tracking as tracking
 from unipercept.data.tensors import PanopticMap
-from unipercept.evaluators import depth, isin, segmentation, stable_divide, tracking
 from unipercept.log import create_table, get_logger
 from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (
     defaultdict_recurrent,
     defaultdict_recurrent_to_dict,
 )
+
+from ._base import Evaluator, PlotMode, StoragePrefix
+from ._common import isin, stable_divide
 
 _logger = get_logger(__name__)
 

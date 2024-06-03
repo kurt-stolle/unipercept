@@ -30,7 +30,7 @@ from unipercept.log import get_logger
 from unipercept.state import check_main_process
 
 from ._base import Evaluator, EvaluatorComputeKWArgs, PlotMode, StoragePrefix
-from ._common import isin, stable_divide
+from ._common import isin, stable_divide, nonzero_divide
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData
@@ -143,13 +143,13 @@ class SegmentationWriter(Evaluator, metaclass=abc.ABCMeta):
         assert pred.shape[-2:] == input_size, f"{pred.shape=} {input_size=}"
         assert pred.shape[0] == input_batch, f"{pred.shape=} {input_batch=}"
 
-        if (
-            self.segmentation_task == SegmentationTask.SEMANTIC_SEGMENTATION
-            and pred.max() < PanopticMap.DIVISOR
-        ):
-            # Simple heuristic to determine if the output is not encoded as PanopticMap by
-            # checking if the maximum value is less than the divisor.
-            pred = PanopticMap.from_parts(pred, torch.zeros_like(pred))
+        if self.segmentation_task == SegmentationTask.SEMANTIC_SEGMENTATION:
+            # Maybe convert the prediction to a PanopticMap if it is not already.
+            # We use a simple heuristic to determine if the output is not encoded as PanopticMap,
+            # see below:
+            pred_max = pred.max()
+            if pred_max < PanopticMap.DIVISOR or pred_max == 0:
+                pred = PanopticMap.from_parts(pred, torch.zeros_like(pred))
 
         true = inputs.captures.segmentations
         if true is None:
@@ -372,11 +372,11 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
         true = storage.get_at(key_segmentation_true, i).to(
             device=device, non_blocking=True
         )
-        inter, union = segmentation_intersection_union(true, pred, num_categories)
-        return segmentation_mean_iou(inter, union)
+        inter, union = _segmentation_miou_partial(true, pred, num_categories)
+        return _segmentation_miou_compute(inter, union)
 
 
-def segmentation_mean_iou(
+def _segmentation_miou_compute(
     inter: PanopticMapLike, union: PanopticMapLike
 ) -> T.Tuple[Tensor, Tensor]:
     """
@@ -384,42 +384,38 @@ def segmentation_mean_iou(
 
     See :func:`segmentation_miou_update_sample`, which outputs the inter and union samples.
     """
-    miou = stable_divide(inter, union)
+    miou = nonzero_divide(inter, union)
     return miou, miou.mean()
 
 
-def segmentation_intersection_union(
-    true: PanopticMapLike, pred: PanopticMapLike, num_categories: int
+def _segmentation_miou_partial(
+    true: PanopticMapLike, pred: PanopticMapLike, n_cats: int
 ) -> tuple[Tensor, Tensor]:
     """
     Single sample update for mIoU calculation.
     """
-    pred = pred.flatten()
-    true = true.flatten()
+    assert (true <= 0).all() or (true >= PanopticMap.DIVISOR).any()
+    assert (pred <= 0).all() or (pred >= PanopticMap.DIVISOR).any()
 
     ignore_mask = true < 0
     true = true[~ignore_mask]
     pred = pred[~ignore_mask]
 
     unknown_mask = pred < 0
-    pred[unknown_mask] = num_categories  # set all negative values to new void category
-    num_categories += 1  # add void category
+    pred[unknown_mask] = n_cats  # set all negative values to new void category
+    n_cats += 1  # add void category
 
-    pred = PanopticMap.get_semantic_map(pred)
-    assert pred.max() < num_categories, f"{pred.max()=} > {num_categories}"
-    true = PanopticMap.get_semantic_map(true)
-    assert true.max() < num_categories, f"{true.max()=} > {num_categories}"
+    pred = PanopticMap.get_semantic_map(pred).long().flatten()
+    assert pred.max() < n_cats, f"{pred.max()=} > {n_cats}"
+    true = PanopticMap.get_semantic_map(true).long().flatten()
+    assert true.max() < n_cats, f"{true.max()=} > {n_cats}"
 
-    pred = nn.functional.one_hot(pred.long(), num_classes=num_categories)[
-        :, :-1
-    ].movedim(-1, 1)
-    true = nn.functional.one_hot(true.long(), num_classes=num_categories)[
-        :, :-1
-    ].movedim(-1, 1)
+    pred = nn.functional.one_hot(pred, num_classes=n_cats)[..., :-1].permute(1, 0)
+    true = nn.functional.one_hot(true, num_classes=n_cats)[..., :-1].permute(1, 0)
 
-    dim = list(range(1, pred.ndim))
-    inter = (pred & true).sum(dim=dim)
-    union = true.sum(dim=dim) + pred.sum(dim=dim) - inter
+    inter = (pred & true).sum(dim=1)
+    union = true.sum(dim=1) + pred.sum(dim=1) - inter
+    assert (inter <= union).all(), f"{inter=} {union=}"
 
     return inter, union
 
@@ -432,21 +428,31 @@ def segmentation_miou(
     """
     Perform update and accumulation over multiple samples for mIoU calculation.
     """
-    if isinstance(true, list):
-        assert isinstance(pred, list)
-        inter = torch.zeros(num_categories, dtype=torch.long, device=true[0].device)
-        union = torch.zeros_like(inter)
-        for t, p in zip(true, pred):
-            i, u = segmentation_intersection_union(t, p, num_categories)
-            inter += i
-            union += u
-    elif isinstance(true, Tensor):
+    if isinstance(true, Tensor):
         assert isinstance(pred, Tensor)
-        inter, union = segmentation_intersection_union(true, pred, num_categories)
+        inter, union = _segmentation_miou_partial(true, pred, num_categories)
+        miou_per_cat, miou_all = _segmentation_miou_compute(inter, union)
+    elif isinstance(true, list):
+        assert isinstance(pred, list)
+        miou_per_cat = torch.zeros(
+            num_categories, dtype=torch.long, device=true[0].device
+        )
+        miou_all = torch.zeros_like(miou_per_cat)
+        miou_samples = 0
+        for t, p in zip(true, pred):
+            inter, union = _segmentation_miou_partial(t, p, num_categories)
+            miou_per_cat_sample, miou_all_sample = _segmentation_miou_compute(
+                inter, union
+            )
+            miou_per_cat += miou_per_cat_sample
+            miou_all += miou_all_sample
+            miou_samples += 1
+        miou_per_cat /= miou_samples
+        miou_all /= miou_samples
     else:
         msg = f"Expected {true=} and {pred=} to be either list or tensor"
         raise TypeError(msg)
-    return segmentation_mean_iou(inter, union)
+    return miou_per_cat, miou_all
 
 
 # A (category_id, instance_id) tuple that uniquely identifies a panoptic segment.
@@ -574,8 +580,8 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
         finally:
             progress_bar.close()
         # Compute PQ = SQ * RQ
-        sq = stable_divide(iou, tp)
-        rq = stable_divide(tp, tp + 0.5 * fp + 0.5 * fn)
+        sq = nonzero_divide(iou, tp)
+        rq = nonzero_divide(tp, tp + 0.5 * fp + 0.5 * fn)
         pq = sq * rq
 
         # Convert to percentages

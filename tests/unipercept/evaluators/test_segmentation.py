@@ -9,9 +9,10 @@ import typing_extensions as TX
 from tensordict import TensorDict
 
 import unipercept.evaluators.segmentation as segeval
+import unipercept.data.tensors
 
 
-def test_panoptic_evaluator(
+def test_panoptic_segmentation_evaluator(
     true_panoptic: torch.Tensor, pred_panoptic: torch.Tensor, true_info
 ):
     """
@@ -62,3 +63,47 @@ def test_panoptic_evaluator(
     metrics = evaluator.compute(storage, device="cpu")
 
     print(metrics)
+
+
+@pytest.mark.parametrize(
+    "a,b,n,y_pc,y_all",
+    [
+        ([[0, 1]], [[0, 1]], 2, [1.0, 1.0], 1.00),
+        ([[0, 1]], [[1, 1]], 2, [0.0, 0.5], 0.25),
+        ([[0, 1]], [[0, 0]], 2, [0.5, 0.0], 0.25),
+        ([[0, 0]], [[1, 1]], 2, [0.0, 0.0], 0.00),
+        ([[0, 1]], [[1, 0]], 2, [0.0, 0.0], 0.00),
+        ([[0, 1]], [[1, 0]], 3, [0.0, 0.0, 0.0], 0.00),
+        ([[0, 1]], [[1, 2]], 3, [0.0, 0.0, 0.0], 0.00),
+        ([[0, 1, 2]], [[1, 2, 2]], 3, [0.0, 0.0, 0.5], 1 / 6),
+    ],
+)
+def test_semantic_segmentation_miou(a, b, n, y_pc, y_all):
+    from unipercept.data.tensors import PanopticMap
+
+    a = torch.tensor(a)
+    b = torch.tensor(b)
+    a, b = (PanopticMap.from_parts(t, torch.zeros_like(t)) for t in (a, b))
+    inter, union = segeval._segmentation_miou_partial(a, b, n)
+    z_pc, z_all = segeval._segmentation_miou_compute(inter, union)
+    classes = list(range(n))
+    show_dict = {
+        "a_sem": a.get_semantic_map().tolist(),
+        "b_sem": b.get_semantic_map().tolist(),
+        "inter": dict(zip(classes, inter.tolist(), strict=True)),
+        "union": dict(zip(classes, union.tolist(), strict=True)),
+        "miou_per_class": z_pc.tolist(),
+        "miou_all": z_all.tolist(),
+    }
+    print(
+        "Computed mean IoU: \n\t"
+        + "\n\t".join(f"{k}: {v}" for k, v in show_dict.items())
+    )
+
+    y_pc = torch.tensor(y_pc)
+    assert torch.allclose(z_pc, y_pc), (z_pc.tolist(), y_pc.tolist())
+    y_all = torch.tensor(y_all)
+    assert torch.allclose(z_all, y_all), (z_all.tolist(), y_all.tolist())
+
+    for a, b in zip((z_pc, z_all), segeval.segmentation_miou(a, b, n)):
+        assert torch.allclose(a, b), (a.tolist(), b.tolist())

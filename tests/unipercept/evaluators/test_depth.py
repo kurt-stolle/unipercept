@@ -4,28 +4,50 @@ Tests for `unipercept.evaluators.depth`.
 
 from __future__ import annotations
 
+import pprint
 import numpy as np
 import pytest
 import torch
+from torch.utils._pytree import tree_map
+from unipercept.evaluators.depth import compute_depth_metrics
 
-from unipercept.evaluators import compute_depth_metrics
+TRUE_DEPTH = [2.0**i for i in range(100)]
+PRED_NOISE = [((1000.0 / 3) ** (i + 1) % 100) / 100 for i in range(100)]
 
 
-def test_compute_depth_metrics_eigen_etal():
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+@pytest.mark.parametrize("noise_gain", [1*(10**n) for n in range(-4, 4)])
+def test_compute_depth_metrics_eigen_etal(device: str, noise_gain: float):
     r"""
     Tests the depth metrics computation using the Eigen et al. (2014) formulation.
     """
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
     # Sample true and predicted depth values
-    pred = torch.tensor([1.0, 2.0, 3.0, 4.0])
-    true = torch.tensor([1.0, 2.1, 2.9, 4.0])
+    with torch.no_grad(), torch.device(device):
+        true = torch.tensor(TRUE_DEPTH)
+        pred = torch.tensor(PRED_NOISE) * noise_gain + true
     metrics = compute_depth_metrics(pred=pred, true=true)
-
-    pred = pred.numpy(force=True).astype(np.float128)
-    true = true.numpy(force=True).astype(np.float128)
+    metrics = tree_map(lambda x: x.cpu().numpy(force=True), metrics)
+    pred = pred.numpy(force=True)
+    true = true.numpy(force=True)
     expected_abs_rel = np.mean(np.abs(true - pred) / true)
     expected_sq_rel = np.mean(((true - pred) ** 2) / true)
     expected_rmse = np.sqrt(np.mean((true - pred) ** 2))
     expected_rmse_log = np.sqrt(np.mean((np.log1p(true) - np.log1p(pred)) ** 2))
+
+    def format_metric(mt, mp):
+        diff = np.abs(mt - mp)
+        return f"{mt:.6f} vs {mp:.6f} ({diff:.3e})"
+
+    show_metrics: dict[str, str] = {
+        "abs_rel": format_metric(expected_abs_rel, metrics.abs_rel),
+        "sq_rel": format_metric(expected_sq_rel, metrics.sq_rel),
+        "rmse": format_metric(expected_rmse, metrics.rmse),
+        "rmse_log": format_metric(expected_rmse_log, metrics.rmse_log),
+    }
+
+    print(f"Metrics: \n{pprint.pformat(show_metrics)}")
 
     rel = 1e-8
     assert metrics is not None

@@ -9,13 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 import pytest
 import safetensors.torch
 import torch
-from tensordict import TensorDictBase
 
-from unipercept.evaluators import DVPSEvaluator
+from unipercept.evaluators.dvps import DVPSEvaluator
 
 # From the reference implementation on the first sequence in Cityscapes-DVPS (val)
 # using predictions from a fully trained Multi-DVPS model.
@@ -112,7 +110,7 @@ def results() -> dict[str, float]:
     return results
 
 
-def test_video_panoptic_evaluator(results):
+def test_dvps_evaluator_no_depth(results):
     df = results["vpq"]
     df = df.loc[(df["metric"] == "PQ") & (df["definition"] == "original")]
     df = df.groupby(["window"])[["all", "thing", "stuff"]].mean()
@@ -129,7 +127,7 @@ def test_video_panoptic_evaluator(results):
         assert ref_stuff == pytest.approx(res_stuff, abs=1e1)
 
 
-def test_depth_aware_video_panoptic_evaluator(results):
+def test_dvps_evaluator_with_depth(results):
     df = results["dvpq"]
     df = df.loc[(df["metric"] == "PQ") & (df["definition"] == "original")]
 

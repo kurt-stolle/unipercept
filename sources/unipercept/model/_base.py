@@ -369,11 +369,7 @@ class ModelBase(nn.Module):
 
     if T.TYPE_CHECKING:
 
-        @abc.abstractmethod
-        @TX.override
-        def forward(self, *args: T.Any) -> ModelOutput: ...
-
-        __call__ = forward
+        def __call__(self, *args: Tensor) -> ModelOutput: ...
 
 
 class ModelFactory:

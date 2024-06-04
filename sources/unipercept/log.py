@@ -159,6 +159,9 @@ def create_table(
 
     if isinstance(mapping, pd.DataFrame):
         mapping = mapping.to_dict(orient="list")
+    elif hasattr(mapping, "_asdict") and callable(mapping._asdict):
+        # Support for namedtuples, which do not support instance checks.
+        mapping = mapping._asdict()
 
     if format == "auto":
         if len(mapping) <= 5 and _depth <= 1:

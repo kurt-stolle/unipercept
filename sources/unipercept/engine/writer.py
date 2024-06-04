@@ -586,9 +586,7 @@ class MemmapTensordictWriter:
             ]
         )
 
-        barrier()
-
-        if check_main_process():
+        with main_process_first():
             if num_tensordict_subdirs == len(self):
                 self.close()
                 return True
@@ -598,7 +596,6 @@ class MemmapTensordictWriter:
                 else:
                     shutil.rmtree(p)
 
-        barrier()
 
         return False
 

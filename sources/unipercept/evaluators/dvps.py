@@ -27,18 +27,14 @@ from tensordict import TensorDictBase
 import unipercept.evaluators.depth as depth
 import unipercept.evaluators.segmentation as segmentation
 import unipercept.evaluators.tracking as tracking
+import unipercept.state as up_state
 from unipercept.data.tensors import PanopticMap
-from unipercept.log import create_table, get_logger
-from unipercept.state import check_main_process, cpus_available, get_interactive
 from unipercept.utils.dicttools import (
     defaultdict_recurrent,
     defaultdict_recurrent_to_dict,
 )
 
-from ._base import Evaluator, PlotMode, StoragePrefix
 from ._common import isin, stable_divide
-
-_logger = get_logger(__name__)
 
 
 class DVPSMetric(E.StrEnum):
@@ -115,7 +111,7 @@ class DVPSEvaluator(
             if valid is None:
                 msg = f"Missing {self.segmentation_key_valid} in storage."
                 raise ValueError(msg)
-            if not valid.item():
+            if not valid:
                 print("Skipping invalid sample")
                 continue
             seq_id = T.cast(torch.Tensor, storage.get_at(self.key_video_sequence, i))
@@ -181,10 +177,16 @@ class DVPSEvaluator(
         summaries = []
         thresholds_values = thresholds if thresholds is not None else [0]
         win_th_prod = list(itertools.product(windows, thresholds_values))
-        with self._progress_bar(
-            desc=metric_name, total=len(indices_per_sequence) * len(win_th_prod)
-        ) as pbar:
-            for win, th in win_th_prod:
+        work = list(range(len(win_th_prod)))
+
+        with (
+            self._progress_bar(
+                desc=metric_name, total=len(indices_per_sequence) * len(win_th_prod)
+            ) as pbar,
+            up_state.split_between_processes(work) as work_split,
+        ):
+            for work_index in work_split:
+                win, th = win_th_prod[work_index]
                 if th > 0:
                     pbar.set_postfix({"threshold": th, "window": win})
                 else:
@@ -217,7 +219,15 @@ class DVPSEvaluator(
                         sum["definition"] = "balanced"
                         summaries.append(sum)
 
-        # Combine summarie
+        # Synchronize
+        up_state.barrier()
+
+        # Combine summaries
+        summaries = up_state.gather_object(summaries)
+
+        if not up_state.check_main_process():
+            return {}
+
         df = pd.concat(summaries, ignore_index=True)
 
         if return_dataframe:
@@ -277,7 +287,7 @@ class DVPSEvaluator(
 
         metrics = defaultdict_recurrent_to_dict(result)
         if self.show_summary:
-            _logger.info("(D)VPQ metrics:\n%s", create_table(metrics, format="wide"))
+            self._show_table(f"{metric_name} metrics", metrics)
 
         return metrics
 
@@ -325,7 +335,7 @@ class DVPSEvaluator(
         )
         sample_amt = len(indices)
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(cpus_available(), 16)
+            max_workers=4,
         ) as pool:
             for result in pool.map(
                 compute_dvpq_at_group,
@@ -488,14 +498,14 @@ def _compute_dvpq_at_group(
         list(background_ids) + [invalid_depth_id]
     )  # if not allow_unknown_category else background_ids,
 
-    pred_seg = segmentation.panoptic_quality_preprocess(
+    pred_seg = segmentation.preprocess_panoptic_quality(
         object_ids,
         background_ids,
         pred_seg,
         void_color=void_color,
         allow_unknown_category=allow_unknown_category,
     )
-    true_seg = segmentation.panoptic_quality_preprocess(
+    true_seg = segmentation.preprocess_panoptic_quality(
         object_ids,
         background_ids,
         true_seg,
@@ -504,7 +514,7 @@ def _compute_dvpq_at_group(
     )
 
     return (
-        *segmentation.panoptic_quality_update_sample(
+        *segmentation.compute_panoptic_quality_partial(
             pred_seg,
             true_seg,
             void_color=void_color,

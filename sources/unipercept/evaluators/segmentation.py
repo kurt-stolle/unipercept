@@ -16,6 +16,7 @@ import typing as T
 
 import pandas as pd
 import torch
+from torch.nn.modules import pooling
 import torch.types
 import typing_extensions as TX
 from PIL import Image as pil_image
@@ -26,16 +27,15 @@ from tqdm import tqdm
 from unipercept import file_io
 from unipercept.data.tensors import PanopticMap, PanopticMapLike
 from unipercept.data.types.coco import COCOResultPanoptic
-from unipercept.log import get_logger
-from unipercept.state import check_main_process
+
+import unipercept.log as up_log
+import unipercept.state as up_state
 
 from ._base import Evaluator, EvaluatorComputeKWArgs, PlotMode, StoragePrefix
 from ._common import isin, stable_divide, nonzero_divide
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData
-
-_logger = get_logger(__name__)
 
 
 class SegmentationTask(E.StrEnum):
@@ -222,7 +222,7 @@ class COCOWriter(SegmentationWriter):
         assert not path_files.exists(), f"Path {path_files} already exists"
         assert not path_json.exists(), f"Path {path_json} already exists"
 
-        _logger.info("Exporting COCO panoptic segmentation to %s", path_json)
+        self.logger.info("Exporting COCO panoptic segmentation to %s", path_json)
 
         path_files.mkdir(parents=True, exist_ok=True)
 
@@ -281,8 +281,8 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
     - Mean intersection over union (mIoU)
     """
 
-    show_details = True  # override default (False) from base class
-
+    show_details: bool = True  # override default (False) from base class
+    segmentation_task: SegmentationTask = SegmentationTask.SEMANTIC_SEGMENTATION
     semseg_with_details: bool = D.field(
         default=False,
         metadata={
@@ -294,7 +294,6 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
     def compute(
         self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
     ) -> dict[str, T.Any]:
-        results = super().compute(storage, **kwargs)
 
         #  device = torch.device("cpu")  # TODO: GPU?
 
@@ -303,7 +302,7 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
         assert sample_amt > 0, sample_amt
         miou_per_cat = torch.zeros(num_cats, dtype=torch.int, device=device)
         miou_all = torch.zeros((1,), dtype=torch.int, device=device)
-        miou_samples = 0
+        miou_samples = torch.zeros((1,), dtype=torch.int, device=device)
         compute_at = functools.partial(
             self._compute_semantic_metrics_at_index,
             storage=storage,
@@ -313,27 +312,33 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
             key_segmentation_pred=self.segmentation_key_pred,
             key_segmentation_valid=self.segmentation_key_valid,
         )
-        progress_bar = tqdm(
-            desc="Semantic segmentation metrics",
-            dynamic_ncols=True,
-            total=sample_amt,
-            disable=not check_main_process(local=True) or not self.show_progress,
-        )
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-                for result in pool.map(compute_at, range(sample_amt)):
-                    progress_bar.update(1)
-                    if result is None:
-                        continue
-                    miou_per_cat += result[0]
-                    miou_all += result[1]
-                    miou_samples += 1
-        finally:
-            progress_bar.close()
+        work = list(range(sample_amt))
+        with (
+            self._progress_bar(
+                desc="Semantic segmentation metrics",
+                total=sample_amt,
+            ) as progress_bar,
+            up_state.split_between_processes(work) as work_split,
+            concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool,
+        ):
+            for result in pool.map(compute_at, work_split):
+                progress_bar.update(1)
+                if result is None:
+                    continue
+                miou_per_cat += result[0]
+                miou_all += result[1]
+                miou_samples += 1
 
-        miou_per_cat /= miou_samples
-        miou_all /= miou_samples
+        up_state.barrier()
 
+        miou_samples = up_state.reduce(miou_samples)
+        miou_per_cat = up_state.reduce(miou_per_cat) / miou_samples
+        miou_all = up_state.reduce(miou_all) / miou_samples
+
+        if not up_state.check_main_process():
+            return {}
+
+        results = super().compute(storage, **kwargs)
         results["semseg.mIoU.all"] = miou_all.item()
 
         if self.show_summary:
@@ -372,11 +377,11 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
         true = storage.get_at(key_segmentation_true, i).to(
             device=device, non_blocking=True
         )
-        inter, union = _segmentation_miou_partial(true, pred, num_categories)
-        return _segmentation_miou_compute(inter, union)
+        inter, union = compute_semantic_miou_partial(true, pred, num_categories)
+        return accumulate_semantic_miou_partial(inter, union)
 
 
-def _segmentation_miou_compute(
+def accumulate_semantic_miou_partial(
     inter: PanopticMapLike, union: PanopticMapLike
 ) -> T.Tuple[Tensor, Tensor]:
     """
@@ -388,7 +393,7 @@ def _segmentation_miou_compute(
     return miou, miou.mean()
 
 
-def _segmentation_miou_partial(
+def compute_semantic_miou_partial(
     true: PanopticMapLike, pred: PanopticMapLike, n_cats: int
 ) -> tuple[Tensor, Tensor]:
     """
@@ -420,7 +425,7 @@ def _segmentation_miou_partial(
     return inter, union
 
 
-def segmentation_miou(
+def compute_semantic_miou(
     true: PanopticMapLike | T.List[PanopticMapLike],
     pred: PanopticMapLike | T.List[PanopticMapLike],
     num_categories: int,
@@ -430,8 +435,8 @@ def segmentation_miou(
     """
     if isinstance(true, Tensor):
         assert isinstance(pred, Tensor)
-        inter, union = _segmentation_miou_partial(true, pred, num_categories)
-        miou_per_cat, miou_all = _segmentation_miou_compute(inter, union)
+        inter, union = compute_semantic_miou_partial(true, pred, num_categories)
+        miou_per_cat, miou_all = accumulate_semantic_miou_partial(inter, union)
     elif isinstance(true, list):
         assert isinstance(pred, list)
         miou_per_cat = torch.zeros(
@@ -440,8 +445,8 @@ def segmentation_miou(
         miou_all = torch.zeros_like(miou_per_cat)
         miou_samples = 0
         for t, p in zip(true, pred):
-            inter, union = _segmentation_miou_partial(t, p, num_categories)
-            miou_per_cat_sample, miou_all_sample = _segmentation_miou_compute(
+            inter, union = compute_semantic_miou_partial(t, p, num_categories)
+            miou_per_cat_sample, miou_all_sample = accumulate_semantic_miou_partial(
                 inter, union
             )
             miou_per_cat += miou_per_cat_sample
@@ -561,24 +566,34 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
             key_segmentation_valid=self.segmentation_key_valid,
         )
 
-        progress_bar = tqdm(
-            desc="Panoptic segmentation metrics",
-            dynamic_ncols=True,
-            total=sample_amt,
-            disable=not check_main_process(local=True) or not self.show_progress,
-        )
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-                for result in pool.map(compute_at, range(sample_amt)):
-                    progress_bar.update(1)
-                    if result is None:
-                        continue
-                    iou += result[0]
-                    tp += result[1]
-                    fp += result[2]
-                    fn += result[3]
-        finally:
-            progress_bar.close()
+        work = range(sample_amt)
+        with (
+            self._progress_bar(
+                desc="Panoptic segmentation metrics",
+                total=sample_amt,
+            ) as progress_bar,
+            up_state.split_between_processes(work) as work_split,
+            concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool,
+        ):
+            for result in pool.map(compute_at, work_split):
+                progress_bar.update(1)
+                if result is None:
+                    continue
+                iou += result[0]
+                tp += result[1]
+                fp += result[2]
+                fn += result[3]
+
+        up_state.barrier()
+
+        iou = up_state.reduce(iou)
+        tp = up_state.reduce(tp)
+        fp = up_state.reduce(fp)
+        fn = up_state.reduce(fn)
+
+        if not up_state.check_main_process():
+            return {}
+
         # Compute PQ = SQ * RQ
         sq = nonzero_divide(iou, tp)
         rq = nonzero_divide(tp, tp + 0.5 * fp + 0.5 * fn)
@@ -729,21 +744,21 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
         true = storage.get_at(key_segmentation_true, n).to(
             device=device, non_blocking=True
         )
-        pred = panoptic_quality_preprocess(
+        pred = preprocess_panoptic_quality(
             object_ids,
             background_ids,
             pred,
             void_color=void_color,
             allow_unknown_category=allow_unknown_category,
         )
-        true = panoptic_quality_preprocess(
+        true = preprocess_panoptic_quality(
             object_ids,
             background_ids,
             true,
             void_color=void_color,
             allow_unknown_category=True,
         )
-        result = panoptic_quality_update_sample(
+        result = compute_panoptic_quality_partial(
             pred,
             true,
             void_color=void_color,
@@ -850,7 +865,7 @@ def find_void_color(
     return unused_category_id, 0
 
 
-def panoptic_quality_preprocess(
+def preprocess_panoptic_quality(
     things: T.FrozenSet[int],
     stuffs: T.FrozenSet[int],
     inputs: PanopticMap,
@@ -904,7 +919,7 @@ def panoptic_quality_preprocess(
     return out
 
 
-def panoptic_quality_update_sample(
+def compute_panoptic_quality_partial(
     flatten_preds: Tensor,
     flatten_target: Tensor,
     void_color: tuple[int, int],

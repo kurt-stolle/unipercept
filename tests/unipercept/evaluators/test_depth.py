@@ -9,15 +9,15 @@ import numpy as np
 import pytest
 import torch
 from torch.utils._pytree import tree_map
-from unipercept.evaluators.depth import compute_depth_metrics
+from unipercept.evaluators.depth import compute_eigen_metrics
 
 TRUE_DEPTH = [2.0**i for i in range(100)]
 PRED_NOISE = [((1000.0 / 3) ** (i + 1) % 100) / 100 for i in range(100)]
 
 
 @pytest.mark.parametrize("device", ["cuda", "cpu"])
-@pytest.mark.parametrize("noise_gain", [1*(10**n) for n in range(-4, 4)])
-def test_compute_depth_metrics_eigen_etal(device: str, noise_gain: float):
+@pytest.mark.parametrize("noise_gain", [1 * (10**n) for n in range(-4, 4)])
+def test_compute_eigen_metrics(device: str, noise_gain: float):
     r"""
     Tests the depth metrics computation using the Eigen et al. (2014) formulation.
     """
@@ -27,7 +27,7 @@ def test_compute_depth_metrics_eigen_etal(device: str, noise_gain: float):
     with torch.no_grad(), torch.device(device):
         true = torch.tensor(TRUE_DEPTH)
         pred = torch.tensor(PRED_NOISE) * noise_gain + true
-    metrics = compute_depth_metrics(pred=pred, true=true)
+    metrics = compute_eigen_metrics(pred=pred, true=true)
     metrics = tree_map(lambda x: x.cpu().numpy(force=True), metrics)
     pred = pred.numpy(force=True)
     true = true.numpy(force=True)
@@ -57,7 +57,7 @@ def test_compute_depth_metrics_eigen_etal(device: str, noise_gain: float):
     assert pytest.approx(metrics.rmse_log, rel) == expected_rmse_log
 
 
-def test_compute_depth_metrics_with_invalid_input():
+def test_compute_eigen_metrics_with_invalid_input():
     r"""
     Tests the depth metrics computation with invalid input.
     """
@@ -65,13 +65,13 @@ def test_compute_depth_metrics_with_invalid_input():
     true = torch.tensor([])
 
     # Ensure the function handles empty inputs gracefully
-    metrics = compute_depth_metrics(pred=pred, true=true)
+    metrics = compute_eigen_metrics(pred=pred, true=true)
 
     # Expect the function to return None for invalid/empty inputs
     assert metrics.valid == 0
 
 
-def test_compute_depth_metrics_accuracy():
+def test_compute_eigen_metrics_accuracy():
     r"""
     Tests the accuracy metric at canonical thresholds $1.25^n$ for $n \in \{1, 2, 3\}$.
     """
@@ -80,7 +80,7 @@ def test_compute_depth_metrics_accuracy():
     true = torch.tensor([1.0, 1.0, 1.0])
 
     # Calculate metrics
-    metrics = compute_depth_metrics(pred=pred, true=true, t_base=1.25, t_n=[1, 2, 3])
+    metrics = compute_eigen_metrics(pred=pred, true=true, t_base=1.25, t_n=[1, 2, 3])
 
     # Verify accuracy at different thresholds
     accuracy = metrics.accuracy

@@ -16,13 +16,12 @@ import torch.distributed
 import torch.types
 import torch.utils._pytree as pytree
 import typing_extensions as TX
-from tensordict import TensorDict, TensorDictBase, tensorclass
+from tensordict import TensorDict, TensorDictBase, is_tensor_collection, tensorclass
 
 if T.TYPE_CHECKING:
     from tensordict.base import IndexType as IndexType
     from tensordict.tensordict import NestedKey as NestedKey
 
-__all__ = ["Tensorclass", "TensorDict", "TensorDictBase"]
 _CompatibleType: T.TypeAlias = torch.Tensor
 
 
@@ -41,7 +40,7 @@ class _TensorclassMeta(type):
         bases = types.resolve_bases(bases)
         tc = super().__new__(metacls, name, tuple(bases), ns, **kwds)
 
-        return tensorclass(tc)
+        return tensorclass(tc)  # type: ignore
 
 
 @T.dataclass_transform()
@@ -326,3 +325,10 @@ class Tensorclass(metaclass=_TensorclassMeta):
         def select(self) -> T.Self: ...
 
         def keys(self) -> T.Sequence[str]: ...
+
+
+def is_tensordict_like(obj: T.Any) -> T.TypeGuard[TensorDictBase | Tensorclass]:
+    """
+    Check if the object is a `tensordict`-like object.
+    """
+    return isinstance(obj, (TensorDictBase, Tensorclass)) or is_tensor_collection(obj)

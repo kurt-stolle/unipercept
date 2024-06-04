@@ -10,6 +10,7 @@ import enum as E
 import functools as F
 import os
 import sys
+import torch.fx
 import threading
 import types
 import typing as T
@@ -32,15 +33,8 @@ from unipercept.utils.tensorclass import Tensorclass
 __all__ = []
 
 
-_XLR_STATE: accelerate.PartialState | None = None
-
-
 def get_state():
-    global _XLR_STATE
-
-    if _XLR_STATE is None:
-        _XLR_STATE = accelerate.state.PartialState()
-    return _XLR_STATE
+    return accelerate.state.PartialState()
 
 
 ###################
@@ -194,6 +188,12 @@ def on_main_process():
     return get_state().on_main_process
 
 
+def split_between_processes(
+    inputs: T.Sequence | T.Mapping | torch.Tensor, apply_padding: bool = False
+):
+    return get_state().split_between_processes(inputs, apply_padding)
+
+
 def void(*args: T.Any, **kwargs: T.Any) -> None:
     """
     A function that does nothing.
@@ -206,6 +206,14 @@ def noop(*args: T.Any, **kwargs: T.Any) -> T.Any:
     A function that does nothing and returns its input.
     """
     return args
+
+
+def reduce(tensor: torch.Tensor, op: T.Literal["sum", "mean"] = "sum"):
+    return accelerate.utils.reduce(tensor, op)
+
+
+def gather_object(objects: T.Any) -> T.Any:
+    return accelerate.utils.gather_object(objects)
 
 
 ########################
@@ -479,7 +487,6 @@ def all_auto_gather(
         handler = get_handler()
     if isinstance(item, Tensor):
         return handler.all_auto_gather(item, **kwargs)
-
     tree, spec = tree_flatten(item)
     work = []
     for item in tree:
@@ -487,6 +494,9 @@ def all_auto_gather(
         work.append(handler.all_auto_gather(item, mode, *kwargs, handler=handler))
 
     return collect_all(work).then(F.partial(tree_unflatten_async, spec=spec))
+
+
+torch.fx.wrap("all_auto_gather")
 
 
 ################
@@ -518,6 +528,9 @@ def chain_with_grad(src: Tensor, dst: T.List[Tensor], zero_grad: bool = False):
     return ChainFunction.apply(src, zero_grad, *dst)
 
 
+torch.fx.wrap("chain_with_grad")
+
+
 class SendFunction(Function):
     @staticmethod
     @TX.override
@@ -544,6 +557,9 @@ def send_with_grad(src: Tensor, dst: Tensor, group=dist.group.WORLD, tag=0):
     Variant of ``torch.distributed.send`` that supports gradients.
     """
     return SendFunction.apply(src, dst, group, tag)
+
+
+torch.fx.wrap("send_with_grad")
 
 
 class RecvFunction(Function):
@@ -580,6 +596,9 @@ def recv_with_grad(dst: Tensor, src: Tensor, group=dist.group.WORLD, tag=0):
     return RecvFunction.apply(dst, src, group, tag)
 
 
+torch.fx.wrap("recv_with_grad")
+
+
 class BroadcastFunction(Function):
     @staticmethod
     @TX.override
@@ -608,6 +627,9 @@ def broadcast_with_grad(tensor: Tensor, src: int, group=dist.group.WORLD, inplac
     Variant of ``torch.distributed.broadcast`` that supports gradients.
     """
     return BroadcastFunction.apply(tensor, src, group, inplace)
+
+
+torch.fx.wrap("broadcast_with_grad")
 
 
 class AllGatherFunction(Function):
@@ -643,6 +665,9 @@ def all_gather_with_grad(
     return AllGatherFunction.apply(src, group, inplace, *dst)
 
 
+torch.fx.wrap("all_gather_with_grad")
+
+
 def all_auto_gather_with_grad(
     src: Tensor,
     mode: AutoGatherMode = AutoGatherMode.CONCAT,
@@ -670,6 +695,9 @@ def all_auto_gather_with_grad(
     else:
         msg = f"Invalid auto gather mode: {mode}"
         raise ValueError(msg)
+
+
+torch.fx.wrap("all_auto_gather_with_grad")
 
 
 class GatherFunction(Function):
@@ -713,6 +741,9 @@ def gather_with_grad(
     Variant of ``torch.distributed.gather`` that supports gradients.
     """
     return GatherFunction.apply(src, dst, group, inplace)
+
+
+torch.fx.wrap("gather_with_grad")
 
 
 class ScatterFunction(Function):
@@ -761,3 +792,6 @@ def scatter_with_grad(
     Variant of ``torch.distributed.scatter`` that supports gradients.
     """
     return ScatterFunction.apply(tensor, src, group, inplace, *scatter_list)
+
+
+torch.fx.wrap("scatter_with_grad")

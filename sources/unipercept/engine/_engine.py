@@ -48,7 +48,7 @@ from unipercept.state import (
 )
 from unipercept.utils.seed import set_seed
 from unipercept.utils.status import StatusDescriptor
-from unipercept.utils.tensorclass import Tensorclass
+from unipercept.utils.tensorclass import Tensorclass, is_tensordict_like
 from unipercept.utils.time import ProfileAccumulator, profile
 from unipercept.utils.typings import Pathable
 from unipercept.utils.ulid import ULID
@@ -1083,21 +1083,23 @@ class Engine:
         outputs: ModelOutput = model(*args)
         assert outputs.predictions is not None
 
-        if isinstance(outputs.predictions, T.List):
-            predictions = pad_sequence(outputs.predictions, pad_dim=0, return_mask=True)
-            predictions.rename_key_("masks", "valid")
-        else:
-            predictions = outputs.predictions
-
-        if not isinstance(predictions, TensorDictBase):
-            predictions = TensorDict(predictions, batch_size=inputs_shape)
+        preds = outputs.predictions
+        if isinstance(preds, T.List):
+            list_type = type(next(iter(preds)))
+            assert all(isinstance(v, list_type) for v in preds)
+            if not is_tensordict_like(list_type):
+                preds = [TensorDict(v, batch_size=[]) for v in outputs.predictions]
+            preds = pad_sequence(preds, pad_dim=0, return_mask=True)
+            preds.rename_key_("masks", "valid")
+        elif not is_tensordict_like(preds):
+            preds = TensorDict(preds, batch_size=inputs_shape)
 
         if len(inputs_shape) == 0:
-            predictions = predictions[0]
+            preds = preds[0]  # type: ignore
 
-        predictions = predictions.to(inputs_device)
+        preds = preds.to(inputs_device)
 
-        return T.cast(TensorDictBase, predictions)
+        return T.cast(TensorDictBase, preds)
 
     @status.assert_status(
         ~(EngineStatus.IS_TRAINING_RUN | EngineStatus.IS_EVALUATION_RUN)
@@ -1265,30 +1267,26 @@ class Engine:
 
             # Compute metrics
             metrics: dict[str, T.Any] = {}
-            if self.xlr.is_main_process:
-                if not results_recovered:
-                    metrics.update(
-                        _build_speed_metrics(
-                            prefix,
-                            t_start_all,
-                            sample_amount=samples_processed,
-                            step_amount=math.ceil(
-                                samples_processed * get_process_count()
-                            ),
-                        )
+            if not results_recovered:
+                metrics.update(
+                    _build_speed_metrics(
+                        prefix,
+                        t_start_all,
+                        sample_amount=samples_processed,
+                        step_amount=math.ceil(samples_processed * get_process_count()),
                     )
-                visuals: dict[str, pil_image.Image] = {}
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    storage = results_mem.read(executor)
-                    for evaluator in handlers or []:
-                        _logger.debug("Inference loop: evaluating %s", repr(evaluator))
-                        metrics.update(
-                            evaluator.compute(
-                                storage, device=self.xlr.device, path=path
-                            )
-                        )
+                )
+            visuals: dict[str, pil_image.Image] = {}
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                storage = results_mem.read(executor)
+                for evaluator in handlers or []:
+                    _logger.debug("Inference loop: evaluating %s", repr(evaluator))
+                    metrics.update(
+                        evaluator.compute(storage, device=self.xlr.device, path=path)
+                    )
+                    if check_main_process():
                         visuals.update(evaluator.plot(storage))
-                self._store_visualizations(visuals, prefix=prefix)
+            self._store_visualizations(visuals, prefix=prefix)
 
             barrier()
         finally:
@@ -1619,6 +1617,9 @@ class Engine:
 
         import wandb
         from wandb.sdk.wandb_run import Run
+
+        if not check_main_process():
+            return
 
         _logger.info(
             f"Storing visualizations ({len(visuals)} total): {list(visuals.keys())}"

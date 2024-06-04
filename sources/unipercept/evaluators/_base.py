@@ -16,8 +16,8 @@ import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
-from unipercept.log import Logger, get_logger
-from unipercept.state import check_main_process, get_interactive
+import unipercept.state as up_state
+import unipercept.log as up_log
 
 if T.TYPE_CHECKING:
     from tensordict import TensorDictBase
@@ -26,9 +26,6 @@ if T.TYPE_CHECKING:
     from unipercept.model import InputData
 
 __all__ = ["Evaluator", "PlotMode", "StoragePrefix", "EvaluatorComputeKWArgs"]
-
-
-_logger = get_logger(__name__)
 
 
 class PlotMode(E.StrEnum):
@@ -77,10 +74,10 @@ class Evaluator(metaclass=abc.ABCMeta):
         repr=False,
         metadata={"help": "Metadata of the dataset under evaluation."},
     )
-    logger: Logger = D.field(init=False, repr=False)
+    logger: up_log.Logger = D.field(init=False, repr=False)
 
     show_progress: bool = D.field(
-        default_factory=get_interactive,
+        default_factory=up_state.get_interactive,  # type: ignore
         metadata={
             "help": "Show progress bar",
         },
@@ -106,7 +103,7 @@ class Evaluator(metaclass=abc.ABCMeta):
     )
 
     def __post_init__(self, *args, **kwargs):
-        self.logger = get_logger(f"{__name__} ({self.__class__.__name__})")
+        self.logger = up_log.get_logger(f"{__name__} ({self.__class__.__name__})")
 
     # ---------------- #
     # Abstract methods #
@@ -142,6 +139,9 @@ class Evaluator(metaclass=abc.ABCMeta):
     def _show_table(self, msg: str, tab: pd.DataFrame | dict[str, T.Any]) -> None:
         from unipercept.log import create_table
 
+        if not up_state.check_main_process():
+            return
+
         # tab_fmt = tab.to_markdown(index=False)
         if isinstance(tab, pd.DataFrame):
             tab_fmt = create_table(tab.to_dict(orient="list"))
@@ -156,7 +156,8 @@ class Evaluator(metaclass=abc.ABCMeta):
         return tqdm(
             *args,
             dynamic_ncols=True,
-            disable=not check_main_process(local=True) or not self.show_progress,
+            disable=not up_state.check_main_process(local=True)
+            or not self.show_progress,
             **kwargs,
         )
 

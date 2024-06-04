@@ -16,13 +16,14 @@ import torch.types
 import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
-from torch import Tensor
-from torch.utils._pytree import tree_map
+from torch import Tensor, nn
+import math
+from torch.utils._pytree import tree_map, tree_flatten, tree_unflatten
 from tqdm import tqdm
 from typing_extensions import override
 
-from unipercept.log import create_table, get_logger
-from unipercept.state import check_main_process, cpus_available, get_interactive
+import unipercept.log as up_log
+import unipercept.state as up_state
 
 from ._base import Evaluator, PlotMode, StoragePrefix
 
@@ -30,7 +31,7 @@ if T.TYPE_CHECKING:
     from ..data.sets import Metadata
     from ..model import InputData
 
-_logger = get_logger(__name__)
+_logger = up_log.get_logger(__name__)
 
 _FLOAT_DTYPE: T.Final = torch.float64
 _FLOAT_EPS: T.Final = torch.finfo(_FLOAT_DTYPE).eps
@@ -160,40 +161,81 @@ class DepthWriter(Evaluator):
 
 @D.dataclass(kw_only=True)
 class DepthEvaluator(DepthWriter):
+    depth_per_sample: bool = D.field(
+        default=True,
+        metadata={
+            "help": (
+                "When set to True, the evaluator computes metrics for each sample and "
+                "report the average over all samples. "
+                "If False, the evaluator computes the metrics for the entire dataset, "
+                "as if all samples were concatenated."
+            )
+        },
+    )
+
     @TX.override
-    def compute(self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs):
+    def compute(self, storage: TensorDictBase, **kwargs):
+        metrics = super().compute(storage, **kwargs)
+        metrics.update(self._compute_eigen_metrics(storage, **kwargs))
+
+        return metrics
+
+    def _compute_eigen_metrics(
+        self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
+    ) -> dict[str, T.Any]:
         num_samples = storage.batch_size[0]
         compute_at = functools.partial(
             self._compute_depth_metrics_at_index, storage=storage, device=device
         )
-        metrics_list: list[DepthMetrics] = []
+        metrics_list: list[EigenMetrics] = []
+        metrics_count = torch.zeros((1,), device=device, dtype=torch.int64)
+        work = list(range(num_samples))
+        with (
+            up_state.split_between_processes(work) as work_split,
+            self._progress_bar(
+                total=num_samples, desc="Computing depth metrics"
+            ) as progress_bar,
+        ):
+            for metrics_sample in map(compute_at, work_split):
+                progress_bar.update(1)
+                if metrics_sample is None:
+                    continue
+                metrics_list.append(metrics_sample)
+                metrics_count += 1
 
-        progress_bar = tqdm(
-            total=num_samples,
-            desc="Computing depth metrics",
-            disable=not check_main_process(local=True) or not self.show_progress,
-        )
-        for metrics_sample in map(compute_at, range(num_samples)):
-            progress_bar.update(1)
-            if metrics_sample is None:
-                continue
-            metrics_list.append(metrics_sample)
-        progress_bar.close()
+        # Ensure that all processes have the same number of samples
+        metrics = concat_eigen_metrics(metrics_list)
+        metrics = tree_map(lambda x: x.sum(), metrics)
 
-        # Compute the final metrics as the average of the samples weighted by the amount of valid pixels at each entry
-        metrics = accumulate_partial_depth_metrics(metrics_list)
-        metrics = tree_map(lambda x: x.item(), metrics._asdict())
+        # Synchronize the processes
+        up_state.barrier()
+
+        # Reduce between processes
+        metrics_count = up_state.reduce(metrics_count)
+        metrics = tree_map(lambda x: up_state.reduce(x), metrics)
+
+        if not up_state.check_main_process():
+            return {}
+
+        # Accumulate
+        if self.depth_per_sample:
+            metrics_dict = tree_map(
+                lambda x: (x / metrics_count).item(), metrics._asdict()
+            )
+        else:
+            metrics_dict = accumulate_eigen_partial(metrics)
+            metrics_dict = tree_map(lambda x: x.item(), metrics._asdict())
+        metrics_dict = T.cast(dict, metrics_dict)
 
         if self.show_summary:
-            msg = "Depth evaluation metrics"
-            self._show_table(msg, metrics)
+            msg = "Depth metrics (Eigen et al.)"
+            self._show_table(msg, metrics_dict)
 
-        # Add metrics from parent class
-        metrics.update(super().compute(storage, device=device))
+        return metrics_dict
 
-        return metrics
-
-    def _compute_depth_metrics_at_index(self, n, *, storage, device):
+    def _compute_depth_metrics_at_index(
+        self, n, *, storage, device
+    ) -> EigenMetrics | None:
         valid = storage.get_at(self.depth_key_valid, n).item()
         if not valid:
             return None
@@ -204,10 +246,15 @@ class DepthEvaluator(DepthWriter):
             device=device, non_blocking=True
         )
         assert pred is not None and true is not None, (pred, true)
-        return compute_partial_depth_metrics(pred=pred, true=true)
+
+        if self.depth_per_sample:
+            fn = compute_eigen_metrics
+        else:
+            fn = compute_eigen_partial
+        return fn(pred=pred, true=true)
 
 
-class DepthMetrics(T.NamedTuple):
+class EigenMetrics(T.NamedTuple):
     """
     Metrics for depth estimation tasks.
     """
@@ -278,30 +325,28 @@ def _align_and_promote(pred: Tensor, true: Tensor):
     Aligns and promotes the input tensors to accurate floating-point tensors.
     """
     if not torch.is_floating_point(pred):
-        msg = f"Expected floating-point tensor for prediction, got {pred_dtype=}"
+        msg = f"Expected floating-point tensor for prediction, got {pred.dtype=}"
         raise TypeError(msg)
     if not torch.is_floating_point(true):
-        msg = f"Expected floating-point tensor for ground truth, got {true_dtype=}"
+        msg = f"Expected floating-point tensor for ground truth, got {true.dtype=}"
         raise TypeError(msg)
-    pred_dtype = pred.dtype
-    true_dtype = true.dtype
-    # pred = pred.to(dtype=pred_dtype).to(dtype=_FLOAT_DTYPE)
-    # true = true.to(dtype=true_dtype).to(dtype=_FLOAT_DTYPE)
-
     pred = pred.to(dtype=_FLOAT_DTYPE)
     true = true.to(dtype=_FLOAT_DTYPE)
-
     return pred, true
 
 
-@torch.no_grad()
-def compute_depth_metrics(
+############################################
+# Eigen metrics for per-sample computation #
+############################################
+
+
+def compute_eigen_metrics(
     *,
     pred: Tensor,
     true: Tensor,
     t_base: float = 1.25,
     t_n: T.Iterable[int] = _THRES_DEFAULT,
-) -> DepthMetrics:
+) -> EigenMetrics:
     """
     Computation of error metrics between predicted and ground truth depths.
 
@@ -328,12 +373,12 @@ def compute_depth_metrics(
 
     max_rel = torch.maximum((true / pred), (pred / true))
 
-    return DepthMetrics(
+    return EigenMetrics(
         valid=px_amt,
         abs_rel=((true - pred).abs() / true).mean(),
         sq_rel=((true - pred).square() / true).mean(),
         rmse=(true - pred).square().mean().sqrt(),
-        rmse_log=((torch.log(true) - torch.log(pred)) ** 2).mean().sqrt(),
+        rmse_log=((torch.log1p(true) - torch.log1p(pred)) ** 2).mean().sqrt(),
         accuracy={
             _threshold_to_key(t_base, n): (max_rel < (t_base**n)).double().mean()
             for n in t_n
@@ -341,14 +386,41 @@ def compute_depth_metrics(
     )
 
 
-@torch.no_grad()
-def compute_partial_depth_metrics(
+def concat_eigen_metrics(metrics: T.Iterable[EigenMetrics]) -> EigenMetrics:
+    """
+    Concatenates the depth metrics computed for each sample.
+    """
+    metrics = tuple(metrics)
+    if len(metrics) == 0:
+        msg = "No depth metrics to concatenate"
+        raise ValueError(msg)
+
+    assert all(isinstance(m, EigenMetrics) for m in metrics)
+
+    _, spec = tree_flatten(metrics[0])
+    tensors, _ = tree_flatten(metrics)
+    tensors = [torch.atleast_1d(t) for t in tensors]
+    tensors_per_sample = len(tensors) // len(metrics)
+
+    tensors_concat = [
+        torch.cat(tensors[i::tensors_per_sample]) for i in range(tensors_per_sample)
+    ]
+
+    return tree_unflatten(tensors_concat, spec)
+
+
+##############################################
+# Partial variant, allows global computation #
+##############################################
+
+
+def compute_eigen_partial(
     *,
     pred: Tensor,
     true: Tensor,
     t_base: float = 1.25,
     t_n: T.Iterable[int] = _THRES_DEFAULT,
-) -> DepthMetrics:
+) -> EigenMetrics:
     """
     Computation of error metrics between predicted and ground truth depths.
 
@@ -373,7 +445,7 @@ def compute_partial_depth_metrics(
     pred, true = _align_and_promote(pred, true)
     pred, true, px_amt = _get_valid_depths(pred, true)
     max_rel = torch.maximum((true / pred), (pred / true))
-    return DepthMetrics(
+    return EigenMetrics(
         valid=px_amt,
         abs_rel=((true - pred).abs_() / true).sum(),
         sq_rel=((true - pred).square_() / true).sum(),
@@ -386,60 +458,25 @@ def compute_partial_depth_metrics(
     )
 
 
-@torch.no_grad()
-def accumulate_partial_depth_metrics(
-    metrics: T.Iterable[DepthMetrics], *, device: torch.device | None = None
-):
+def accumulate_eigen_partial(metrics: EigenMetrics | T.Iterable[EigenMetrics]):
     r"""
     Accumulates the partial depth metrics into a single set of metrics.
     """
-    if device is None:
-        device = next(iter(metrics)).valid.device
+    if isinstance(metrics, EigenMetrics):
+        valid = metrics.valid.sum()
+        return EigenMetrics(
+            valid=metrics.valid.mean(),
+            abs_rel=metrics.abs_rel.sum() / valid,
+            sq_rel=metrics.sq_rel.sum() / valid,
+            rmse=(metrics.rmse.sum() / valid).sqrt_(),
+            rmse_log=(metrics.rmse_log.sum() / valid).sqrt_(),
+            accuracy={
+                key: value.sum() / valid for key, value in metrics.accuracy.items()
+            },
+        )
+    elif isinstance(metrics, T.Iterable):
+        metrics = concat_eigen_metrics(metrics)
+        return accumulate_eigen_partial(metrics)
     else:
-        device = torch.device(device)
-
-    accuracy_keys = list(next(iter(metrics)).accuracy.keys())
-    metrics = [m for m in metrics if m.valid > 0]
-
-    with device:
-        size1 = (1,)
-        if len(metrics) == 0:
-            return DepthMetrics(
-                valid=torch.zeros(size1, dtype=torch.int64),
-                abs_rel=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
-                sq_rel=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
-                rmse=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
-                rmse_log=torch.full(size1, fill_value=torch.inf, dtype=_FLOAT_DTYPE),
-                accuracy={
-                    key: torch.full(size1, fill_value=torch.nan, dtype=_FLOAT_DTYPE)
-                    for key in next(iter(metrics)).accuracy.keys()
-                },
-            )
-
-        # Allocate tensors for the accumulated metrics
-        valid = torch.zeros(1, dtype=torch.int64)
-        abs_rel = torch.zeros(1, dtype=_FLOAT_DTYPE)
-        sq_rel = torch.zeros(1, dtype=_FLOAT_DTYPE)
-        rmse = torch.zeros(1, dtype=_FLOAT_DTYPE)
-        rmse_log = torch.zeros(1, dtype=_FLOAT_DTYPE)
-        accuracy = {key: torch.zeros(1, dtype=_FLOAT_DTYPE) for key in accuracy_keys}
-
-    # Accumulate the metrics
-    for metric in metrics:
-        valid += metric.valid.to(device=device)
-        abs_rel += metric.abs_rel.to(device=device)
-        sq_rel += metric.sq_rel.to(device=device)
-        rmse += metric.rmse.to(device=device)
-        rmse_log += metric.rmse_log.to(device=device)
-        for key in accuracy_keys:
-            accuracy[key] += metric.accuracy[key].to(device=device)
-
-    # Find the average metrics and finish the computation
-    return DepthMetrics(
-        valid=valid,
-        abs_rel=abs_rel / valid,
-        sq_rel=sq_rel / valid,
-        rmse=(rmse / valid).sqrt_(),
-        rmse_log=(rmse_log / valid).sqrt_(),
-        accuracy={key: value / valid for key, value in accuracy.items()},
-    )
+        msg = f"Expected iterable or instance of EigenMetrics, got {type(metrics)=}"
+        raise TypeError(msg)

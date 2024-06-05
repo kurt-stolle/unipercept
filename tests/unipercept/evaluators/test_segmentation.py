@@ -1,67 +1,69 @@
 from __future__ import annotations
 
+import pprint
 import typing as T
+from pathlib import Path
 
 import einops
 import pytest
 import torch
 import typing_extensions as TX
 from tensordict import TensorDict
+from torch import Tensor
 
 import unipercept.evaluators.segmentation as segeval
 
 
-def test_panoptic_evaluator(
-    true_panoptic: torch.Tensor, pred_panoptic: torch.Tensor, true_info
-):
+def test_panoptic_evaluator():
     """
     Test the panoptic evaluator.
     """
 
-    from unipercept.data.tensors import PanopticMap
+    from unipercept.data.tensors import Image, PanopticMap
+    from unipercept.model import CaptureData, InputData
 
-    sample_h, sample_w = true_panoptic.shape
-    sample_amt = 3
-
-    print(f"GT: {true_panoptic.unique().tolist()}")
-
-    evaluator = segeval.PanopticSegmentationEvaluator.from_metadata(
-        "cityscapes",
-        show_progress=True,
-        show_summary=True,
-        show_details=True,
-        segmentation_task=segeval.SegmentationTask.PANOPTIC_SEGMENTATION,
+    sample_w = 32
+    sample_h = 16
+    true_panoptic = PanopticMap.from_parts(
+        torch.randint(0, 20, (sample_h, sample_w)).long(),
+        torch.randint(0, 20, (sample_h, sample_w)).long(),
     )
-
-    storage = TensorDict(
-        {
-            "true_panoptic_segmentation": einops.repeat(
-                true_panoptic, "h w -> b h w", b=sample_amt
-            ),
-            "pred_panoptic_segmentation": torch.cat(
-                [
-                    pred_panoptic.unsqueeze(0),
-                    PanopticMap.from_parts(
-                        torch.randint(
-                            0,
-                            max(true_info.stuff_ids | true_info.thing_ids),
-                            (sample_amt - 1, sample_h, sample_w),
-                        ).long(),
-                        torch.zeros((sample_amt - 1, sample_h, sample_w)).long(),
-                    ),
-                ]
-            ),
-        },
-        batch_size=[sample_amt, sample_h, sample_w],
+    pred_panoptic = PanopticMap.from_parts(
+        torch.randint(0, 20, (sample_h, sample_w)).long(),
+        torch.randint(0, 20, (sample_h, sample_w)).long(),
     )
-    storage.memmap_()
-
     evaluator = segeval.PanopticSegmentationEvaluator.from_metadata(
         "cityscapes", show_progress=True, show_summary=True, show_details=True
     )
-    metrics = evaluator.compute(storage, device="cpu", path=".")
 
-    print(metrics)
+    storage_parts = []
+    for i, (true_pan, pred_sem) in enumerate(
+        [
+            (true_panoptic, true_panoptic),
+            (true_panoptic, pred_panoptic),
+            (true_panoptic, torch.zeros_like(pred_panoptic)),
+        ]
+    ):
+        storage = TensorDict({}, batch_size=[])
+        inputs = InputData(
+            ids=torch.tensor([i, 0]),
+            captures=CaptureData(
+                images=torch.zeros(1, 3, sample_h, sample_w).as_subclass(Image),
+                segmentations=true_pan.unsqueeze(0).as_subclass(PanopticMap),
+                times=torch.zeros(1),
+                batch_size=[1],
+            ),
+            batch_size=[],
+        ).unsqueeze(0)
+        predictions = {"panoptic_segmentation": pred_sem.unsqueeze(0)}
+        evaluator.update(storage, inputs, predictions)
+        storage_parts.append(storage)
+
+    storage_all = torch.stack(storage_parts)
+    storage_all.memmap_()
+
+    metrics = evaluator.compute(storage_all, device="cpu", path=".")
+    pprint.pprint(metrics)
 
 
 @pytest.mark.parametrize(
@@ -106,3 +108,52 @@ def test_segmentation_miou(a, b, n, y_pc, y_all):
 
     for a, b in zip((z_pc, z_all), segeval.compute_semantic_miou(a, b, n)):
         assert torch.allclose(a, b), (a.tolist(), b.tolist())
+
+
+def test_semantic_evaluator():
+    """
+    Test the panoptic evaluator.
+    """
+    from unipercept.data.tensors import Image, PanopticMap
+    from unipercept.model import CaptureData, InputData
+
+    sample_amt = 3
+    sample_w = 32
+    sample_h = 16
+    true_panoptic = PanopticMap.from_parts(
+        torch.randint(0, 20, (sample_h, sample_w)).long(),
+        torch.zeros(sample_h, sample_w).long(),
+    )
+    pred_semantic = torch.randint(0, 20, (sample_h, sample_w)).long()
+    evaluator = segeval.SemanticSegmentationEvaluator.from_metadata(
+        "cityscapes", show_progress=True, show_summary=True, show_details=True
+    )
+
+    storage_parts = []
+    for i, (true_pan, pred_sem) in enumerate(
+        [
+            (true_panoptic, true_panoptic),
+            (true_panoptic, pred_semantic),
+            (true_panoptic, torch.zeros_like(pred_semantic)),
+        ]
+    ):
+        storage = TensorDict({}, batch_size=[])
+        inputs = InputData(
+            ids=torch.tensor([i, 0]),
+            captures=CaptureData(
+                images=torch.zeros(1, 3, sample_h, sample_w).as_subclass(Image),
+                segmentations=true_pan.unsqueeze(0).as_subclass(PanopticMap),
+                times=torch.zeros(1),
+                batch_size=[1],
+            ),
+            batch_size=[],
+        ).unsqueeze(0)
+        predictions = {"semantic_segmentation": pred_sem.unsqueeze(0)}
+        evaluator.update(storage, inputs, predictions)
+        storage_parts.append(storage)
+
+    storage_all = torch.stack(storage_parts)
+    storage_all.memmap_()
+
+    metrics = evaluator.compute(storage_all, device="cpu", path=".")
+    pprint.pprint(metrics)

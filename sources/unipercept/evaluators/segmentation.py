@@ -16,23 +16,22 @@ import typing as T
 
 import pandas as pd
 import torch
-from torch.nn.modules import pooling
 import torch.types
 import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from torch import Tensor, nn
+from torch.nn.modules import pooling
 from tqdm import tqdm
 
+import unipercept.log as up_log
+import unipercept.state as up_state
 from unipercept import file_io
 from unipercept.data.tensors import PanopticMap, PanopticMapLike
 from unipercept.data.types.coco import COCOResultPanoptic
 
-import unipercept.log as up_log
-import unipercept.state as up_state
-
 from ._base import Evaluator, EvaluatorComputeKWArgs, PlotMode, StoragePrefix
-from ._common import isin, stable_divide, nonzero_divide
+from ._common import isin, nonzero_divide, stable_divide
 
 if T.TYPE_CHECKING:
     from unipercept.model import InputData
@@ -300,8 +299,8 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
         num_cats = self.info.semantic_amount
         sample_amt = storage.batch_size[0]
         assert sample_amt > 0, sample_amt
-        miou_per_cat = torch.zeros(num_cats, dtype=torch.int, device=device)
-        miou_all = torch.zeros((1,), dtype=torch.int, device=device)
+        miou_per_cat = torch.zeros(num_cats, dtype=torch.float32, device=device)
+        miou_all = torch.zeros((1,), dtype=torch.float32, device=device)
         miou_samples = torch.zeros((1,), dtype=torch.int, device=device)
         compute_at = functools.partial(
             self._compute_semantic_metrics_at_index,
@@ -344,10 +343,19 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
         if self.show_summary:
             self.logger.info("Semantic segmentation evaluation: mIoU = %.2f", miou_all)
         if self.show_details:
+            cat_name_list = [
+                self.info.semantic_classes[k].name
+                for k in sorted(self.info.semantic_classes.keys())
+                if k >= 0
+            ]
+            cat_miou_list = miou_per_cat.tolist()
+            assert len(cat_name_list) == len(
+                cat_miou_list
+            ), f"{cat_name_list=} {cat_miou_list=}"
             df = pd.DataFrame(
                 {
-                    "Category": list(self.info.semantic_classes.keys()),
-                    "mIoU": miou_per_cat.cpu().numpy(),
+                    "Category": cat_name_list,
+                    "mIoU": cat_miou_list,
                 }
             )
             self._show_table("Semantic segmentation details", df)

@@ -596,7 +596,6 @@ class MemmapTensordictWriter:
                 else:
                     shutil.rmtree(p)
 
-
         return False
 
     def flush(self):

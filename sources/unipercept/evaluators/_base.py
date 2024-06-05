@@ -16,8 +16,8 @@ import torch.types
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 
-import unipercept.state as up_state
 import unipercept.log as up_log
+import unipercept.state as up_state
 
 if T.TYPE_CHECKING:
     from tensordict import TensorDictBase

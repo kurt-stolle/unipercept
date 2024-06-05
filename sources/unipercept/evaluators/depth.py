@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses as D
 import functools
+import math
 import typing as T
 
 import torch
@@ -17,8 +18,7 @@ import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from torch import Tensor, nn
-import math
-from torch.utils._pytree import tree_map, tree_flatten, tree_unflatten
+from torch.utils._pytree import tree_flatten, tree_map, tree_unflatten
 from tqdm import tqdm
 from typing_extensions import override
 

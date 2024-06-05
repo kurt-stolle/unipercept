@@ -8,7 +8,7 @@ import math
 
 import torch
 import typing_extensions as TX
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 
 class TrigonometricEmbedBase(nn.Module):

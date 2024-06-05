@@ -5,10 +5,12 @@ Tests for `unipercept.evaluators.depth`.
 from __future__ import annotations
 
 import pprint
+
 import numpy as np
 import pytest
 import torch
 from torch.utils._pytree import tree_map
+
 from unipercept.evaluators.depth import compute_eigen_metrics
 
 TRUE_DEPTH = [2.0**i for i in range(100)]

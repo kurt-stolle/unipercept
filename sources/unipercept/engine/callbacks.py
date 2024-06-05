@@ -10,7 +10,9 @@ import typing as T
 from pprint import pformat
 
 import numpy as np
+import regex as re
 import torch
+import torch.utils.hooks
 import typing_extensions as TX
 from torch import Tensor, nn
 from tqdm.auto import tqdm
@@ -1054,47 +1056,51 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
     Implements a task rebalancing callback without optimization.
     """
 
-    __slots__ = ("gamma", "window", "hook_handle", "verbose", "task_names")
+    __slots__ = ("gamma", "window", "hook_handle", "verbose", "tasks", "missing_ok")
 
     def __init__(
         self,
         tasks: (
-            T.Iterable[str | T.Iterable[str]] | T.Mapping[str, T.Iterable[str] | str]
+            T.Iterable[str | re.Pattern | T.Iterable[str | re.Pattern]]
+            | T.Mapping[str, T.Iterable[str | re.Pattern] | str | re.Pattern]
         ),
         gamma: float = 0.5,
         window: int = 2,
         verbose: bool = False,
-        allow_missing: bool = True,
+        missing_ok: bool = False,
     ):
-        self.groups = []
-
         if isinstance(tasks, T.Mapping):
-            task_names = list(tasks.keys())
+            task_names = T.cast(list[str], list(tasks.keys()))
             tasks = tasks.values()
         else:
             task_names = None
 
-        for task in tasks:
-            if isinstance(task, str):
-                self.groups.append([task])
-            else:
-                self.groups.append(list(task))
-
-        if task_names is None:
-            task_names = [t[0] for t in self.groups]
-
-        self.task_names = task_names
+        self.groups: list[list[re.Pattern]] = [
+            list(
+                map(
+                    lambda n: (re.compile(n) if isinstance(n, str) else n),
+                    [task] if isinstance(task, (str, re.Pattern)) else task,
+                )
+            )
+            for task in tasks
+        ]
+        self.tasks: list[str] = (
+            [str(t[0].pattern) for t in self.groups]
+            if task_names is None
+            else task_names
+        )
         self.window = window
         self.gamma = gamma
         self.weights: Tensor | None = None
         self.losses: Tensor | None = None
         self.hook_handle: torch.utils.hooks.RemovableHandle | None = None
         self.verbose = verbose
-        self.allow_missing = allow_missing
+        self.missing_ok = missing_ok
 
     @property
     def task_weights(self) -> dict[str, float]:
-        return dict(zip(self.task_names, self.weights.tolist()))
+        assert self.weights is not None
+        return dict(zip(self.tasks, self.weights.tolist()))
 
     @TX.override
     def on_accelerator_setup(self, *args, accelerator: Accelerator, **kwargs):
@@ -1125,7 +1131,7 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
             module: nn.Module,
             inputs: ModelInput,
             outputs: ModelOutput | dict[str, Tensor],
-        ) -> ModelOutput | None:
+        ) -> ModelOutput | None | dict[str, Tensor]:
             r"""
             Hook that applies the loss weights in the forward of the model.
             """
@@ -1134,9 +1140,9 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
             assert self.weights is not None
 
             if isinstance(outputs, ModelOutput):
-                target = outputs.losses
+                loss_dict = outputs.losses
             elif isinstance(outputs, dict):
-                target = outputs
+                loss_dict = outputs
             else:
                 msg = f"Outputs must be a ModelOutput or a dict, got {type(outputs)}"
                 raise ValueError(msg)
@@ -1148,15 +1154,18 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
                     self.task_weights,
                 )
 
-            for i, group in enumerate(self.groups):
-                w = self.weights[i]
-                for task in group:
-                    if task in target:
-                        target[task] = target[task] * w.detach()
-                    elif self.allow_missing:
+            assert loss_dict is not None
+            for loss_key in list(loss_dict.keys()):
+                for i, group in enumerate(self.groups):
+                    if any(pattern.match(loss_key) for pattern in group):
+                        w = self.weights[i].detach()
+                        loss_dict[loss_key] = loss_dict[loss_key] * w
+                        break
+                else:
+                    if self.missing_ok:
                         pass
                     else:
-                        msg = f"Task {task} not found in outputs (keys: {list(target.keys())})"
+                        msg = f"Loss {loss_key} not found in groups: {self.groups}"
                         raise ValueError(msg)
             return outputs
 
@@ -1199,7 +1208,7 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
             for task in group:
                 if task in losses:
                     group_losses.append(losses[task].detach())
-                elif self.allow_missing:
+                elif self.missing_ok:
                     pass
                 else:
                     msg = (

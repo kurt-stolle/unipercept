@@ -10,7 +10,6 @@ import enum as E
 import functools as F
 import os
 import sys
-import torch.fx
 import threading
 import types
 import typing as T
@@ -19,6 +18,7 @@ import accelerate.state
 import accelerate.utils
 import torch
 import torch.distributed as dist
+import torch.fx
 import torch.types
 import torch.utils.data
 import typing_extensions as TX

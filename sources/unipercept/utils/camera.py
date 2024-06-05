@@ -3,15 +3,15 @@ from __future__ import annotations
 import typing as T
 
 import torch
-from torch import Tensor, nn
+from torch import Size, Tensor, nn
 
 
 def build_calibration_matrix(
-    focal_lengths: list[tuple[float, float]] | Tensor,
-    principal_points: list[tuple[float, float]] | Tensor,
+    focal_lengths: T.List[T.Tuple[float, float]] | Tensor,
+    principal_points: T.List[T.Tuple[float, float]] | Tensor,
     orthographic: bool,
 ) -> Tensor:
-    """
+    r"""
     Build the calibration matrix (K-matrix) using the focal lengths and
     principal points.
     """
@@ -37,7 +37,7 @@ def build_calibration_matrix(
     assert focal_lengths.device == principal_points.device
 
     # Create calibration matrix
-    K = fx.new_zeros(N, 4, 4)
+    K: Tensor = fx.new_zeros(N, 4, 4)
     K[:, 0, 0] = fx
     K[:, 1, 1] = fy
     if orthographic:
@@ -54,7 +54,33 @@ def build_calibration_matrix(
     return K
 
 
-@torch.jit.script
+def create_intrinsic_maps(
+    shape: Size | T.Sequence[int], intrinsics: Tensor | T.Sequence[float]
+) -> Tensor:
+    r"""
+    Encode the camera intrinsic parameters (focal length and principle point) to a map
+    with channels for the distance to the principle point and the field of view.
+    """
+    *_, height, width = shape
+    fx, fy, u0, v0 = intrinsics
+    f = (fx + fy) / 2.0
+    # principle point location
+    x_row = torch.arange(0, width, dtype=torch.float32)
+    x_row_center_norm = (x_row - u0) / width
+    x_center = torch.tile(x_row_center_norm, (height, 1))  # [H, W]
+
+    y_col = torch.arange(0, height, dtype=torch.float32)
+    y_col_center_norm = (y_col - v0) / height
+    y_center = torch.tile(y_col_center_norm, (width, 1)).T
+
+    # FoV
+    fov_x = torch.arctan(x_center / (f / width))
+    fov_y = torch.arctan(y_center / (f / height))
+
+    cam_model = torch.stack([x_center, y_center, fov_x, fov_y], dim=2)
+    return cam_model
+
+
 def generate_rays(
     camera_intrinsics: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False
 ):
@@ -96,7 +122,6 @@ def generate_rays(
     return ray_directions, angles
 
 
-@torch.jit.script
 def spherical_zbuffer_to_euclidean(spherical_tensor: Tensor) -> Tensor:
     theta = spherical_tensor[..., 0]  # Extract polar angle
     phi = spherical_tensor[..., 1]  # Extract azimuthal angle
@@ -116,7 +141,6 @@ def spherical_zbuffer_to_euclidean(spherical_tensor: Tensor) -> Tensor:
     return euclidean_tensor
 
 
-@torch.jit.script
 def spherical_to_euclidean(spherical_tensor: Tensor) -> Tensor:
     theta = spherical_tensor[..., 0]  # Extract polar angle
     phi = spherical_tensor[..., 1]  # Extract azimuthal angle
@@ -132,7 +156,6 @@ def spherical_to_euclidean(spherical_tensor: Tensor) -> Tensor:
     return euclidean_tensor
 
 
-@torch.jit.script
 def euclidean_to_spherical(spherical_tensor: Tensor) -> Tensor:
     x = spherical_tensor[..., 0]  # Extract polar angle
     y = spherical_tensor[..., 1]  # Extract azimuthal angle
@@ -148,7 +171,6 @@ def euclidean_to_spherical(spherical_tensor: Tensor) -> Tensor:
     return euclidean_tensor
 
 
-@torch.jit.script
 def euclidean_to_spherical_zbuffer(euclidean_tensor: Tensor) -> Tensor:
     pitch = torch.asin(euclidean_tensor[..., 1])
     yaw = torch.atan2(euclidean_tensor[..., 0], euclidean_tensor[..., -1])
@@ -157,9 +179,8 @@ def euclidean_to_spherical_zbuffer(euclidean_tensor: Tensor) -> Tensor:
     return euclidean_tensor
 
 
-@torch.jit.script
 def unproject_points(depth: Tensor, camera_intrinsics: Tensor) -> Tensor:
-    """
+    r"""
     Unprojects a batch of depth maps to 3D point clouds using camera intrinsics.
 
     Parameters
@@ -203,7 +224,6 @@ def unproject_points(depth: Tensor, camera_intrinsics: Tensor) -> Tensor:
     return unprojected_points
 
 
-@torch.jit.script
 def project_points(
     points_3d: Tensor,
     intrinsic_matrix: Tensor,
@@ -268,7 +288,6 @@ def project_points(
     return mean_depth_maps.reshape(-1, 1, *image_shape)  # (B, 1, H, W)
 
 
-@torch.jit.script
 def downsample(data: Tensor, factor: int):
     """
     Downsample the input data tensor by taking the minimum value of each
@@ -305,7 +324,6 @@ def downsample(data: Tensor, factor: int):
     return data
 
 
-@torch.jit.script
 def flat_interpolate(
     flat_tensor: Tensor,
     shape_cur: T.Tuple[int, int],

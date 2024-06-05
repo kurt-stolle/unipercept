@@ -471,7 +471,8 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None: ...
+    ) -> Signal | None:
+        ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]
@@ -1157,7 +1158,7 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
             assert loss_dict is not None
             for loss_key in list(loss_dict.keys()):
                 for i, group in enumerate(self.groups):
-                    if any(pattern.match(loss_key) for pattern in group):
+                    if any(pattern.search(loss_key) for pattern in group):
                         w = self.weights[i].detach()
                         loss_dict[loss_key] = loss_dict[loss_key] * w
                         break
@@ -1203,22 +1204,27 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
     ):
         assert self.losses is not None
         self.losses = self.losses.roll(1, dims=-1)
-        for i, group in enumerate(self.groups):
+
+        losses_keys = set(losses.keys())
+        losses_keys.remove("total")
+        for i, patterns in enumerate(self.groups):
             group_losses = []
-            for task in group:
-                if task in losses:
-                    group_losses.append(losses[task].detach())
-                elif self.missing_ok:
-                    pass
-                else:
-                    msg = (
-                        f"Task {task} not found in losses (keys: {list(losses.keys())})"
-                    )
-                    raise ValueError(msg)
+
+            for loss_pattern in patterns:
+                matches = set()
+                for loss_key in losses_keys:
+                    if not loss_pattern.search(loss_key):
+                        continue
+                    group_losses.append(losses[loss_key].detach())
+                    matches.add(loss_key)
+                losses_keys -= matches
             if len(group_losses) == 0:
-                msg = f"No losses found for group: {group}"
+                msg = f"No losses found for group: {patterns}"
                 raise RuntimeError(msg)
             self.losses[i, 0] = torch.stack(group_losses).sum()
+        if len(losses_keys) > 0 and not self.missing_ok:
+            msg = f"Unmatched losses: {losses_keys}. Groups: {self.groups}"
+            raise RuntimeError(msg)
 
 
 class TaskParameterRebalanceCallback(StatefulCallbackDispatcher):

@@ -527,7 +527,11 @@ class Engine:
             assert (
                 scheduled_epochs > 0
             ), "Expected scheduled epochs to be greater than 0"
-            optimizer = stage.optimizer(model, stage.batch_size)
+
+            extra_params = []
+            self._edge(Event.ON_OPTIMIZER_SETUP, stage=stage, extra_params=extra_params)
+
+            optimizer = stage.optimizer(model, stage.batch_size, extra_params=extra_params)
             if stage.scheduler is not None:
                 scheduler, train_epochs = stage.scheduler(
                     optimizer, scheduled_epochs, updates_per_epoch

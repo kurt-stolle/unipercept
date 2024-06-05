@@ -18,7 +18,6 @@ import timm.optim
 import timm.optim.optim_factory
 import torch.nn as nn
 import torch.optim
-from numpy import isin
 
 from unipercept.log import get_logger
 from unipercept.state import get_process_count
@@ -28,6 +27,7 @@ __all__ = [
     "OptimType",
     "OptimPackage",
     "OptimizerFactory",
+    "ParameterDefinition",
     "ParameterHPs",
     "LearningRate",
 ]
@@ -234,6 +234,7 @@ def create_optimizer(
     param_fn: T.Optional[
         T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]
     ] = None,
+    extra_params: T.Iterable[ParameterDefinition] | None = None,
     **opt_args: T.Any,
 ) -> Optimizer:
     """
@@ -253,6 +254,8 @@ def create_optimizer(
         Momentum for momentum based optimizers (others may use betas via kwargs)
     foreach:
         Enable / disable foreach (multi-tensor) operation if True / False. Choose safe default if None
+    extra_params:
+        Extra parameters to pass to optimizer.
     **kwargs:
         Extra optimizer specific kwargs to pass through
 
@@ -261,9 +264,6 @@ def create_optimizer(
     Optimizer
         An optmizer instance
     """
-    if not isinstance(model_or_params, nn.Module):
-        raise TypeError(f"Invalid model type: {type(model_or_params)}")
-
     opt = OptimType(opt) if isinstance(opt, str) else opt
     pkg = OptimPackage(pkg) if isinstance(pkg, str) else pkg
 
@@ -282,6 +282,7 @@ def create_optimizer(
         lr_factor_fn=lr_factor_fn,
         param_overrides=param_overrides,
         param_fn=param_fn,
+        extra_params=extra_params,
     )
 
     # Copy the optimizer arguments to avoid modifying the original dictionary
@@ -629,6 +630,7 @@ def get_optimizer_params(
     param_fn: T.Optional[
         T.Callable[[str, str, ParameterHPs], T.Optional[ParameterHPs]]
     ] = None,
+    extra_params: T.Iterable[ParameterDefinition] | None = None,
 ) -> list[ParameterDefinition]:
     pass
 
@@ -696,7 +698,10 @@ def get_optimizer_params(
                     hyperparams.update(param_specifc_overrides)
 
             params.append({"params": [value], **hyperparams})
-    return _simplify_groups(params)
+    defs = _simplify_groups(params)
+    if extra_params is not None:
+        defs.extend(extra_params)
+    return defs
 
 
 def _expand_param_groups(

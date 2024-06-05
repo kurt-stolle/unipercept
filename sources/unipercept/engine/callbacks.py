@@ -26,7 +26,7 @@ if T.TYPE_CHECKING:
     from timm.scheduler import Scheduler as TimmScheduler
     from torch.utils.data import DataLoader
 
-    from unipercept.engine import EngineParams, Interval, OptimizerFactory
+    from unipercept.engine import EngineParams, Interval, OptimizerFactory, ParameterDefinition, TrainingStage
     from unipercept.engine.accelerate import Accelerator
 
 _logger = get_logger(__name__)
@@ -199,6 +199,7 @@ class Event(E.StrEnum):
     """
 
     ON_CREATE = E.auto()
+    ON_OPTIMIZER_SETUP = E.auto()
     ON_ACCELERATOR_SETUP = E.auto()
     ON_MODEL_SETUP = E.auto()
     ON_TRACKERS_SETUP = E.auto()
@@ -255,6 +256,18 @@ class CallbackDispatcher:
             """
             Event called at the end of the initialization of the ``Engine``.
             """
+
+        def on_optimizer_setup(
+            self,
+            params: EngineParams,
+            state: State,
+            control: Signal,
+            *,
+            stage: EngineStage,
+            extra_params: list[ParameterDefinition],
+            **kwargs,
+        ):
+            pass
 
         def on_model_setup(
             self,
@@ -471,8 +484,7 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None:
-        ...
+    ) -> Signal | None: ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]
@@ -1037,39 +1049,20 @@ class GradientClippingCallback(CallbackDispatcher):
 #####################################
 
 
-class UncertaintyLossWeightingCallback(StatefulCallbackDispatcher):
-    """
-    Implements the Uncertrainty loss weighting algorithm from [1]
-
-    References
-    ----------
-    [1] Kendall et al., "Multi-Task Learning Using Uncertrainty to Weigh Losses for Scene Geometry and Semantics". CVPR 2018. https://arxiv.org/pdf/1705.07115
-    """
-
-    def __init__(self):
-        self.loss_weights: Tensor | None = None
-
-    # TODO
-
-
-class TaskRebalanceCallback(StatefulCallbackDispatcher):
-    """
-    Implements a task rebalancing callback without optimization.
-    """
-
-    __slots__ = ("gamma", "window", "hook_handle", "verbose", "tasks", "missing_ok")
+class _GroupedLossWeightingCallback(StatefulCallbackDispatcher):
+    __slots__ = ("tasks", "groups", "missing_ok")
 
     def __init__(
         self,
+        *,
         tasks: (
             T.Iterable[str | re.Pattern | T.Iterable[str | re.Pattern]]
             | T.Mapping[str, T.Iterable[str | re.Pattern] | str | re.Pattern]
         ),
-        gamma: float = 0.5,
-        window: int = 2,
-        verbose: bool = False,
         missing_ok: bool = False,
+        **kwargs,
     ):
+        super().__init__(**kwargs)
         if isinstance(tasks, T.Mapping):
             task_names = T.cast(list[str], list(tasks.keys()))
             tasks = tasks.values()
@@ -1090,13 +1083,139 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
             if task_names is None
             else task_names
         )
+        self.missing_ok = missing_ok
+
+
+class UncertaintyLossWeightingCallback(_GroupedLossWeightingCallback):
+    """
+    Implements the Uncertrainty loss weighting algorithm from [1]
+
+    References
+    ----------
+    [1] Kendall et al., "Multi-Task Learning Using Uncertrainty to Weigh Losses for Scene Geometry and Semantics". CVPR 2018. https://arxiv.org/pdf/1705.07115
+    """
+
+    __slots__ = ("gamma", "hook_handle", "weights")
+
+    def __init__(
+        self,
+        gamma: float = -0.7,
+        **kwargs,
+    ):
+
+        super().__init__(**kwargs)
+
+        self.gamma = gamma
+        self.weights: Tensor | None = None
+        self.hook_handle: torch.utils.hooks.RemovableHandle | None = None
+
+    @property
+    def task_weights(self) -> dict[str, float]:
+        assert self.weights is not None
+        return dict(zip(self.tasks, self.weights.tolist()))
+
+    @TX.override
+    def on_optimizer_setup(self, params: EngineParams, state: State, control: Signal, *, stage: EngineStage, extra_params: list[ParameterDefinition], **kwargs):
+        assert self.weights is not None
+
+        extra_params.append({
+            "params": self.weights,
+            "lr": stage.optimizer.lr,
+            "weight_decay": 0.0,
+        })
+
+    @TX.override
+    def on_accelerator_setup(self, *args, accelerator: Accelerator, **kwargs):
+        self.weights = torch.full(
+            (len(self.groups),),
+            self.gamma,
+            device=accelerator.device,
+            dtype=torch.float32,
+            requires_grad=True,
+        )
+
+    @TX.override
+    def on_model_setup(self, *args, model: nn.Module, training: bool, **kwargs):
+        if not training:
+            return
+        if self.hook_handle is not None:
+            self.hook_handle.remove()
+            self.hook_handle = None
+
+        def apply_weights_hook(
+            module: nn.Module,
+            inputs: ModelInput,
+            outputs: ModelOutput | dict[str, Tensor],
+        ) -> ModelOutput | None | dict[str, Tensor]:
+            r"""
+            Hook that applies the loss weights in the forward of the model.
+            """
+            if not module.training:
+                return None
+            assert self.weights is not None
+
+            if isinstance(outputs, ModelOutput):
+                loss_dict = outputs.losses
+            elif isinstance(outputs, dict):
+                loss_dict = outputs
+            else:
+                msg = f"Outputs must be a ModelOutput or a dict, got {type(outputs)}"
+                raise ValueError(msg)
+            assert loss_dict is not None
+            for loss_key in list(loss_dict.keys()):
+                for i, group in enumerate(self.groups):
+                    if any(pattern.search(loss_key) for pattern in group):
+                        w = self.weights[i].detach()
+                        loss_dict[loss_key] = loss_dict[loss_key] * 1 / (2 * w.exp()) + w / 2
+                        break
+                else:
+                    if self.missing_ok:
+                        pass
+                    else:
+                        msg = f"Loss {loss_key} not found in groups: {self.groups}"
+                        raise ValueError(msg)
+            return outputs
+
+        self.hook_handle = model.register_forward_hook(apply_weights_hook)
+
+    @TX.override
+    def on_train_begin(self, params, state, control, *, model: nn.Module, **kwargs):
+        if self.weights is None or self.losses is None:
+            msg = f"{self.__class__.__name__} requires the accelerator to be set up before training."
+            raise RuntimeError(msg)
+
+        self.weights.fill_(self.gamma)
+
+
+class TaskRebalanceCallback(_GroupedLossWeightingCallback):
+    """
+    Implements a task rebalancing callback without optimization.
+
+    If window is 1, then this is equivalent to Dynamic Weight Averaging (DWA) [1].
+
+    References
+    ----------
+    [1] Liu et al., End-to-End Multi-Task Learning with Attention. CVPR 2019.
+    """
+
+    __slots__ = ("gamma", "window", "hook_handle", "weights", "losses")
+
+    def __init__(
+        self,
+        gamma: float = 0.5,
+        window: int = 2,
+        **kwargs,
+    ):
+
+        super().__init__(**kwargs)
+
+        assert window >= 2, window
+
         self.window = window
         self.gamma = gamma
         self.weights: Tensor | None = None
         self.losses: Tensor | None = None
         self.hook_handle: torch.utils.hooks.RemovableHandle | None = None
-        self.verbose = verbose
-        self.missing_ok = missing_ok
 
     @property
     def task_weights(self) -> dict[str, float]:
@@ -1147,14 +1266,6 @@ class TaskRebalanceCallback(StatefulCallbackDispatcher):
             else:
                 msg = f"Outputs must be a ModelOutput or a dict, got {type(outputs)}"
                 raise ValueError(msg)
-
-            if self.verbose:
-                _logger.debug(
-                    "%s weights: %s",
-                    self.__class__.__name__,
-                    self.task_weights,
-                )
-
             assert loss_dict is not None
             for loss_key in list(loss_dict.keys()):
                 for i, group in enumerate(self.groups):

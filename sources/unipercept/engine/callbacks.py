@@ -1062,7 +1062,6 @@ class _GroupedLossWeightingCallback(StatefulCallbackDispatcher):
         missing_ok: bool = False,
         **kwargs,
     ):
-        super().__init__(**kwargs)
         if isinstance(tasks, T.Mapping):
             task_names = T.cast(list[str], list(tasks.keys()))
             tasks = tasks.values()

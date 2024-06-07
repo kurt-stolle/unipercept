@@ -22,6 +22,8 @@ import time
 import typing as T
 from collections import Counter
 from typing import Optional
+from unipercept.utils.inspect import caller_identity
+from unipercept.utils.inspect import calling_module_name
 
 import pandas as pd
 from tabulate import tabulate
@@ -105,7 +107,6 @@ def log_every_n(
         n (int):
         name (str): name of the logger to use. Will use the caller's module by default.
     """
-    from unipercept.utils.inspect import caller_identity, calling_module_name
 
     caller_module, key = caller_identity()
     _log_counter[key] += 1
@@ -261,7 +262,6 @@ def get_logger(name: Optional[str] = None, **kwargs: T.Any) -> logging.Logger:
     """
     Get a logger instance, where the name is automatically set to the calling module name.
     """
-    from unipercept.utils.inspect import caller_identity, calling_module_name
 
     return _get_handler(
         _canonicalize_name(name or calling_module_name(left=1)),
@@ -292,7 +292,7 @@ def _canonicalize_name(name: str) -> str:
                 name_parts.pop()
             name = ".".join(name_parts)
         except IndexError:
-            name = "unknown"
+            name = "<unknown>"
 
         result.append(name)
     return " ".join(result)
@@ -496,3 +496,17 @@ def log_first_n(
     _log_counter[hash_key] += 1
     if _log_counter[hash_key] <= n:
         logging.getLogger(name or caller_module).log(level, message)
+
+
+if T.TYPE_CHECKING:
+    logger: T.Final[logging.Logger] = logging.Logger("<caller>")
+else:
+
+    def __getattr__(name: str) -> T.Any:
+        """
+        Forward all unknown attributes to the logging module.
+        """
+        if name == "logger":
+            return get_logger(calling_module_name(frames=0, strict=False))
+        msg = f"Module {__name__} has no attribute {name}"
+        raise AttributeError(msg)

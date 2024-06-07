@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import dataclasses as D
 import functools
-import math
 import typing as T
 
 import torch
@@ -18,7 +17,8 @@ import typing_extensions as TX
 from PIL import Image as pil_image
 from tensordict import TensorDictBase
 from torch import Tensor, nn
-from torch.utils._pytree import tree_flatten, tree_map, tree_unflatten
+import math
+from torch.utils._pytree import tree_map, tree_flatten, tree_unflatten
 from tqdm import tqdm
 from typing_extensions import override
 
@@ -211,8 +211,8 @@ class DepthEvaluator(DepthWriter):
         up_state.barrier()
 
         # Reduce between processes
-        metrics_count = up_state.reduce(metrics_count)
-        metrics = tree_map(lambda x: up_state.reduce(x), metrics)
+        metrics_count = up_state.reduce(metrics_count).wait()
+        metrics = tree_map(lambda x: up_state.reduce(x).wait(), metrics)
 
         if not up_state.check_main_process():
             return {}

@@ -330,9 +330,9 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
 
         up_state.barrier()
 
-        miou_samples = up_state.reduce(miou_samples)
-        miou_per_cat = up_state.reduce(miou_per_cat) / miou_samples
-        miou_all = up_state.reduce(miou_all) / miou_samples
+        miou_samples = up_state.reduce(miou_samples).wait()
+        miou_per_cat = up_state.reduce(miou_per_cat).wait() / miou_samples
+        miou_all = up_state.reduce(miou_all).wait() / miou_samples
 
         if not up_state.check_main_process():
             return {}
@@ -594,10 +594,15 @@ class PanopticSegmentationEvaluator(SegmentationWriter):
 
         up_state.barrier()
 
-        iou = up_state.reduce(iou)
-        tp = up_state.reduce(tp)
-        fp = up_state.reduce(fp)
-        fn = up_state.reduce(fn)
+        iou, tp, fp, fn = (
+            work.wait()
+            for work in [
+                up_state.reduce(iou),
+                up_state.reduce(tp),
+                up_state.reduce(fp),
+                up_state.reduce(fn),
+            ]
+        )
 
         if not up_state.check_main_process():
             return {}

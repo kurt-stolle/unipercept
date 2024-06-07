@@ -17,19 +17,23 @@ import typing_extensions as TX
 from torch import Tensor, nn
 from tqdm.auto import tqdm
 
-from unipercept.log import create_table, get_logger
+from unipercept.log import logger
 from unipercept.model import ModelBase, ModelInput, ModelOutput
-from unipercept.state import check_main_process
+from unipercept.state import check_main_process, reduce
 
 if T.TYPE_CHECKING:
     from accelerate.optimizer import AcceleratedOptimizer
     from timm.scheduler import Scheduler as TimmScheduler
     from torch.utils.data import DataLoader
 
-    from unipercept.engine import EngineParams, Interval, OptimizerFactory, ParameterDefinition, TrainingStage
+    from unipercept.engine import (
+        EngineParams,
+        Interval,
+        OptimizerFactory,
+        ParameterDefinition,
+        TrainingStage,
+    )
     from unipercept.engine.accelerate import Accelerator
-
-_logger = get_logger(__name__)
 
 
 @D.dataclass(kw_only=True)
@@ -552,7 +556,7 @@ class Delegate:
         **kwargs,
     ) -> Signal:
         if self._verbose:
-            _logger.debug(f"Event {event} triggered.")
+            logger.debug(f"Event {event} triggered.")
 
         for cb in self._seq:
             result = cb(
@@ -745,8 +749,8 @@ class Logger(CallbackDispatcher):
     ):
         _ = logs.pop("total_flops", None)
         if check_main_process(True):
-            _logger.info("Logs: %s", pformat(logs, indent=0, compact=True))
-            _logger.info(
+            logger.info("Logs: %s", pformat(logs, indent=0, compact=True))
+            logger.info(
                 "State: %s", pformat(state.state_dict(), indent=0, compact=True)
             )
 
@@ -779,7 +783,7 @@ class ConditionalStoppingCallback(CallbackDispatcher):
     ):
         metric_value = metrics.get(self.metric_name)
         if metric_value is None:
-            _logger.warning(
+            logger.warning(
                 f"conditional stopping did not find {self.metric_name} so early stopping"
                 " is disabled"
             )
@@ -792,7 +796,7 @@ class ConditionalStoppingCallback(CallbackDispatcher):
             self.patience_counter = 0
 
         if self.patience_counter >= self.patience:
-            _logger.info(
+            logger.info(
                 "Conditional stopping triggered for parameter %s", self.metric_name
             )
             control.should_training_stop = True
@@ -866,7 +870,7 @@ class EarlyStoppingCallback(CallbackDispatcher):
         metric_value = metrics.get(metric_to_check)
 
         if metric_value is None:
-            _logger.warning(
+            logger.warning(
                 f"early stopping required metric_for_best_model, but did not find {metric_to_check} so early stopping"
                 " is disabled"
             )
@@ -1099,12 +1103,14 @@ class UncertaintyLossWeightingCallback(_GroupedLossWeightingCallback):
     def __init__(
         self,
         gamma: float = -0.7,
+        lr: float = 1e-2,
         **kwargs,
     ):
 
         super().__init__(**kwargs)
 
         self.gamma = gamma
+        self.lr = lr
         self.weights: Tensor | None = None
         self.hook_handle: torch.utils.hooks.RemovableHandle | None = None
 
@@ -1114,14 +1120,25 @@ class UncertaintyLossWeightingCallback(_GroupedLossWeightingCallback):
         return dict(zip(self.tasks, self.weights.tolist()))
 
     @TX.override
-    def on_optimizer_setup(self, params: EngineParams, state: State, control: Signal, *, stage: EngineStage, extra_params: list[ParameterDefinition], **kwargs):
+    def on_optimizer_setup(
+        self,
+        params: EngineParams,
+        state: State,
+        control: Signal,
+        *,
+        stage: EngineStage,
+        extra_params: list[ParameterDefinition],
+        **kwargs,
+    ):
         assert self.weights is not None
 
-        extra_params.append({
-            "params": self.weights,
-            "lr": stage.optimizer.lr,
-            "weight_decay": 0.0,
-        })
+        extra_params.append(
+            {
+                "params": self.weights,
+                "lr": self.lr,
+                "weight_decay": 0.0,
+            }
+        )
 
     @TX.override
     def on_accelerator_setup(self, *args, accelerator: Accelerator, **kwargs):
@@ -1165,7 +1182,9 @@ class UncertaintyLossWeightingCallback(_GroupedLossWeightingCallback):
                 for i, group in enumerate(self.groups):
                     if any(pattern.search(loss_key) for pattern in group):
                         w = self.weights[i].detach()
-                        loss_dict[loss_key] = loss_dict[loss_key] * 1 / (2 * w.exp()) + w / 2
+                        loss_dict[loss_key] = (
+                            loss_dict[loss_key] * 1 / (2 * w.exp()) + w / 2
+                        )
                         break
                 else:
                     if self.missing_ok:
@@ -1179,11 +1198,21 @@ class UncertaintyLossWeightingCallback(_GroupedLossWeightingCallback):
 
     @TX.override
     def on_train_begin(self, params, state, control, *, model: nn.Module, **kwargs):
-        if self.weights is None or self.losses is None:
+        if self.weights is None:
             msg = f"{self.__class__.__name__} requires the accelerator to be set up before training."
             raise RuntimeError(msg)
 
-        self.weights.fill_(self.gamma)
+        nn.init.constant_(self.weights, self.gamma)
+
+    @TX.override
+    def on_train_step_end(
+        self, params, state, control, *, losses: dict[str, Tensor], **kwargs
+    ):
+        if self.weights is None:
+            msg = f"{self.__class__.__name__} requires the accelerator to be set up before training."
+            raise RuntimeError(msg)
+
+        reduce(self.weights, op="mean", inplace=True).wait()
 
 
 class TaskRebalanceCallback(_GroupedLossWeightingCallback):
@@ -1325,13 +1354,14 @@ class TaskRebalanceCallback(_GroupedLossWeightingCallback):
                 for loss_key in losses_keys:
                     if not loss_pattern.search(loss_key):
                         continue
-                    group_losses.append(losses[loss_key].detach())
+                    group_losses.append(reduce(losses[loss_key].detach()))
                     matches.add(loss_key)
                 losses_keys -= matches
             if len(group_losses) == 0:
                 msg = f"No losses found for group: {patterns}"
                 raise RuntimeError(msg)
-            self.losses[i, 0] = torch.stack(group_losses).sum()
+            self.losses[i, 0] = torch.stack([g.wait() for g in group_losses]).sum()
+
         if len(losses_keys) > 0 and not self.missing_ok:
             msg = f"Unmatched losses: {losses_keys}. Groups: {self.groups}"
             raise RuntimeError(msg)
@@ -1493,7 +1523,7 @@ class PreciseBatchNormCallback(CallbackDispatcher):
     def compute_precise_batchnorm(self, model: nn.Module, loader: DataLoader):
         from fvcore.nn.precise_bn import update_bn_stats
 
-        _logger.info("Computing precise batch norm statistics...")
+        logger.info("Computing precise batch norm statistics...")
         update_bn_stats(model, loader, self.iterations, progress=self.show_progress)
 
     @TX.override

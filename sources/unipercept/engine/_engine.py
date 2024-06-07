@@ -754,7 +754,7 @@ class Engine:
 
         return dl, steps_per_epoch, updates_per_epoch
 
-    def run_training_step(
+    def _run_training_step(
         self, model: ModelBase, inputs: InputType, optimizer: AcceleratedOptimizer
     ) -> T.Dict[str, Tensor]:
         """
@@ -922,7 +922,7 @@ class Engine:
 
                 with profile(timings, "step"):
                     with self.xlr.accumulate(model):
-                        tr_loss_step = self.run_training_step(model, inputs, optimizer)
+                        tr_loss_step = self._run_training_step(model, inputs, optimizer)
 
                 # Add the losses individually
                 if total_session_steps == 0:
@@ -1850,7 +1850,6 @@ def _generate_session_id() -> str:
     """
 
     from torch.distributed import broadcast_object_list, is_available, is_initialized
-
     from unipercept.state import check_distributed, check_main_process
 
     def _read_session_name():

@@ -1,6 +1,6 @@
 """
 This module implements functions for dealing with the state of the program.
-The Accelerate library is adopted to handle distributed training and inference.
+The ccelerate library is adopted to handle distributed training and inference.
 """
 
 from __future__ import annotations
@@ -27,8 +27,6 @@ from torch import Tensor
 from torch.autograd import Function
 from torch.futures import Future, collect_all, wait_all
 from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
-
-from unipercept.utils.tensorclass import Tensorclass
 
 __all__ = []
 
@@ -103,7 +101,7 @@ def get_interactive():
             return True
         return os.isatty(sys.stdout.fileno())  # Redirected output
 
-    return get_env(bool, "UP_INTERACTIVE", default=default_interative_closure)
+    return get_env(bool, "UP_INTERCTIVE", default=default_interative_closure)
 
 
 ##################################
@@ -129,7 +127,7 @@ def get_total_batchsize(
 
 
 ##############################
-# Wrappers around Accelerate #
+# Wrappers around ccelerate #
 ##############################
 
 
@@ -196,29 +194,26 @@ def split_between_processes(
 
 def void(*args: T.Any, **kwargs: T.Any) -> None:
     """
-    A function that does nothing.
+    function that does nothing.
     """
     pass
 
 
 def noop(*args: T.Any, **kwargs: T.Any) -> T.Any:
     """
-    A function that does nothing and returns its input.
+    function that does nothing and returns its input.
     """
     return args
-
-
-def reduce(tensor: torch.Tensor, op: T.Literal["sum", "mean"] = "sum"):
-    return accelerate.utils.reduce(tensor, op)
-
-
-def gather_object(objects: T.Any) -> T.Any:
-    return accelerate.utils.gather_object(objects)
 
 
 ########################
 # Distributed handlers #
 ########################
+
+
+class ReduceOp(E.StrEnum):
+    SUM = E.auto()
+    MEAN = E.auto()
 
 
 class AutoGatherMode(E.StrEnum):
@@ -233,18 +228,48 @@ class HandlerProtocol:
     process_index_local: int
     process_count: int
 
-    def all_auto_gather(
-        self, item: Tensor, mode: AutoGatherMode | str, **kwargs
+    def auto_gather(
+        self, item: Tensor, mode: AutoGatherMode | str, all: bool = True, **kwargs
+    ) -> Future[Tensor]:
+        raise NotImplementedError()
+
+    def tree_reduce(
+        self, item: Tensor, op: ReduceOp = ReduceOp.SUM, all: bool = True, **kwargs
     ) -> Future[Tensor]:
         raise NotImplementedError()
 
     def reduce_scatter(
         self,
-        tensor: Tensor,
-        tensor_list: list[Tensor],
-        op: dist.ReduceOp = dist.ReduceOp.SUM,
+        dst,
+        src,
+        op=ReduceOp.SUM,
         **kwargs,
     ) -> Future[list[Tensor]]:
+        raise NotImplementedError()
+
+    def gather(
+        self,
+        tensor: Tensor,
+        dst: int,
+        group=dist.group.WORLD,
+        inplace=True,
+        *args: Tensor,
+    ) -> Future[Tensor]:
+        raise NotImplementedError()
+
+    def broadcast(
+        self, tensor: Tensor, src: int, group=dist.group.WORLD, inplace=True
+    ) -> Future[Tensor]:
+        raise NotImplementedError()
+
+    def reduce(
+        self,
+        tensor: Tensor,
+        op: ReduceOp | str = ReduceOp.SUM,
+        all: bool = True,
+        inplace=True,
+        **kwargs,
+    ) -> Future[Tensor]:
         raise NotImplementedError()
 
     # Internals
@@ -274,31 +299,17 @@ class HandlerProtocol:
         cls._sentinel = None
 
 
-class AccelerateHandler(HandlerProtocol):
-    """
-    From v4.0.0, we use the Accelerate library to handle distributed training and inference.
-
-    This class is a wrapper that uses the ``PartialState`` class to do the heavy lifting
-    for us.
-    """
-
-    def __init__(self, *args, **kwargs):
-        self._xlr = accelerate.PartialState(*args, **kwargs)
-
-        self.process_index = self._xlr.process_index
-        self.process_index_local = self._xlr.local_process_index
-        self.process_count = self._xlr.num_processes
-
-
 class SingleProcessHandler(HandlerProtocol):
-    def __init__(self):
-        super().__init__()
+    r"""
+    Non-distributed handler for single-process operation.
+    """
 
+    def __init__(self):
         self.process_index = self.process_index_local = 0
         self.process_count = 1
 
     @TX.override
-    def all_auto_gather(
+    def auto_gather(
         self, item: Tensor, mode: AutoGatherMode | str, **kwargs
     ) -> Future[Tensor]:
         tensor = torch.atleast_1d(item)
@@ -310,20 +321,55 @@ class SingleProcessHandler(HandlerProtocol):
         future.set_result(tensor)
         return future
 
-
-class DistributedHandler(HandlerProtocol):
-    def __init__(self):
-        super().__init__()
-
-        assert dist.is_initialized()
+    @TX.override
+    def reduce_scatter(
+        self,
+        dst,
+        src,
+        op=ReduceOp.SUM,
+        **kwargs,
+    ) -> Future[list[Tensor]]:
+        dst[0] = src
+        fut = Future()
+        fut.set_result([dst])
+        return fut
 
     @TX.override
-    def all_auto_gather(
+    def reduce(
+        self,
+        tensor: Tensor,
+        op: ReduceOp | str = ReduceOp.SUM,
+        all: bool = True,
+        inplace: bool = True,
+        **kwargs,
+    ) -> Future[Tensor]:
+        if not inplace:
+            tensor = tensor.clone()
+        fut = Future()
+        fut.set_result(tensor)
+
+        return fut
+
+
+class DistributedHandler(HandlerProtocol):
+    r"""
+    Handler for ``torch.distributed``-based operations.
+    """
+
+    def __init__(self, group=dist.group.WORLD):
+        _xlr_state = accelerate.PartialState(*args, **kwargs)
+
+        assert dist.is_initialized()
+        self.group = group
+        self.process_index = _xlr_state.process_index
+        self.process_index_local = _xlr_state.local_process_index
+        self.process_count = _xlr_state.num_processes
+
+    @TX.override
+    def auto_gather(
         self,
         item: Tensor,
         mode: AutoGatherMode | str = AutoGatherMode.CONCAT,
-        *,
-        group=dist.group.WORLD,
         **kwargs,
     ) -> Future[Tensor]:
         src = torch.atleast_1d(item)
@@ -333,7 +379,7 @@ class DistributedHandler(HandlerProtocol):
             work = dist.all_gather(
                 [src.new_empty() for _ in range(self.process_count)],
                 src,
-                group=group,
+                group=self.group,
                 async_op=True,
             )
             assert work is not None
@@ -358,7 +404,7 @@ class DistributedHandler(HandlerProtocol):
             msg = f"Invalid auto gather mode: {mode}"
             raise ValueError(msg)
         dst = src.new_empty(shape)
-        work = dist.all_gather_into_tensor(dst, src, group=group, async_op=True)
+        work = dist.all_gather_into_tensor(dst, src, group=self.group, async_op=True)
         assert work is not None
         if not isinstance(work, torch.futures.Future):
             work = work.get_future()
@@ -369,11 +415,17 @@ class DistributedHandler(HandlerProtocol):
         self,
         dst,
         src,
-        op=dist.ReduceOp.SUM,
-        *,
-        group=dist.group.WORLD,
+        op=ReduceOp.SUM,
         **kwargs,
     ) -> Future[list[Tensor]]:
+        if op == ReduceOp.SUM:
+            dist_op = dist.ReduceOp.SUM
+        elif op == ReduceOp.MEAN:
+            dist_op = dist.ReduceOp.AVG
+        else:
+            msg = f"Invalid reduce operation: {op}"
+            raise ValueError(msg)
+
         rank = self.process_index
         if dst is None:
             dst = src[rank]
@@ -381,19 +433,37 @@ class DistributedHandler(HandlerProtocol):
             dst = dst.view(-1)
         dst[:] = src[rank]
         ops: list[Future] = []
-        for i in range(dist.get_world_size(group)):
+        for i in range(dist.get_world_size(self.group)):
             if i == rank:
-                tmp = dist.reduce(dst, rank, op, group, async_op=True)
+                tmp = dist.reduce(dst, rank, dist_op, self.group, async_op=True)
             else:
-                tmp = dist.reduce(src[i], i, op, group, async_op=True)
+                tmp = dist.reduce(src[i], i, dist_op, self.group, async_op=True)
             assert tmp is not None
             if not isinstance(tmp, Future):
                 tmp = tmp.get_future()
             ops.append(tmp)
         return collect_all(ops).then(wait_all)
 
+    def reduce(
+        self,
+        tensor: Tensor,
+        op: ReduceOp | str = ReduceOp.SUM,
+        all: bool = True,
+        inplace: bool = True,
+        **kwargs,
+    ) -> Future[Tensor]:
+        if not inplace:
+            tensor = tensor.clone()
+        if all:
+            return dist.all_reduce(tensor, op, self.group, async_op=True)
+        return dist.reduce(tensor, self.process_index, op, self.group, async_op=True)
+
 
 class XLAState(threading.local):
+    r"""
+    The XLA state object, which we require to be thread-local.
+    """
+
     def __init__(self, thread_local: bool = False):
         self._storage = {}
 
@@ -405,40 +475,68 @@ class XLAState(threading.local):
 
 
 class XLAHandler(HandlerProtocol, state=XLAState):
-    def __init__(self):
-        super().__init__()
+    r"""
+    Handler for XLA-based operations, using the ``torch_xla`` library.
+    """
 
-        raise NotImplementedError("XLAHandler is not implemented yet.")
+    def __init__(self):
+        raise NotImplementedError("XLHandler is not implemented yet.")
 
 
 def get_handler() -> HandlerProtocol:
     if get_state().distributed_type == accelerate.utils.DistributedType.XLA:
-        return XLAHandler
-    elif get_state().distributed_type in accelerate.utils.dist_OPERATION_TYPES:
-        return DistributedHandler
+        return XLAHandler()
+    elif (
+        get_state().distributed_type
+        in accelerate.utils.TORCH_DISTRIBUTED_OPERATION_TYPES
+    ):
+        return DistributedHandler()
     else:
-        return SingleProcessHandler
+        return SingleProcessHandler()
 
 
 ###############
 # DDP helpers #
 ###############
 
+
 if T.TYPE_CHECKING:
     _N = T.TypeVar("_N", bound=Tensor | dict[T.Any, Tensor] | T.Sequence[Tensor])
-
-    def gather(tensor: _N) -> _N: ...
 
     def pad_across_processes(
         tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0
     ) -> _N: ...
 
 else:
-    gather = accelerate.utils.gather
     pad_across_processes = accelerate.utils.pad_across_processes
 
 
-@TX.deprecated("Use `all_auto_gather` instead.")
+def gather(tensor: T.Any, all: bool = True):
+    assert all is True, "Only all-gather is supported."
+    return accelerate.utils.gather(tensor)
+
+
+def reduce(
+    tensor: torch.Tensor, op: ReduceOp | str = ReduceOp.MEAN, all: bool = True, **kwargs
+) -> Future[Tensor]:
+    handler = get_handler()
+    return handler.reduce(tensor, op, all, **kwargs)
+
+
+def gather_object(objects: T.Any, all: bool = True) -> T.Any:
+    assert all is True, "Only all-gather is supported."
+    return accelerate.utils.gather_object(objects)
+
+
+def auto_gather(
+    tensor: Tensor, mode: AutoGatherMode | str = AutoGatherMode.CONCAT, all: bool = True
+) -> Future[Tensor]:
+    assert all is True
+    handler = get_handler()
+    return handler.auto_gather(tensor, mode)
+
+
+@TX.deprecated("Use `tree_auto_gather` instead.")
 def gather_tensordict(td: TensorDictBase) -> TensorDictBase:
     """
     Pads a TensorDict across processes and gathers it on the main process.
@@ -471,32 +569,56 @@ def gather_tensordict(td: TensorDictBase) -> TensorDictBase:
     return td
 
 
-def tree_unflatten_async(tree_futures: Future[list[Future[Tensor]]], spec: TreeSpec):
+def _async_tree_unflatten(tree_futures: Future[list[Future[Tensor]]], spec: TreeSpec):
     tree = wait_all(tree_futures.wait())
     return tree_unflatten(tree, spec)
 
 
-def all_auto_gather(
+def tree_auto_gather(
     item: tuple[Tensor, ...] | list[Tensor] | dict[str, Tensor] | Tensor,
     mode: AutoGatherMode = AutoGatherMode.CONCAT,
-    *,
-    handler: HandlerProtocol | None = None,
     **kwargs,
-) -> Future[Tensor] | Future[list[Tensor]] | Future[dict[str, Tensor]] | Tensor:
-    if handler is None:
-        handler = get_handler()
+) -> Future[Tensor] | Future[list[Tensor]] | Future[dict[str, Tensor]]:
+    r"""
+    Gather a tree of tensors across all processes. If the input is a tensor, then it
+    will be put into a list and gathered according to ``mode``.
+    """
+    handler = get_handler()
     if isinstance(item, Tensor):
-        return handler.all_auto_gather(item, **kwargs)
+        return handler.auto_gather(item, **kwargs)
     tree, spec = tree_flatten(item)
     work = []
     for item in tree:
         assert isinstance(item, Tensor)
-        work.append(handler.all_auto_gather(item, mode, *kwargs, handler=handler))
+        work.append(handler.auto_gather(item, mode, *kwargs, handler=handler))
 
-    return collect_all(work).then(F.partial(tree_unflatten_async, spec=spec))
+    return collect_all(work).then(F.partial(_async_tree_unflatten, spec=spec))
 
 
-torch.fx.wrap("all_auto_gather")
+torch.fx.wrap("tree_auto_gather")
+
+
+def tree_reduce(
+    item: tuple[Tensor, ...] | list[Tensor] | dict[str, Tensor] | Tensor,
+    op: ReduceOp = ReduceOp.SUM,
+    **kwargs,
+) -> Future[Tensor] | Future[list[Tensor]] | Future[dict[str, Tensor]] | Tensor:
+    r"""
+    Reduce a tree of tensors across all processes.
+    """
+    handler = get_handler()
+    if isinstance(item, Tensor):
+        return handler.reduce(item, op, **kwargs)
+    tree, spec = tree_flatten(item)
+    work = []
+    for item in tree:
+        assert isinstance(item, Tensor)
+        work.append(handler.reduce(item, op, **kwargs, handler=handler))
+
+    return collect_all(work).then(F.partial(_async_tree_unflatten, spec=spec))
+
+
+torch.fx.wrap("tree_reduce")
 
 
 ################
@@ -653,53 +775,6 @@ class AllGatherFunction(Function):
         return (grad_out, None, None) + grads
 
 
-def all_gather_with_grad(
-    dst: list[torch.Tensor], src: Tensor, group=dist.group.WORLD, inplace=True
-):
-    """
-    Variant of ``torch.distributed.all_gather`` that supports gradients.
-    """
-    if not check_distributed():
-        dst[0] = src
-        return dst
-    return AllGatherFunction.apply(src, group, inplace, *dst)
-
-
-torch.fx.wrap("all_gather_with_grad")
-
-
-def all_auto_gather_with_grad(
-    src: Tensor,
-    mode: AutoGatherMode = AutoGatherMode.CONCAT,
-    group=dist.group.WORLD,
-    inplace=True,
-):
-    """
-    Variant of :func:`all_auto_gather` that supports gradients.
-    """
-    src = torch.atleast_1d(src)
-    if not src.is_contiguous():
-        src = src.contiguous()
-    if not check_distributed():
-        return src if mode == AutoGatherMode.CONCAT else src.unsqueeze(0)
-    dst = [torch.zeros_like(src) for _ in range(dist.get_world_size(group))]
-    dst_items = AllGatherFunction.apply(src, group, inplace, *dst)
-    if not isinstance(dst_items, tuple):
-        dst_items = [dst_items]
-    else:
-        dst_items = list(dst_items)
-    if mode == AutoGatherMode.CONCAT:
-        return torch.cat(dst_items, dim=0)
-    elif mode == AutoGatherMode.STACK:
-        return torch.stack(dst_items, dim=0)
-    else:
-        msg = f"Invalid auto gather mode: {mode}"
-        raise ValueError(msg)
-
-
-torch.fx.wrap("all_auto_gather_with_grad")
-
-
 class GatherFunction(Function):
     @staticmethod
     @TX.override
@@ -736,14 +811,71 @@ def gather_with_grad(
     src: torch.Tensor,
     group=dist.group.WORLD,
     inplace=True,
+    all: bool = True,
 ):
     """
     Variant of ``torch.distributed.gather`` that supports gradients.
     """
+    if all:
+        return AllGatherFunction.apply(src, group, inplace, *dst)
     return GatherFunction.apply(src, dst, group, inplace)
 
 
 torch.fx.wrap("gather_with_grad")
+
+
+def auto_gather_with_grad(
+    tensor: Tensor,
+    mode: AutoGatherMode | str = AutoGatherMode.CONCAT,
+    all: bool = True,
+) -> Tensor:
+    """
+    Variant of :func:`auto_gather` that supports gradients.
+    """
+    if not dist.is_initialized():
+        return tensor if mode == AutoGatherMode.CONCAT else tensor.unsqueeze(0)
+    dst = [torch.zeros_like(tensor) for _ in range(dist.get_world_size())]
+    gather_with_grad(dst, tensor, dist.group.WORLD, True, all)
+    if mode == AutoGatherMode.CONCAT:
+        return torch.cat(dst, dim=0)
+    elif mode == AutoGatherMode.STACK:
+        return torch.stack(dst, dim=0)
+    msg = f"Invalid auto gather mode: {mode}"
+    raise ValueError(msg)
+
+
+def tree_auto_gather_with_grad(
+    src: Tensor,
+    mode: AutoGatherMode = AutoGatherMode.CONCAT,
+    group=dist.group.WORLD,
+    inplace=True,
+    all: bool = True,
+):
+    """
+    Variant of :func:`tree_auto_gather` that supports gradients.
+    """
+    assert all is True
+    src = torch.atleast_1d(src)
+    if not src.is_contiguous():
+        src = src.contiguous()
+    if not check_distributed():
+        return src if mode == AutoGatherMode.CONCAT else src.unsqueeze(0)
+    dst = [torch.zeros_like(src) for _ in range(dist.get_world_size(group))]
+    dst_items = AllGatherFunction.apply(src, group, inplace, *dst)
+    if not isinstance(dst_items, tuple):
+        dst_items = [dst_items]
+    else:
+        dst_items = list(dst_items)
+    if mode == AutoGatherMode.CONCAT:
+        return torch.cat(dst_items, dim=0)
+    elif mode == AutoGatherMode.STACK:
+        return torch.stack(dst_items, dim=0)
+    else:
+        msg = f"Invalid auto gather mode: {mode}"
+        raise ValueError(msg)
+
+
+torch.fx.wrap("tree_auto_gather_with_grad")
 
 
 class ScatterFunction(Function):

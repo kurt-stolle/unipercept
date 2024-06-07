@@ -6,7 +6,7 @@ import types
 import typing as T
 
 
-def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:
+def calling_module_name(frames: int = 0, left: T.Optional[int] = None, strict: bool = True) -> str:
     """
     Return the name of the module that called the current function from the perspective
     of the function that calls this function.
@@ -14,10 +14,13 @@ def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:
     Parameters
     ----------
     frames
-        The number of frames to go back in the stack, by default 0.
+        The number of frames to go back in the stack offset by 2, by default 0.
     left
         The number nested modules to return, e.g. when the module name is `a.b.c` and `left=1` the return value would
         be `a.b`. By default `None`, which returns the full module name.
+    strict
+        If the module is not found, raise an error. 
+        If `False`, return the name of the module that called the current function is returned.
 
     Returns
     -------
@@ -29,9 +32,10 @@ def calling_module_name(frames: int = 0, left: T.Optional[int] = None) -> str:
     frm = inspect.stack()[2 + frames]
     mod = inspect.getmodule(frm[0])
     if mod is None:
-        raise ModuleNotFoundError(
-            f"Could not find module for {frm.filename}, which was called from {frm.function}"
-        )
+        if strict:
+            msg = f"Could not find module for {frm.filename}, which was called from {frm.function}"
+            raise ModuleNotFoundError(msg)
+        return frm.filename.split(".")[0]
 
     name = mod.__name__
     if left is not None:

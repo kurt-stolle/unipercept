@@ -4,218 +4,133 @@ from __future__ import annotations
 
 import math
 import typing as T
+import typing_extensions as TX
 
 import torch
-import torch.nn as nn
+from torch import nn, Tensor
 from typing_extensions import override
 
 from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
 from unipercept.utils.mask import masks_to_boxes
 
 __all__ = [
-    "compute_scale_invariant_loss",
-    "compute_absolute_relative_loss",
-    "compute_square_relative_loss",
-    "DepthLoss",
-    "DepthSmoothLoss",
+    "MSELoss",
+    "SILogLoss",
     "PEDLoss",
-    "SimpleSmoothnessLoss",
+    "IGSLoss",
     "ScaleAndShiftInvariantLoss",
-    "compute_smoothness_loss",
+    "compute_igs_loss",
     "MSELoss",
     "GradientLoss",
 ]
 
 
-def compute_scale_invariant_loss(
-    x: torch.Tensor, y: torch.Tensor, gamma: float = 1.0, eps=1e-8
-) -> torch.Tensor:
-    r"""
-    Scale invariant logarithmic error.
-    """
-    log_err = (x.log() - y.log()).clamp_min(eps)
-    n = y.numel()
-    sile_1 = log_err.square().mean()
-    sile_2 = gamma * log_err.sum().square() / (n * n)
-    return (sile_1 - sile_2).clamp_min(0.0)
+def _reduce_batch(image_loss, M):
+    divisor = torch.sum(M)
+    if divisor == 0:
+        return 0
+    else:
+        return torch.sum(image_loss) / divisor
 
 
-def compute_absolute_relative_loss(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    r"""
-    Absolute relative error.
-    """
-    return (1 - x / y).abs().mean().clamp_min(0.0)
+def _reduce_pixels(image_loss, M):
+    valid = M.nonzero()
+
+    image_loss[valid] = image_loss[valid] / M[valid]
+
+    return torch.mean(image_loss)
 
 
-def compute_square_relative_loss(
-    x: torch.Tensor, y: torch.Tensor, eps: float = 1e-8
-) -> torch.Tensor:
-    r"""
-    Squared relative error.
-    """
-    return (1 - x / y).square().mean().clamp_min(eps).sqrt()
+def _masked_mean_var(data: Tensor, mask: Tensor, dim: T.Tuple[int, ...]):
+    if mask is None:
+        return data.mean(dim=dim, keepdim=True), data.var(dim=dim, keepdim=True)
+    mask = mask.float()
+    mask_sum = torch.sum(mask, dim=dim, keepdim=True)
+    mask_mean = torch.sum(data * mask, dim=dim, keepdim=True) / torch.clamp(
+        mask_sum, min=1.0
+    )
+    mask_var = torch.sum(
+        mask * (data - mask_mean) ** 2, dim=dim, keepdim=True
+    ) / torch.clamp(mask_sum, min=1.0)
+    return mask_mean.squeeze(dim), mask_var.squeeze(dim)
 
 
-class DepthLoss(StableLossMixin, ScaledLossMixin, nn.Module):
+def _masked_mean(data: Tensor, mask: Tensor | None, dim: T.Tuple[int, ...]):
+    if mask is None:
+        return data.mean(dim=dim, keepdim=True)
+    mask = mask.float()
+    mask_sum = torch.sum(mask, dim=dim, keepdim=True)
+    mask_mean = torch.sum(data * mask, dim=dim, keepdim=True) / torch.clamp(
+        mask_sum, min=1.0
+    )
+    return mask_mean
+
+
+class SILogLoss(ScaledLossMixin, nn.Module):
     def __init__(
         self,
-        *,
-        weight_sile=2.0,
-        weight_are=1.0,
-        weight_sre=1.0,
+        alpha: float = 0.15,
+        eps: float = 1e-5,
+        dims: T.Tuple[int, ...] = (-2, -1),
         **kwargs,
     ):
-        if weight_are is None:
-            weight_are = kwargs.pop("weight_arse", 1.0)
-        if weight_sre is None:
-            weight_sre = kwargs.pop("weight_srse", 1.0) * kwargs.pop("weight_rsqe", 1.0)
-
         super().__init__(**kwargs)
+        self.alpha: float = alpha
+        self.dims = dims
+        self.eps: float = eps
 
-        self.weight_sile = weight_sile
-        self.weight_are = weight_are
-        self.weight_sre = weight_sre
-
-    @override
-    @torch.autocast("cuda", dtype=torch.float32)
+    @TX.override
+    @torch.autocast("cuda", enabled=False)
     def forward(
         self,
-        true: torch.Tensor,
-        pred: torch.Tensor,
-        mask: torch.Tensor,
-    ) -> torch.Tensor:
-        assert mask.dtype == torch.bool, mask.dtype
-        if not mask.any():
-            return pred.sum() * 0.0
-        true = true[mask].clamp(self.eps)
-        pred = pred[mask].clamp(self.eps)
-        if self.weight_are > 0:
-            are = self._compute_are(pred, true) * self.weight_are
-        else:
-            are = None
+        input: Tensor,
+        target: Tensor,
+        mask: Tensor,
+    ) -> Tensor:
+        input = input.float()
+        target = target.float()
+        error = input.clamp(min=self.eps).log1p() - target.clamp(min=self.eps).log1p()
+        mean_error, var_error = _masked_mean_var(error, mask, self.dims)
+        scale_error = mean_error**2
 
-        if self.weight_sile > 0:
-            sile = self._compute_sile(pred, true) * self.weight_sile
-        else:
-            sile = None
-
-        if self.weight_sre > 0:
-            sre = self._compute_sre(pred, true) * self.weight_sre
-        else:
-            sre = None
-
-        loss_list = [sile, are, sre]
-        loss = torch.stack(
-            [loss_comp for loss_comp in loss_list if loss_comp is not None]
+        if var_error.ndim > 1:
+            var_error = var_error.sum(dim=1)
+            scale_error = scale_error.sum(dim=1)
+        scale_error = self.alpha * scale_error
+        loss = (
+            (var_error + scale_error)
+            .clamp_min(self.eps)
+            .sqrt()
+            .mean(dim=0, keepdim=True)
+            .mean()
         )
 
-        return loss.sum() * self.scale
-
-    def _compute_sile(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-        return compute_scale_invariant_loss(pred, true, self.eps)
-
-    def _compute_are(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-        return compute_absolute_relative_loss(pred, true)
-
-    def _compute_sre(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-        return compute_square_relative_loss(pred, true, self.eps)
+        return loss * self.scale
 
 
-class DepthSmoothLoss(StableLossMixin, ScaledLossMixin, nn.Module):
-    """
-    Compute the depth smoothness loss, defined as the weighted smoothness
-    of the inverse depth.
-    """
-
-    def __init__(self, **kwargs):
+class MSELoss(ScaledLossMixin, nn.Module):
+    def __init__(
+        self,
+        weight: float = 1.0,
+        dims: T.Tuple[int, ...] = (-2, -1),
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        self.padded = False
+        self.weight: float = weight
+        self.dims = dims
+        self.eps = 1e-6
 
-    @override
+    @TX.override
+    @torch.autocast("cuda", enabled=False)
     def forward(
         self,
-        images: torch.Tensor,
-        depths: torch.Tensor,
-        mask: torch.Optional[torch.Tensor],
-    ) -> torch.Tensor:
-        images = images.float()
-        depths = depths.float()
-
-        if len(images) == 0:
-            return depths.sum()
-
-        if mask is None:
-            mask = torch.ones_like(images).bool()
-        else:
-            mask = mask.bool()
-
-        # compute inverse depths
-        # idepths = 1 / (depths / self.depth_max).clamp(self.eps)
-        # idepths = depths.float() / self.depth_max
-        # idepths = depths
-        idepths = 1 / depths.clamp(self.eps)
-
-        # compute the gradients
-        idepth_dx: torch.Tensor = self._gradient_x(idepths)
-        idepth_dy: torch.Tensor = self._gradient_y(idepths)
-        image_dx: torch.Tensor = self._gradient_x(images)
-        image_dy: torch.Tensor = self._gradient_y(images)
-
-        # compute image weights
-        weights_x: torch.Tensor = torch.exp(
-            -torch.mean(torch.abs(image_dx) + self.eps, dim=1, keepdim=True)
-        )
-        weights_y: torch.Tensor = torch.exp(
-            -torch.mean(torch.abs(image_dy) + self.eps, dim=1, keepdim=True)
-        )
-
-        # apply image weights to depth
-        smoothness_x: torch.Tensor = torch.abs(idepth_dx * weights_x)
-        smoothness_y: torch.Tensor = torch.abs(idepth_dy * weights_y)
-
-        # compute shifted masks
-        if self.padded:
-            h, w = mask.shape[-2], mask.shape[-1]
-
-            mask_boxes = masks_to_boxes(mask.squeeze(1).long())
-
-            assert all(mask_boxes[:, 2] < w)
-            assert all(mask_boxes[:, 3] < h)
-
-            mask_margin = 1 / 10
-            mask_boxes[:, 0] = (mask_boxes[:, 0] - int(w * mask_margin)).clamp(min=0)
-            mask_boxes[:, 1] = (mask_boxes[:, 1] - int(h * mask_margin)).clamp(min=0)
-            mask_boxes[:, 2] = (mask_boxes[:, 2] + int(w * mask_margin)).clamp(max=w)
-            mask_boxes[:, 3] = (mask_boxes[:, 3] + int(h * mask_margin)).clamp(max=h)
-
-            mask_padded = torch.full_like(mask, False)
-            for i, (x_min, y_min, x_max, y_max) in enumerate(mask_boxes):
-                mask_padded[i, 0, y_min:y_max, x_min:x_max] = True
-
-            mask_x = mask_padded[:, :, :, 1:]
-            mask_y = mask_padded[:, :, 1:, :]
-        else:
-            mask_x = mask[:, :, :, 1:]
-            mask_y = mask[:, :, 1:, :]
-
-        # loss for x and y
-        loss_x = smoothness_x[mask_x].mean()
-        loss_y = smoothness_y[mask_y].mean()
-
-        assert loss_x.isfinite()
-        assert loss_y.isfinite()
-
-        return loss_x + loss_y
-
-    def _gradient_x(self, img: torch.Tensor) -> torch.Tensor:
-        if len(img.shape) != 4:
-            raise AssertionError(img.shape)
-        return img[:, :, :, :-1] - img[:, :, :, 1:]
-
-    def _gradient_y(self, img: torch.Tensor) -> torch.Tensor:
-        if len(img.shape) != 4:
-            raise AssertionError(img.shape)
-        return img[:, :, :-1, :] - img[:, :, 1:, :]
+        input: Tensor,
+        target: Tensor,
+        mask: Tensor,
+    ) -> Tensor:
+        error = (input - target).square().sum(dim=self.dims)
+        error = _masked_mean(data=error, mask=mask, dim=self.dims).mean(dim=self.dims)
+        return error.mean() * self.scale
 
 
 class PEDLoss(nn.Module):
@@ -230,7 +145,7 @@ class PEDLoss(nn.Module):
 
     @override
     def forward(
-        self, output: torch.Tensor, target: torch.Tensor
+        self, output: Tensor, target: Tensor
     ):  # NOTE:  target is panoptic mask, output is norm disparity
         output = output.float()
         target = target.float()
@@ -254,7 +169,7 @@ class PEDLoss(nn.Module):
         return loss
 
 
-def compute_smoothness_loss(output, target):
+def compute_igs_loss(pred_disparity, true_image):
     """
     Compute the smoothness loss for a given disparity map.
 
@@ -267,15 +182,15 @@ def compute_smoothness_loss(output, target):
     """
 
     # Compute the Iverson bracket for adjacent pixels along the x-dimension
-    image_diff_x = torch.mean(torch.diff(target, dim=-1), dim=1, keepdim=True)
+    image_diff_x = torch.mean(torch.diff(true_image, dim=-1), dim=1, keepdim=True)
     # Compute the Iverson bracket for adjacent pixels along the y-dimension
-    image_diff_y = torch.mean(torch.diff(target, dim=-2), dim=1, keepdim=True)
+    image_diff_y = torch.mean(torch.diff(true_image, dim=-2), dim=1, keepdim=True)
 
     # Compute the partial disp derivative along the x-axis
-    disp_diff_x = torch.diff(output, dim=-1)
+    disp_diff_x = torch.diff(pred_disparity, dim=-1)
 
     # Compute the partial disp derivative along the y-axis
-    disp_diff_y = torch.diff(output, dim=-2)
+    disp_diff_y = torch.diff(pred_disparity, dim=-2)
 
     loss = torch.mean(
         torch.mul(torch.abs(disp_diff_x), torch.exp(-torch.abs(image_diff_x)))
@@ -286,13 +201,60 @@ def compute_smoothness_loss(output, target):
     return loss
 
 
-class SimpleSmoothnessLoss(nn.Module):
+class IGSLoss(nn.Module):
+    r"""
+    Image-guided smoothness loss (IGS) loss
+    """
+
     def __init__(self):
         super().__init__()
 
     @override
     def forward(self, output, target):
-        return compute_smoothness_loss(output, target)
+        return compute_igs_loss(output, target)
+
+
+def compute_gradient_loss(prediction, target, mask):
+    M = torch.sum(mask, (1, 2))
+
+    diff = prediction - target
+    diff = torch.mul(mask, diff)
+
+    grad_x = torch.abs(diff[:, :, 1:] - diff[:, :, :-1])
+    mask_x = torch.mul(mask[:, :, 1:], mask[:, :, :-1])
+    grad_x = torch.mul(mask_x, grad_x)
+
+    grad_y = torch.abs(diff[:, 1:, :] - diff[:, :-1, :])
+    mask_y = torch.mul(mask[:, 1:, :], mask[:, :-1, :])
+    grad_y = torch.mul(mask_y, grad_y)
+
+    image_loss = torch.sum(grad_x, (1, 2)) + torch.sum(grad_y, (1, 2))
+
+    return _reduce_batch(image_loss, M)
+
+
+class GradientLoss(nn.Module):
+    def __init__(self, scales=4):
+        super().__init__()
+
+        self.__scales = scales
+
+    @TX.override
+    def forward(self, prediction: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+        total = []
+
+        for scale in range(self.__scales):
+            step = pow(2, scale)
+
+            total.append(
+                compute_gradient_loss(
+                    prediction[:, ::step, ::step],
+                    target[:, ::step, ::step],
+                    mask[:, ::step, ::step],
+                )
+            )
+
+        return torch.stack(total).sum()
 
 
 def compute_scale_and_shift(prediction, target, mask):
@@ -318,115 +280,25 @@ def compute_scale_and_shift(prediction, target, mask):
     return x_0, x_1
 
 
-def reduction_batch_based(image_loss, M):
-    # average of all valid pixels of the batch
-
-    # avoid division by 0 (if sum(M) = sum(sum(mask)) = 0: sum(image_loss) = 0)
-    divisor = torch.sum(M)
-
-    if divisor == 0:
-        return 0
-    else:
-        return torch.sum(image_loss) / divisor
-
-
-def reduction_image_based(image_loss, M):
-    # mean of average of valid pixels of an image
-
-    # avoid division by 0 (if M = sum(mask) = 0: image_loss = 0)
-    valid = M.nonzero()
-
-    image_loss[valid] = image_loss[valid] / M[valid]
-
-    return torch.mean(image_loss)
-
-
-def mse_loss(prediction, target, mask, reduction=reduction_batch_based):
-    M = torch.sum(mask, (1, 2))
-    res = prediction - target
-    image_loss = torch.sum(mask * res * res, (1, 2))
-
-    return reduction(image_loss, 2 * M)
-
-
-def gradient_loss(prediction, target, mask, reduction=reduction_batch_based):
-    M = torch.sum(mask, (1, 2))
-
-    diff = prediction - target
-    diff = torch.mul(mask, diff)
-
-    grad_x = torch.abs(diff[:, :, 1:] - diff[:, :, :-1])
-    mask_x = torch.mul(mask[:, :, 1:], mask[:, :, :-1])
-    grad_x = torch.mul(mask_x, grad_x)
-
-    grad_y = torch.abs(diff[:, 1:, :] - diff[:, :-1, :])
-    mask_y = torch.mul(mask[:, 1:, :], mask[:, :-1, :])
-    grad_y = torch.mul(mask_y, grad_y)
-
-    image_loss = torch.sum(grad_x, (1, 2)) + torch.sum(grad_y, (1, 2))
-
-    return reduction(image_loss, M)
-
-
-class MSELoss(nn.Module):
-    def __init__(self, reduction="batch-based"):
-        super().__init__()
-
-        if reduction == "batch-based":
-            self.__reduction = reduction_batch_based
-        else:
-            self.__reduction = reduction_image_based
-
-    def forward(self, prediction, target, mask):
-        return mse_loss(prediction, target, mask, reduction=self.__reduction)
-
-
-class GradientLoss(nn.Module):
-    def __init__(self, scales=4, reduction="batch-based"):
-        super().__init__()
-
-        if reduction == "batch-based":
-            self.__reduction = reduction_batch_based
-        else:
-            self.__reduction = reduction_image_based
-
-        self.__scales = scales
-
-    def forward(self, prediction, target, mask):
-        total = 0
-
-        for scale in range(self.__scales):
-            step = pow(2, scale)
-
-            total += gradient_loss(
-                prediction[:, ::step, ::step],
-                target[:, ::step, ::step],
-                mask[:, ::step, ::step],
-                reduction=self.__reduction,
-            )
-
-        return total
-
-
 class ScaleAndShiftInvariantLoss(nn.Module):
-    def __init__(self, alpha=0.5, scales=4, reduction="batch-based"):
+    def __init__(self, alpha=0.5, scales=4):
         super().__init__()
 
-        self.mse = MSELoss(reduction=reduction)
-        self.gradient = GradientLoss(scales=scales, reduction=reduction)
+        self.mse = MSELoss()
+        self.gradient = GradientLoss(scales=scales)
         self.alpha = alpha
-        self.ssi = None
 
     @override
+    @torch.autocast("cuda", enabled=False)
     def forward(self, prediction, target, mask):
         prediction = prediction.float()
         target = target.float()
         mask = mask.bool()
 
         scale, shift = compute_scale_and_shift(prediction, target, mask)
-        self.ssi = scale.view(-1, 1, 1) * prediction + shift.view(-1, 1, 1)
+        ssi = scale.view(-1, 1, 1) * prediction + shift.view(-1, 1, 1)
 
-        total = self.mse(self.ssi, target, mask)
+        total = self.mse(ssi, target, mask)
         if self.alpha > 0:
-            total += self.alpha * self.gradient(self.ssi, target, mask)
+            total += self.alpha * self.gradient(ssi, target, mask)
         return total

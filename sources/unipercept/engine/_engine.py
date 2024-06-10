@@ -52,6 +52,7 @@ from unipercept.utils.tensorclass import Tensorclass, is_tensordict_like
 from unipercept.utils.time import ProfileAccumulator, profile
 from unipercept.utils.typings import Pathable
 from unipercept.utils.ulid import ULID
+from unipercept.utils.memory import retry_if_cuda_oom
 
 if T.TYPE_CHECKING:
     from accelerate.optimizer import AcceleratedOptimizer
@@ -771,8 +772,7 @@ class Engine:
             pass  # not all optimizers have a train method
 
         args = self.select_inputs(model, inputs)
-        torch.compiler.cudagraph_mark_step_begin()
-        outputs: ModelOutput = model(*args)
+        outputs = _forward(model, args)
         assert outputs.losses is not None
 
         for key, loss in tuple(outputs.losses.items()):
@@ -1087,8 +1087,7 @@ class Engine:
             raise ValueError(msg)
 
         args = self.select_inputs(model, inputs)
-        torch.compiler.cudagraph_mark_step_begin()
-        outputs: ModelOutput = model(*args)
+        outputs: ModelOutput = _forward(model, args)
         assert outputs.predictions is not None
 
         preds = outputs.predictions
@@ -1665,6 +1664,12 @@ class Engine:
         #    N_M = math.floor(N / M)
         # torch.set_num_threads(N_M)
         pass
+
+
+@retry_if_cuda_oom(cpu_ok=False)
+def _forward(model: nn.Module, args: T.Tuple[T.Any, ...]) -> ModelOutput:
+    torch.compiler.cudagraph_mark_step_begin()
+    return model(*args)
 
 
 def _flops(model: nn.Module, inputs: InputType) -> int:

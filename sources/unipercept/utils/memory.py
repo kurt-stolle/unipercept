@@ -8,31 +8,32 @@ See Also
 
 from __future__ import annotations
 
-import logging
-from contextlib import contextmanager
-from functools import wraps
+import functools
+import contextlib
+import typing as T
 
 import torch
 
-__all__ = ["retry_if_cuda_oom"]
+CUDA_OOM_ERROR: T.Final[str] = "CUDA out of memory. "
 
 
-@contextmanager
-def _ignore_torch_cuda_oom():
+@contextlib.contextmanager
+def ignore_cuda_oom():
     """
-    A context which ignores CUDA OOM exception from pytorch.
+    A context which ignores CUDA OOM errors.
     """
     try:
         yield
     except RuntimeError as e:
-        # NOTE: the string may change?
-        if "CUDA out of memory. " in str(e):
+        if CUDA_OOM_ERROR in str(e):
             pass
         else:
             raise
 
 
-def retry_if_cuda_oom(func, cpu_ok: bool = True):
+def retry_if_cuda_oom(
+    fn: T.Callable | None = None, *, cpu_ok: bool = True
+) -> T.Callable:
     """
     Makes a function retry itself after encountering
     pytorch's CUDA OOM error.
@@ -45,8 +46,9 @@ def retry_if_cuda_oom(func, cpu_ok: bool = True):
 
     Parameters
     ----------
-    func
-        A stateless callable that takes tensor-like objects as arguments
+    fn: callable or None
+        A stateless callable that takes tensor-like objects as arguments. If None, then
+        this function will return a decorator that can be used to wrap a function.
 
     Returns
     -------
@@ -57,7 +59,9 @@ def retry_if_cuda_oom(func, cpu_ok: bool = True):
         output = retry_if_cuda_oom(some_torch_function)(input1, input2)
         # output may be on CPU even if inputs are on GPU
 
-    Note:
+    Notes
+    -----
+
         1. When converting inputs to CPU, it will only look at each argument and check
            if it has `.device` and `.to` for conversion. Nested structures of tensors
            are not supported.
@@ -66,27 +70,31 @@ def retry_if_cuda_oom(func, cpu_ok: bool = True):
            stateless.
     """
 
-    def maybe_to_cpu(x):
-        try:
-            like_gpu_tensor = x.device.type == "cuda" and hasattr(x, "to")
-        except AttributeError:
-            like_gpu_tensor = False
-        if like_gpu_tensor:
-            return x.to(device="cpu")
-        else:
-            return x
+    if fn is None:
+        return functools.partial(retry_if_cuda_oom, cpu_ok=cpu_ok)
 
-    @wraps(func)
-    def wrapped(*args, **kwargs):
-        with _ignore_torch_cuda_oom():
-            return func(*args, **kwargs)
+    @functools.wraps(fn)
+    def fn_with_retry(*args, **kwargs):
+        with ignore_cuda_oom():
+            return fn(*args, **kwargs)
         torch.cuda.empty_cache()
         if cpu_ok:
-            with _ignore_torch_cuda_oom():
-                return func(*args, **kwargs)
-            new_args = (maybe_to_cpu(x) for x in args)
-            new_kwargs = {k: maybe_to_cpu(v) for k, v in kwargs.items()}
-            return func(*new_args, **new_kwargs)
-        return func(*args, **kwargs)
+            with ignore_cuda_oom():
+                return fn(*args, **kwargs)
+            new_args = (_maybe_to_cpu(x) for x in args)
+            new_kwargs = {k: _maybe_to_cpu(v) for k, v in kwargs.items()}
+            return fn(*new_args, **new_kwargs)
+        return fn(*args, **kwargs)
 
-    return wrapped
+    return fn_with_retry
+
+
+def _maybe_to_cpu(x):
+    try:
+        like_gpu_tensor = x.device.type == "cuda" and hasattr(x, "to")
+    except AttributeError:
+        like_gpu_tensor = False
+    if like_gpu_tensor:
+        return x.to(device="cpu")
+    else:
+        return x

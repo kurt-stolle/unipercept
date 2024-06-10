@@ -203,14 +203,10 @@ class MLPLayer(nn.Module):
         self.init_gain = init_gain
 
         norm = get_norm(norm, out_features)
-        bias = get_default_bias(bias, norm)
-        linear = nn.Linear(in_features, out_features, bias=bias)
-        if norm is None or isinstance(norm, nn.Identity):
-            self.linear = nn.utils.parametrizations.weight_norm(linear, name="weight")
-            self.register_module("norm", None)
-        else:
-            self.linear = linear
-            self.norm = norm
+        self.linear = nn.Linear(
+            in_features, out_features, bias=get_default_bias(bias, norm)
+        )
+        self.norm = norm
 
         activation = get_activation(activation)
         if activation is None:

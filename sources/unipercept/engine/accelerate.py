@@ -17,15 +17,12 @@ import torch.utils.data
 import typing_extensions as TX
 
 from unipercept import file_io
-from unipercept.log import get_logger
+from unipercept.log import logger
 
 if T.TYPE_CHECKING:
     from unipercept.engine import EngineParams
 
 __all__ = ["Accelerator", "find_executable_batch_size", "StatefulObject"]
-
-_logger = get_logger(__name__)
-
 
 torch._dynamo.config.suppress_errors = True
 torch._dynamo.config.optimize_ddp = False
@@ -36,9 +33,11 @@ class StatefulObject(T.Protocol):
     Protocol for classes that have a ``state_dict()`` and ``load_state_dict()`` method.
     """
 
-    def state_dict(self) -> T.Dict[str, T.Any]: ...
+    def state_dict(self) -> T.Dict[str, T.Any]:
+        ...
 
-    def load_state_dict(self, state_dict: T.Dict[str, T.Any]) -> None: ...
+    def load_state_dict(self, state_dict: T.Dict[str, T.Any]) -> None:
+        ...
 
 
 class Accelerator(accelerate.Accelerator):
@@ -119,12 +118,16 @@ class Accelerator(accelerate.Accelerator):
         from unipercept.config import get_env
 
         prepared_model = super().prepare_model(model, *args, **kwargs)
-        if not get_env(bool, "UP_ENGINE_DISABLE_COMPILE", default=False):
-            compile_kwargs = kwargs.get("compile_kwargs", {"backend": "inductor"})
-            _logger.debug("Compiling model with: " + str(compile_kwargs))
-            prepared_model.compile(**compile_kwargs)
+        backend = get_env(str, "UP_ENGINE_COMPILE_BACKEND", default="inductor")
+        if backend != "disabled":
+            if get_env(bool, "UP_ENGINE_COMPILE_RESET", default=False):
+                torch._dynamo.reset()
+            logger.debug("Compiling model with backend '%s'.", backend)
+            prepared_model.compile(backend=backend)
         else:
-            _logger.debug("Compile flag is set to False. Skipping model compilation.")
+            logger.debug(
+                "Got compile backend '%s'. Skipping model compilation.", backend
+            )
 
         return prepared_model
 
@@ -148,20 +151,23 @@ if T.TYPE_CHECKING:
         function: _Fin[_P, _R],
         *,
         starting_batch_size: int = 128,
-    ) -> _Fout[_P, _R]: ...
+    ) -> _Fout[_P, _R]:
+        ...
 
     @T.overload
     def find_executable_batch_size(
         function: None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]:
+        ...
 
     def find_executable_batch_size(
         function: _Fin | None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]: ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]:
+        ...
 
 else:
     find_executable_batch_size = accelerate.utils.find_executable_batch_size

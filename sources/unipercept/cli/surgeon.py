@@ -14,6 +14,7 @@ import typing_extensions as TX
 
 import unipercept as up
 from unipercept.cli._command import command, logger
+import regex as re
 
 __all__ = []
 
@@ -35,6 +36,9 @@ def _add_weights_arg(prs: argparse.ArgumentParser):
                 raise ValueError(msg)
 
     prs.add_argument(
+        "--match", "-m", type=re.compile, default=None, help="filters weights by name"
+    )
+    prs.add_argument(
         "weights",
         type=read_weights,
         help="model state dict file, e.g. `model.pth` or `model.safetensors`",
@@ -52,19 +56,58 @@ class StatsSubcommand(Subcommand, name="stats"):
     def main(args: argparse.Namespace):
         data = []
         for name, weight in args.weights.items():
-            data.append(
-                {
-                    "weight": name,
-                    "shape": weight.shape,
-                    "dtype": weight.dtype,
-                    "min": weight.min().item(),
-                    "max": weight.max().item(),
-                    "mean": weight.mean().item(),
-                    "std": weight.std().item(),
-                }
-            )
+            if args.match and not args.match.search(name):
+                continue
+            rec = {
+                "weight": name,
+                "shape": tuple(weight.shape),
+                "dtype": str(weight.dtype).split(".")[-1],
+                "min": weight.min().item(),
+                "max": weight.max().item(),
+                "mean": weight.mean().item()
+                if torch.is_floating_point(weight)
+                else None,
+                "std": weight.std().item() if torch.is_floating_point(weight) else None,
+            }
+            data.append(rec)
         data = pd.DataFrame(data)
-        print(up.log.create_table(data))
+        print(up.log.create_table(data, format="wide"))
+
+
+class SubsetCommand(Subcommand, name="subset"):
+    @staticmethod
+    @TX.override
+    def setup(prs: argparse.ArgumentParser):
+        prs.add_argument("--output", "-o", type=up.file_io.Path, help="output file")
+        _add_weights_arg(prs)
+
+    @staticmethod
+    @TX.override
+    def main(args: argparse.Namespace):
+        res = {}
+        for name, weight in args.weights.items():
+            if args.match and not args.match.search(name):
+                continue
+            res[name] = weight
+
+        for k in res.keys():
+            print(k)
+
+        if not args.output:
+            print(
+                "\n(provide an output path with `--output` to save the altered weights)"
+            )
+            return
+
+        if args.output.suffix.lower() == ".safetensors":
+            safetensors.torch.save_file(res, args.output)
+        elif args.output.suffix.lower() in (".pth", ".pt"):
+            torch.save(res, args.output)
+        else:
+            msg = f"Unsupported file format: {args.output}"
+            raise ValueError(msg)
+
+        print(f"\n (saved to {str(args.output)!r})")
 
 
 command_name = up.file_io.Path(__file__).stem

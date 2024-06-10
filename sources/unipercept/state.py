@@ -28,6 +28,8 @@ from torch.autograd import Function
 from torch.futures import Future, collect_all, wait_all
 from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
 
+import unipercept.log
+
 __all__ = []
 
 
@@ -116,7 +118,7 @@ def get_total_batchsize(
     a = len(dataloader)
     # Gather the size of dataloaders across all processes
     a_dist = torch.tensor([a], dtype=torch.int64, device=device)
-    a_dist = gather(a_dist)
+    a_dist = auto_gather(a_dist).wait()
     assert isinstance(a_dist, Tensor), f"Expected Tensor, got {type(a_dist)}"
     # Compute total amount of samples
     a_total = int(a_dist.sum().item())
@@ -221,26 +223,28 @@ class AutoGatherMode(E.StrEnum):
     STACK = E.auto()
 
 
+Destination: T.TypeAlias = int | T.Literal["all"]
+
+
 class HandlerProtocol:
-    __slots__ = ("__init__", "__dict__", "__weakref__")
+    __slots__ = ("__dict__", "__weakref__", "logger")
 
     process_index: int
     process_index_local: int
     process_count: int
 
     def auto_gather(
-        self, item: Tensor, mode: AutoGatherMode | str, all: bool = True, **kwargs
-    ) -> Future[Tensor]:
-        raise NotImplementedError()
-
-    def tree_reduce(
-        self, item: Tensor, op: ReduceOp = ReduceOp.SUM, all: bool = True, **kwargs
+        self,
+        item: Tensor,
+        mode: AutoGatherMode | str,
+        dst: Destination = "all",
+        **kwargs,
     ) -> Future[Tensor]:
         raise NotImplementedError()
 
     def reduce_scatter(
         self,
-        dst,
+        tgt,
         src,
         op=ReduceOp.SUM,
         **kwargs,
@@ -250,7 +254,7 @@ class HandlerProtocol:
     def gather(
         self,
         tensor: Tensor,
-        dst: int,
+        dst: Destination = "all",
         group=dist.group.WORLD,
         inplace=True,
         *args: Tensor,
@@ -266,7 +270,7 @@ class HandlerProtocol:
         self,
         tensor: Tensor,
         op: ReduceOp | str = ReduceOp.SUM,
-        all: bool = True,
+        dst: Destination = "all",
         inplace=True,
         **kwargs,
     ) -> Future[Tensor]:
@@ -276,41 +280,49 @@ class HandlerProtocol:
     _state_type: T.ClassVar[T.Callable[[], dict]]
     _sentinel: T.ClassVar[HandlerProtocol | None]
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls is HandlerProtocol:
             msg = f"Cannot instantiate {cls.__name__} directly."
             raise TypeError(msg)
         if cls._sentinel is None:
+            logger = unipercept.log.get_logger(f"{__name__} <{cls.__name__}>")
             h = cls._sentinel = super().__new__(cls)
-            setattr(h, "__dict__", h._state_type())
-            setattr(h, "__init__", cls.__init__)
+            h.logger = logger
+            setattr(h, "__dict__", cls._state_type())
+            h.setup(*args, **kwargs)
         else:
             h = cls._sentinel
-            setattr(h, "__init__", cls.__init__)
+        assert h is not None
         return h
-
-    def reset(self):
-        self.__dict__.clear()
-        self.__class__.__init__(self)
 
     def __init_subclass__(cls, *, state: type = dict) -> None:
         super().__init_subclass__()
         cls._state_type = state
         cls._sentinel = None
 
+    def setup(cls, *args, **kwargs):
+        raise NotImplementedError()
 
-class SingleProcessHandler(HandlerProtocol):
+
+class _SingleProcessHandler(HandlerProtocol):
     r"""
     Non-distributed handler for single-process operation.
     """
 
-    def __init__(self):
+    @TX.override
+    def setup(self):
         self.process_index = self.process_index_local = 0
         self.process_count = 1
 
+        self.logger.info(f"Using single-process state handler: {self}")
+
     @TX.override
     def auto_gather(
-        self, item: Tensor, mode: AutoGatherMode | str, **kwargs
+        self,
+        item: Tensor,
+        mode: AutoGatherMode | str,
+        dst: Destination = "all",
+        **kwargs,
     ) -> Future[Tensor]:
         tensor = torch.atleast_1d(item)
         if mode == AutoGatherMode.STACK:
@@ -324,14 +336,14 @@ class SingleProcessHandler(HandlerProtocol):
     @TX.override
     def reduce_scatter(
         self,
-        dst,
+        tgt,
         src,
         op=ReduceOp.SUM,
         **kwargs,
     ) -> Future[list[Tensor]]:
-        dst[0] = src
+        tgt[0] = src
         fut = Future()
-        fut.set_result([dst])
+        fut.set_result([tgt])
         return fut
 
     @TX.override
@@ -339,7 +351,7 @@ class SingleProcessHandler(HandlerProtocol):
         self,
         tensor: Tensor,
         op: ReduceOp | str = ReduceOp.SUM,
-        all: bool = True,
+        dst: Destination = "all",
         inplace: bool = True,
         **kwargs,
     ) -> Future[Tensor]:
@@ -351,12 +363,13 @@ class SingleProcessHandler(HandlerProtocol):
         return fut
 
 
-class DistributedHandler(HandlerProtocol):
+class _DistributedHandler(HandlerProtocol):
     r"""
     Handler for ``torch.distributed``-based operations.
     """
 
-    def __init__(self, group=dist.group.WORLD):
+    @TX.override
+    def setup(self, *args, group=dist.group.WORLD, **kwargs):
         _xlr_state = accelerate.PartialState(*args, **kwargs)
 
         assert dist.is_initialized()
@@ -365,6 +378,25 @@ class DistributedHandler(HandlerProtocol):
         self.process_index_local = _xlr_state.local_process_index
         self.process_count = _xlr_state.num_processes
 
+        self.logger.info(
+            f"Using distributed state handler: {self} with backend {dist.get_backend()}"
+        )
+
+    @staticmethod
+    def _maybe_to_future(work: T.Any) -> Future[Tensor]:
+        assert work is not None
+        if not isinstance(work, torch.futures.Future):
+
+            def wrap_ddp_future(fut: Future[T.Sequence[Tensor]]) -> Future[Tensor]:
+                res = fut.wait()
+                assert len(res) == 1
+                res_item = res[0]
+                assert isinstance(res_item, Tensor), type(res_item)
+                return res_item
+
+            work = work.get_future().then(wrap_ddp_future)
+        return work
+
     @TX.override
     def auto_gather(
         self,
@@ -372,19 +404,15 @@ class DistributedHandler(HandlerProtocol):
         mode: AutoGatherMode | str = AutoGatherMode.CONCAT,
         **kwargs,
     ) -> Future[Tensor]:
-        src = torch.atleast_1d(item)
-        if not src.is_contiguous():
-            src = src.contiguous()
-        if dist.get_backend() == dist.Backend.GLOO:
+        def _gather_into_list(src: Tensor, mode: AutoGatherMode | str):
             work = dist.all_gather(
                 [src.new_empty() for _ in range(self.process_count)],
                 src,
                 group=self.group,
                 async_op=True,
             )
-            assert work is not None
-            if not isinstance(work, torch.futures.Future):
-                work = work.get_future()
+            work = self._maybe_to_future(work)
+
             if mode == AutoGatherMode.STACK:
                 work = work.then(lambda f: torch.stack(f.wait(), dim=0))
             elif mode == AutoGatherMode.CONCAT:
@@ -392,74 +420,92 @@ class DistributedHandler(HandlerProtocol):
             else:
                 msg = f"Invalid auto gather mode: {mode}"
                 raise ValueError(msg)
+
             return work
 
-        if mode == AutoGatherMode.CONCAT:
-            d_cat, *d_other = src.shape
-            d_cat *= get_process_count()
-            shape = (d_cat, *d_other)
-        elif mode == AutoGatherMode.STACK:
-            shape = (get_process_count(), *src.shape)
-        else:
-            msg = f"Invalid auto gather mode: {mode}"
-            raise ValueError(msg)
-        dst = src.new_empty(shape)
-        work = dist.all_gather_into_tensor(dst, src, group=self.group, async_op=True)
-        assert work is not None
-        if not isinstance(work, torch.futures.Future):
-            work = work.get_future()
-        return work.then(lambda f: torch.cat(f.wait(), dim=0))
+        def _gather_into_tensor(src: Tensor, mode: AutoGatherMode | str):
+            if mode == AutoGatherMode.CONCAT:
+                d_cat, *d_other = src.shape
+                d_cat *= get_process_count()
+                shape = (d_cat, *d_other)
+            elif mode == AutoGatherMode.STACK:
+                shape = (get_process_count(), *src.shape)
+            else:
+                msg = f"Invalid auto gather mode: {mode}"
+                raise ValueError(msg)
+            tgt = src.new_empty(shape)
+            work = dist.all_gather_into_tensor(
+                tgt, src, group=self.group, async_op=True
+            )
+            assert work is not None
+            work = self._maybe_to_future(work)
+            return work
 
-    @TX.override
-    def reduce_scatter(
-        self,
-        dst,
-        src,
-        op=ReduceOp.SUM,
-        **kwargs,
-    ) -> Future[list[Tensor]]:
+        src = torch.atleast_1d(item)
+        if not src.is_contiguous():
+            src = src.contiguous()
+        if dist.get_backend() == dist.Backend.GLOO:
+            fn = _gather_into_list
+        else:
+            fn = _gather_into_tensor
+        return fn(src, mode)
+
+    @staticmethod
+    def _convert_reduce_op(op: ReduceOp | str) -> dist.ReduceOp:
         if op == ReduceOp.SUM:
-            dist_op = dist.ReduceOp.SUM
+            return dist.ReduceOp.SUM
         elif op == ReduceOp.MEAN:
-            dist_op = dist.ReduceOp.AVG
+            return dist.ReduceOp.AVG
         else:
             msg = f"Invalid reduce operation: {op}"
             raise ValueError(msg)
 
+    @TX.override
+    def reduce_scatter(
+        self,
+        tgt,
+        src,
+        op=ReduceOp.SUM,
+        **kwargs,
+    ) -> Future[list[Tensor]]:
+        dist_op = self._convert_reduce_op(op)
         rank = self.process_index
-        if dst is None:
-            dst = src[rank]
-        if dst.dim() == 0:
-            dst = dst.view(-1)
-        dst[:] = src[rank]
+        if tgt is None:
+            tgt = src[rank]
+        if tgt.dim() == 0:
+            tgt = tgt.view(-1)
+        tgt[:] = src[rank]
         ops: list[Future] = []
         for i in range(dist.get_world_size(self.group)):
             if i == rank:
-                tmp = dist.reduce(dst, rank, dist_op, self.group, async_op=True)
+                tmp = dist.reduce(tgt, rank, dist_op, self.group, async_op=True)
             else:
                 tmp = dist.reduce(src[i], i, dist_op, self.group, async_op=True)
             assert tmp is not None
-            if not isinstance(tmp, Future):
-                tmp = tmp.get_future()
+            tmp = self._maybe_to_future(tmp)
             ops.append(tmp)
         return collect_all(ops).then(wait_all)
 
+    @TX.override
     def reduce(
         self,
-        tensor: Tensor,
+        tgt: Tensor,
         op: ReduceOp | str = ReduceOp.SUM,
-        all: bool = True,
+        dst: Destination = "all",
         inplace: bool = True,
         **kwargs,
     ) -> Future[Tensor]:
+        dist_op = self._convert_reduce_op(op)
         if not inplace:
-            tensor = tensor.clone()
-        if all:
-            return dist.all_reduce(tensor, op, self.group, async_op=True)
-        return dist.reduce(tensor, self.process_index, op, self.group, async_op=True)
+            tgt = tgt.clone()
+        if dst == "all":
+            work = dist.all_reduce(tgt, dist_op, self.group, async_op=True)
+        else:
+            work = dist.reduce(tgt, dst, dist_op, self.group, async_op=True)
+        return self._maybe_to_future(work)
 
 
-class XLAState(threading.local):
+class _XLAState(threading.local):
     r"""
     The XLA state object, which we require to be thread-local.
     """
@@ -474,25 +520,27 @@ class XLAState(threading.local):
         self._storage = value
 
 
-class XLAHandler(HandlerProtocol, state=XLAState):
+class _XLAHandler(HandlerProtocol, state=_XLAState):
     r"""
     Handler for XLA-based operations, using the ``torch_xla`` library.
     """
 
-    def __init__(self):
+    def setup(self):
         raise NotImplementedError("XLHandler is not implemented yet.")
 
 
 def get_handler() -> HandlerProtocol:
     if get_state().distributed_type == accelerate.utils.DistributedType.XLA:
-        return XLAHandler()
+        h = _XLAHandler()
     elif (
         get_state().distributed_type
         in accelerate.utils.TORCH_DISTRIBUTED_OPERATION_TYPES
     ):
-        return DistributedHandler()
+        h = _DistributedHandler()
     else:
-        return SingleProcessHandler()
+        h = _SingleProcessHandler()
+    assert h is not None
+    return h
 
 
 ###############
@@ -505,35 +553,32 @@ if T.TYPE_CHECKING:
 
     def pad_across_processes(
         tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0
-    ) -> _N: ...
+    ) -> _N:
+        ...
 
 else:
     pad_across_processes = accelerate.utils.pad_across_processes
 
 
-def gather(tensor: T.Any, all: bool = True):
-    assert all is True, "Only all-gather is supported."
-    return accelerate.utils.gather(tensor)
-
-
 def reduce(
-    tensor: torch.Tensor, op: ReduceOp | str = ReduceOp.MEAN, all: bool = True, **kwargs
+    tgt: torch.Tensor,
+    *args,
+    **kwargs,
 ) -> Future[Tensor]:
-    handler = get_handler()
-    return handler.reduce(tensor, op, all, **kwargs)
+    return get_handler().reduce(tgt, *args, **kwargs)
 
 
-def gather_object(objects: T.Any, all: bool = True) -> T.Any:
-    assert all is True, "Only all-gather is supported."
+def gather_object(objects: T.Any, dst: Destination = "all") -> T.Any:
+    assert dst == "all", "Only all-gather is supported."
     return accelerate.utils.gather_object(objects)
 
 
 def auto_gather(
-    tensor: Tensor, mode: AutoGatherMode | str = AutoGatherMode.CONCAT, all: bool = True
+    tgt: Tensor,
+    mode: AutoGatherMode | str = AutoGatherMode.CONCAT,
+    dst: Destination = "all",
 ) -> Future[Tensor]:
-    assert all is True
-    handler = get_handler()
-    return handler.auto_gather(tensor, mode)
+    return get_handler().auto_gather(tgt, mode, dst=dst)
 
 
 @TX.deprecated("Use `tree_auto_gather` instead.")
@@ -547,7 +592,7 @@ def gather_tensordict(td: TensorDictBase) -> TensorDictBase:
     # Convert to dict
     td_dict: dict[str, Tensor] = td.to_dict()
     td_dict = pad_across_processes(td_dict)  # type: ignore
-    td_dict = gather(td_dict)  # type: ignore
+    td_dict = tree_auto_gather(td_dict)  # type: ignore
 
     # Recover TensorDict object
     td = TensorDict.from_dict(td_dict)
@@ -629,10 +674,10 @@ torch.fx.wrap("tree_reduce")
 class ChainFunction(Function):
     @staticmethod
     @TX.override
-    def forward(ctx, src, zero_grad, *dst):
+    def forward(ctx, src, zero_grad, *tgt):
         ctx.save_for_backward(src)
         ctx.zero_grad = zero_grad
-        return dst
+        return tgt
 
     @staticmethod
     @TX.override
@@ -646,8 +691,8 @@ class ChainFunction(Function):
         return (fake_grad, None) + grad_outputs
 
 
-def chain_with_grad(src: Tensor, dst: T.List[Tensor], zero_grad: bool = False):
-    return ChainFunction.apply(src, zero_grad, *dst)
+def chain_with_grad(src: Tensor, tgt: T.List[Tensor], zero_grad: bool = False):
+    return ChainFunction.apply(src, zero_grad, *tgt)
 
 
 torch.fx.wrap("chain_with_grad")
@@ -688,21 +733,21 @@ class RecvFunction(Function):
     @staticmethod
     @TX.override
     def forward(
-        ctx, dst, src: Tensor | None = None, group=dist.group.WORLD, tag=0, inplace=True
+        ctx, tgt, src: Tensor | None = None, group=dist.group.WORLD, tag=0, inplace=True
     ):
         if not inplace:
-            dst = torch.zeros_like(dst).requires_grad_(False)
+            tgt = torch.zeros_like(tgt).requires_grad_(False)
         ctx.src = src
         ctx.group = group
         ctx.tag = tag
-        sender = dist.recv(dst, src, group, tag)
+        sender = dist.recv(tgt, src, group, tag)
         if src:
             assert sender == src
         else:
             ctx.src = sender
         sender = torch.tensor(sender)
         ctx.mark_non_differentiable(sender)
-        return dst, sender
+        return tgt, sender
 
     @staticmethod
     @TX.override
@@ -711,11 +756,11 @@ class RecvFunction(Function):
         return grad_tensor, None, None, None, None
 
 
-def recv_with_grad(dst: Tensor, src: Tensor, group=dist.group.WORLD, tag=0):
+def recv_with_grad(tgt: Tensor, src: Tensor, group=dist.group.WORLD, tag=0):
     """
     Variant of ``torch.distributed.recv`` that supports gradients.
     """
-    return RecvFunction.apply(dst, src, group, tag)
+    return RecvFunction.apply(tgt, src, group, tag)
 
 
 torch.fx.wrap("recv_with_grad")
@@ -807,39 +852,39 @@ class GatherFunction(Function):
 
 
 def gather_with_grad(
-    dst: list[torch.Tensor],
+    tgt: list[torch.Tensor],
     src: torch.Tensor,
     group=dist.group.WORLD,
     inplace=True,
-    all: bool = True,
+    to: Destination = "all",
 ):
     """
     Variant of ``torch.distributed.gather`` that supports gradients.
     """
-    if all:
-        return AllGatherFunction.apply(src, group, inplace, *dst)
-    return GatherFunction.apply(src, dst, group, inplace)
+    if to == "all":
+        return AllGatherFunction.apply(src, group, inplace, *tgt)
+    return GatherFunction.apply(src, tgt, group, inplace)
 
 
 torch.fx.wrap("gather_with_grad")
 
 
 def auto_gather_with_grad(
-    tensor: Tensor,
+    src: Tensor,
     mode: AutoGatherMode | str = AutoGatherMode.CONCAT,
-    all: bool = True,
+    dst: Destination = "all",
 ) -> Tensor:
     """
     Variant of :func:`auto_gather` that supports gradients.
     """
     if not dist.is_initialized():
-        return tensor if mode == AutoGatherMode.CONCAT else tensor.unsqueeze(0)
-    dst = [torch.zeros_like(tensor) for _ in range(dist.get_world_size())]
-    gather_with_grad(dst, tensor, dist.group.WORLD, True, all)
+        return src if mode == AutoGatherMode.CONCAT else src.unsqueeze(0)
+    tgt = [torch.zeros_like(src) for _ in range(dist.get_world_size())]
+    gather_with_grad(tgt, src, dist.group.WORLD, True, dst)
     if mode == AutoGatherMode.CONCAT:
-        return torch.cat(dst, dim=0)
+        return torch.cat(tgt, dim=0)
     elif mode == AutoGatherMode.STACK:
-        return torch.stack(dst, dim=0)
+        return torch.stack(tgt, dim=0)
     msg = f"Invalid auto gather mode: {mode}"
     raise ValueError(msg)
 
@@ -849,27 +894,27 @@ def tree_auto_gather_with_grad(
     mode: AutoGatherMode = AutoGatherMode.CONCAT,
     group=dist.group.WORLD,
     inplace=True,
-    all: bool = True,
+    dst: Destination = "all",
 ):
     """
     Variant of :func:`tree_auto_gather` that supports gradients.
     """
-    assert all is True
+    assert all == "all", all
     src = torch.atleast_1d(src)
     if not src.is_contiguous():
         src = src.contiguous()
     if not check_distributed():
         return src if mode == AutoGatherMode.CONCAT else src.unsqueeze(0)
-    dst = [torch.zeros_like(src) for _ in range(dist.get_world_size(group))]
-    dst_items = AllGatherFunction.apply(src, group, inplace, *dst)
-    if not isinstance(dst_items, tuple):
-        dst_items = [dst_items]
+    tgt = [torch.zeros_like(src) for _ in range(dist.get_world_size(group))]
+    tgt_items = AllGatherFunction.apply(src, group, inplace, *tgt)
+    if not isinstance(tgt_items, list):
+        tgt_items = [tgt_items]
     else:
-        dst_items = list(dst_items)
+        tgt_items = list(tgt_items)
     if mode == AutoGatherMode.CONCAT:
-        return torch.cat(dst_items, dim=0)
+        return torch.cat(tgt_items, dim=0)
     elif mode == AutoGatherMode.STACK:
-        return torch.stack(dst_items, dim=0)
+        return torch.stack(tgt_items, dim=0)
     else:
         msg = f"Invalid auto gather mode: {mode}"
         raise ValueError(msg)
@@ -883,7 +928,7 @@ class ScatterFunction(Function):
     @TX.override
     def forward(
         ctx,
-        dst: Tensor,
+        tgt: Tensor,
         src: int,
         group=dist.group.WORLD,
         inplace=True,
@@ -892,14 +937,14 @@ class ScatterFunction(Function):
         ctx.src = src
         ctx.group = group
         if not inplace:
-            dst = torch.zeros_like(dst)
+            tgt = torch.zeros_like(tgt)
         if dist.get_rank(group) == src:
             ctx.save_for_backward(*scatter_list)
             scatter_list = list(scatter_list)
-            dist.scatter(dst, scatter_list, src=src, group=group)
+            dist.scatter(tgt, scatter_list, src=src, group=group)
         else:
-            dist.scatter(dst, [], src=src, group=group)
-        return dst
+            dist.scatter(tgt, [], src=src, group=group)
+        return tgt
 
     @staticmethod
     @TX.override

@@ -52,9 +52,6 @@ def plot_input_data(
     """
     Plots input data from the given inputdata object.
     """
-
-    import matplotlib.pyplot as plt
-
     from unipercept.model import InputData
 
     if not isinstance(data, InputData):

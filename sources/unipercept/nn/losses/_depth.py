@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
-import math
 import typing as T
 import typing_extensions as TX
+import enum as E
 
 import torch
 from torch import nn, Tensor
-from typing_extensions import override
 
-from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
-from unipercept.utils.mask import masks_to_boxes
+from unipercept.nn.losses.mixins import ScaledLossMixin
 
 __all__ = [
-    "MSELoss",
+    "RMSELoss",
     "SILogLoss",
     "PEDLoss",
     "IGSLoss",
-    "ScaleAndShiftInvariantLoss",
+    "SSILoss",
     "compute_igs_loss",
-    "MSELoss",
+    "RMSELoss",
     "GradientLoss",
 ]
+
+#######################
+# Utilities for depth #
+#######################
 
 
 def _reduce_batch(image_loss, M):
@@ -41,7 +43,7 @@ def _reduce_pixels(image_loss, M):
     return torch.mean(image_loss)
 
 
-def _masked_mean_var(data: Tensor, mask: Tensor, dim: T.Tuple[int, ...]):
+def _mean_var_with_mask(data: Tensor, mask: Tensor, dim: T.Tuple[int, ...]):
     if mask is None:
         return data.mean(dim=dim, keepdim=True), data.var(dim=dim, keepdim=True)
     mask = mask.float()
@@ -55,7 +57,7 @@ def _masked_mean_var(data: Tensor, mask: Tensor, dim: T.Tuple[int, ...]):
     return mask_mean.squeeze(dim), mask_var.squeeze(dim)
 
 
-def _masked_mean(data: Tensor, mask: Tensor | None, dim: T.Tuple[int, ...]):
+def _mean_with_mask(data: Tensor, mask: Tensor | None, dim: T.Tuple[int, ...]):
     if mask is None:
         return data.mean(dim=dim, keepdim=True)
     mask = mask.float()
@@ -66,17 +68,47 @@ def _masked_mean(data: Tensor, mask: Tensor | None, dim: T.Tuple[int, ...]):
     return mask_mean
 
 
+####################################
+# Scale-Invariant Logarithmic Loss #
+####################################
+
+
+def compute_silog_loss(
+    input: Tensor,
+    target: Tensor,
+    mask: Tensor,
+    dim: T.Tuple[int, ...],
+    alpha: float = 0.15,
+    eps: float = 1e-5,
+):
+    input = input.float()
+    target = target.float()
+    error = input.clamp(min=eps).log1p() - target.clamp(min=eps).log1p()
+    mean_error, var_error = _mean_var_with_mask(error, mask, dim)
+    scale_error = mean_error**2
+
+    if var_error.ndim > 1:
+        var_error = var_error.sum(dim=1)
+        scale_error = scale_error.sum(dim=1)
+    scale_error = alpha * scale_error
+    return (var_error + scale_error).clamp_min(eps).sqrt()
+
+
 class SILogLoss(ScaledLossMixin, nn.Module):
+    alpha: T.Final[float]
+    dim: T.Final[T.Tuple[int, ...]]
+    eps: T.Final[float]
+
     def __init__(
         self,
         alpha: float = 0.15,
         eps: float = 1e-5,
-        dims: T.Tuple[int, ...] = (-2, -1),
+        dim: T.Tuple[int, ...] = (-2, -1),
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.alpha: float = alpha
-        self.dims = dims
+        self.dim = dim
         self.eps: float = eps
 
     @TX.override
@@ -87,50 +119,82 @@ class SILogLoss(ScaledLossMixin, nn.Module):
         target: Tensor,
         mask: Tensor,
     ) -> Tensor:
-        input = input.float()
-        target = target.float()
-        error = input.clamp(min=self.eps).log1p() - target.clamp(min=self.eps).log1p()
-        mean_error, var_error = _masked_mean_var(error, mask, self.dims)
-        scale_error = mean_error**2
-
-        if var_error.ndim > 1:
-            var_error = var_error.sum(dim=1)
-            scale_error = scale_error.sum(dim=1)
-        scale_error = self.alpha * scale_error
-        loss = (
-            (var_error + scale_error)
-            .clamp_min(self.eps)
-            .sqrt()
-            .mean(dim=0, keepdim=True)
-            .mean()
-        )
-
+        loss = compute_silog_loss(input, target, mask, self.dim, self.alpha, self.eps)
         return loss * self.scale
 
 
-class MSELoss(ScaledLossMixin, nn.Module):
+class RMSELoss(ScaledLossMixin, nn.Module):
+    dim: T.Final[T.Tuple[int, ...]]
+    eps: T.Final[float]
+
     def __init__(
         self,
-        weight: float = 1.0,
-        dims: T.Tuple[int, ...] = (-2, -1),
+        dim: T.Tuple[int, ...] = (-2, -1),
+        eps: float = 1e-6,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.weight: float = weight
-        self.dims = dims
-        self.eps = 1e-6
+        self.dim = dim
+        self.eps = eps
+
+    @classmethod
+    def from_metadata(
+        cls, dataset_name: str, init_scale: float = 1.0, **kwargs
+    ) -> T.Self:
+        r"""
+        Initialize from metadata, fills out the scale parameter using the range of
+        depth values expected in the dataset such that the loss is nomalized.
+
+        Parameters
+        ----------
+        dataset_name : str
+            The name of the dataset to use for initializing the loss.
+        init_scale : float
+            The scale of initial values of predictions centered around the mean depth
+            value. By default 1.0.
+        **kwargs : dict
+            Additional keyword arguments to pass to the loss.
+        """
+        from unipercept.data.sets import catalog, Metadata
+
+        info: Metadata = catalog.get_info(dataset_name)
+        assert info.depth_max is not None
+        assert info.depth_min is not None
+
+        # The scale is computed by taking `n_points` in the range of depth values,
+        # computing the RMSE, and then scaling the loss such that the RMSE is 1.0.
+        scale = kwargs.pop("scale", 1.0)
+        n_points = 1000
+        with torch.no_grad():
+            tgt = torch.linspace(-1 / 2, 1 / 2, n_points, dtype=torch.float)
+            src = tgt.flip(0) * init_scale
+
+            dst_range = info.depth_max - info.depth_min
+            dst_mean = dst_range / 2.0
+
+            tgt = tgt * dst_range + dst_mean
+            src = src * dst_range + dst_mean
+
+            rmse = (tgt - tgt.flip(0) * init_scale).square().mean().sqrt()
+            scale *= (1.0 / rmse).item()
+            del rmse
+            del tgt
+
+        return cls(scale=scale, **kwargs)
 
     @TX.override
     @torch.autocast("cuda", enabled=False)
     def forward(
         self,
-        input: Tensor,
-        target: Tensor,
+        src: Tensor,
+        tgt: Tensor,
         mask: Tensor,
     ) -> Tensor:
-        error = (input - target).square().sum(dim=self.dims)
-        error = _masked_mean(data=error, mask=mask, dim=self.dims).mean(dim=self.dims)
-        return error.mean() * self.scale
+        err = (src - tgt).square()
+        err = _mean_with_mask(data=err, mask=mask, dim=self.dim).sqrt()
+        if err.ndim > 1:
+            err = err.sum(dim=1)
+        return err * self.scale
 
 
 class PEDLoss(nn.Module):
@@ -143,7 +207,7 @@ class PEDLoss(nn.Module):
     def __init__(self):
         super().__init__()
 
-    @override
+    @TX.override
     def forward(
         self, output: Tensor, target: Tensor
     ):  # NOTE:  target is panoptic mask, output is norm disparity
@@ -209,7 +273,7 @@ class IGSLoss(nn.Module):
     def __init__(self):
         super().__init__()
 
-    @override
+    @TX.override
     def forward(self, output, target):
         return compute_igs_loss(output, target)
 
@@ -280,15 +344,19 @@ def compute_scale_and_shift(prediction, target, mask):
     return x_0, x_1
 
 
-class ScaleAndShiftInvariantLoss(nn.Module):
+class SSILoss(nn.Module):
+    """
+    Scale and Shift Invariant (SSI) loss
+    """
+
     def __init__(self, alpha=0.5, scales=4):
         super().__init__()
 
-        self.mse = MSELoss()
+        self.rmse = RMSELoss()
         self.gradient = GradientLoss(scales=scales)
         self.alpha = alpha
 
-    @override
+    @TX.override
     @torch.autocast("cuda", enabled=False)
     def forward(self, prediction, target, mask):
         prediction = prediction.float()
@@ -298,7 +366,7 @@ class ScaleAndShiftInvariantLoss(nn.Module):
         scale, shift = compute_scale_and_shift(prediction, target, mask)
         ssi = scale.view(-1, 1, 1) * prediction + shift.view(-1, 1, 1)
 
-        total = self.mse(ssi, target, mask)
+        total = self.rmse(ssi, target, mask)
         if self.alpha > 0:
             total += self.alpha * self.gradient(ssi, target, mask)
         return total

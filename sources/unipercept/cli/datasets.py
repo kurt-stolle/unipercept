@@ -16,7 +16,7 @@ import typing_extensions as TX
 from tabulate import tabulate_formats
 from tqdm import tqdm
 
-from unipercept import file_io
+from unipercept import file_io, render
 from unipercept.cli._command import command, logger
 from unipercept.data.sets import PerceptionDataset
 from unipercept.log import create_table
@@ -31,7 +31,6 @@ __all__ = []
 Subcommand = create_subtemplate()
 
 command(name="datasets", help="dataset operations")(Subcommand)
-
 set_seed()
 
 
@@ -135,15 +134,20 @@ class ShowSubcommand(Subcommand, name="show"):
             type=str,
             nargs="+",
             default="?",
-            help="index in the dataset queue to show, where '?' shows a random sample (default)",
+            help="Index in the dataset queue to show, where '?' shows a random sample (default)",
+        )
+        prs.add_argument(
+            "--output",
+            "-o",
+            default=None,
+            required=False,
+            help="Path to save the output image to. If not provided, the image will be displayed.",
         )
         _add_variant_arg(prs)
 
     @staticmethod
     @TX.override
     def main(args: argparse.Namespace):
-        from pprint import pformat
-
         from unipercept.render import plot_input_data
 
         ds = _get_dataset_by_hash(args)
@@ -160,11 +164,13 @@ class ShowSubcommand(Subcommand, name="show"):
                 {"id": sample_id, **queue_item},
                 format="long",
             )
-            print(table)
-
+            print(table, file=sys.stdout, flush=True)
             sample = pipe[i]
-
-            plot_input_data(sample, info=ds.info)
+            fig = plot_input_data(sample, info=ds.info)
+            if not args.output:
+                render.terminal.show(fig)
+            else:
+                fig.savefig(args.output)
 
 
 class DownloadSubcommand(Subcommand, name="download"):

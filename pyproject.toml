@@ -46,6 +46,7 @@ dependencies = [
     "pycocotools",
     "ftfy",
     "wandb",
+    "libsixel-python",
 ]
 dynamic = ["version"]
 

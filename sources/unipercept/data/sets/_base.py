@@ -169,6 +169,7 @@ class Metadata:
 
     fps: float
     depth_max: float
+    depth_min: float = 1.0
 
     # Sem. ID -> Sem. Class
     semantic_classes: T.Mapping[int, SClass]

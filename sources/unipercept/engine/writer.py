@@ -4,43 +4,26 @@ Implements a handler for writing results to a file from multiple processes.
 
 from __future__ import annotations
 
-import abc
 import collections
 import concurrent.futures
 import functools
-import gc
 import itertools as I
 import json
-import os
 import shutil
 import sys
 import typing as T
 
 import torch
-import torch.multiprocessing as M
 import torch.types
 import typing_extensions as TX
-from tensordict import (
-    LazyStackedTensorDict,
-    MemoryMappedTensor,
-    PersistentTensorDict,
-    TensorDict,
-    TensorDictBase,
-)
-from tensordict.utils import TensorDictFuture
+from tensordict import TensorDictBase
 from torch import Tensor
 
 from unipercept import file_io
 from unipercept.log import get_logger
 from unipercept.state import (
-    barrier,
-    check_main_process,
     cpus_available,
-    gather,
-    gather_tensordict,
-    get_process_count,
     main_process_first,
-    on_main_process,
 )
 from unipercept.utils.tensorclass import Tensorclass
 from unipercept.utils.typings import Pathable

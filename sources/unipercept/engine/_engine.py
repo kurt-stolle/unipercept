@@ -41,7 +41,7 @@ from unipercept.model import InputData, ModelBase, ModelOutput
 from unipercept.state import (
     barrier,
     check_main_process,
-    gather,
+    reduce,
     get_process_count,
     get_process_index,
     get_total_batchsize,
@@ -531,7 +531,9 @@ class Engine:
             extra_params = []
             self._edge(Event.ON_OPTIMIZER_SETUP, stage=stage, extra_params=extra_params)
 
-            optimizer = stage.optimizer(model, stage.batch_size, extra_params=extra_params)
+            optimizer = stage.optimizer(
+                model, stage.batch_size, extra_params=extra_params
+            )
             if stage.scheduler is not None:
                 scheduler, train_epochs = stage.scheduler(
                     optimizer, scheduled_epochs, updates_per_epoch
@@ -684,7 +686,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]:
+        ...
 
     @T.overload
     def build_training_dataloader(
@@ -692,7 +695,8 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]:
+        ...
 
     def build_training_dataloader(
         self,
@@ -1445,13 +1449,13 @@ class Engine:
 
             # all_gather + mean() to get average loss over all processes
             tr_loss_scalar = {
-                loss_key: gather(loss_item).mean().item()
+                loss_key: reduce(loss_item, mode="mean", inplace=False)
                 for loss_key, loss_item in tr_loss.items()
             }
-            for k in tr_loss.keys():
+            for k, f in tr_loss_scalar.items():
+                v = (f.wait() / steps_passed).item()
                 tr_loss[k].zero_()
-            for k, v in tr_loss_scalar.items():
-                logs["losses/" + k] = round(v / steps_passed, 4)
+                logs["losses/" + k] = round(v, 4)
 
             # Store FLOPs
             # self.store_flops()

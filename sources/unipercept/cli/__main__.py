@@ -5,32 +5,39 @@ Entry point for the CLI.
 from __future__ import annotations
 
 import sys
-
-from unipercept.cli import (
-    backbones,
-    check,
-    datasets,
-    echo,
-    evaluate,
-    export,
-    path,
-    profile,
-    train,
-)
-
+import importlib
 from ._command import command
 
-__all__ = [
-    "backbones",
-    "echo",
-    "profile",
-    "export",
-    "train",
-    "datasets",
-    "evaluate",
-    "path",
-    "check",
-]
+
+def _import_cmd(cmd: str):
+    importlib.import_module(f"unipercept.cli.{cmd}")
+
+
+def _import_all():
+    for cmd in (
+        "backbones",
+        "check",
+        "datasets",
+        "du",
+        "echo",
+        "evaluate",
+        "export",
+        "path",
+        "profile",
+        "ros2",
+        "run",
+        "sugreon",
+        "show",
+        "train",
+    ):
+        _import_cmd(cmd)
+    command.root()
+
+
+if len(sys.argv) >= 2 and not sys.argv[1].startswith("-"):
+    _import_cmd(sys.argv[1])
+else:
+    _import_all()
 
 command.root()
 sys.exit(0)

@@ -22,8 +22,8 @@ import time
 import typing as T
 from collections import Counter
 from typing import Optional
-from unipercept.utils.inspect import caller_identity
-from unipercept.utils.inspect import calling_module_name
+import unipercept.utils.inspect as inspect_utils
+import unipercept.file_io as file_io
 
 import pandas as pd
 from tabulate import tabulate
@@ -108,7 +108,7 @@ def log_every_n(
         name (str): name of the logger to use. Will use the caller's module by default.
     """
 
-    caller_module, key = caller_identity()
+    caller_module, key = inspect_utils.caller_identity()
     _log_counter[key] += 1
     if n == 1 or _log_counter[key] % n == 1:
         logging.getLogger(name or caller_module).log(_get_level(level), message)
@@ -126,7 +126,7 @@ def log_every_n_seconds(
         n (int):
         name (str): name of the logger to use. Will use the caller's module by default.
     """
-    caller_module, key = caller_identity()
+    caller_module, key = inspect_utils.caller_identity()
     last_logged = _log_timers.get(key, None)
     current_time = time.time()
     if last_logged is None or current_time - last_logged >= n:
@@ -264,7 +264,7 @@ def get_logger(name: Optional[str] = None, **kwargs: T.Any) -> logging.Logger:
     """
 
     return _get_handler(
-        _canonicalize_name(name or calling_module_name(left=1)),
+        _canonicalize_name(name or inspect_utils.calling_module_name(left=1)),
         **kwargs,
     )
 
@@ -273,13 +273,11 @@ def _canonicalize_name(name: str) -> str:
     """
     Canonicalizes a logger name into a full module name without private submodules.
     """
-    from pathlib import Path
-
     result = []
     for name in name.split(" "):
         if name.endswith(".py"):
-            file = Path(name)
-            root = Path(__file__).parent
+            file = file_io.Path(name)
+            root = file_io.Path(__file__).parent
             if file.is_relative_to(root):
                 name = file.relative_to(root).with_suffix("").as_posix()
                 name = name.replace("/", ".")
@@ -326,7 +324,6 @@ def _get_handler(
     Get a logger with a default verbose formatter, cached to ensure that the same logger handler is shared across
     all the sites that call this function.
     """
-    from unipercept import file_io
     from unipercept.state import get_process_index
 
     logger = logging.getLogger(name)
@@ -401,10 +398,6 @@ def _get_stream(filename) -> io.IOBase:
     """
     Taken from the `detectron` implementation.
     """
-
-    from unipercept import file_io
-
-    # use 1K buffer if writing to cloud storage
     io = file_io.open(filename, "a", buffering=1024**2)
     atexit.register(io.close)
     return io
@@ -486,7 +479,7 @@ def log_first_n(
         key = (key,)
     assert len(key) > 0
 
-    caller_module, caller_key = caller_identity()
+    caller_module, caller_key = inspect_utils.caller_identity()
     hash_key = ()
     if "caller" in key:
         hash_key = hash_key + caller_key
@@ -507,6 +500,6 @@ else:
         Forward all unknown attributes to the logging module.
         """
         if name == "logger":
-            return get_logger(calling_module_name(frames=0, strict=False))
+            return get_logger(inspect_utils.calling_module_name(frames=0, strict=False))
         msg = f"Module {__name__} has no attribute {name}"
         raise AttributeError(msg)

@@ -355,8 +355,8 @@ class PanopticMap(_Mask):
             return sem.as_subclass(_Mask), ins.as_subclass(_Mask)
         return torch.stack((sem, ins), dim=-1).as_subclass(_Mask)
 
-    @classmethod
-    def parse_label(cls, label: _L) -> T.Tuple[_L, _L]:
+    @staticmethod
+    def parse_label(label: _L) -> T.Tuple[_L, _L]:
         """
         Parse a label into a semantic and instance ID.
         """
@@ -364,11 +364,11 @@ class PanopticMap(_Mask):
         ins_id: _L
 
         if isinstance(label, int):
-            sem_id = label // cls.DIVISOR
-            ins_id = label % cls.DIVISOR if label >= 0 else 0
+            sem_id = label // PanopticMap.DIVISOR
+            ins_id = label % PanopticMap.DIVISOR if label >= 0 else 0
         else:
-            sem_id = torch.floor_divide(label, cls.DIVISOR)
-            ins_id = torch.remainder(label, cls.DIVISOR)
+            sem_id = torch.floor_divide(label, PanopticMap.DIVISOR)
+            ins_id = torch.remainder(label, PanopticMap.DIVISOR)
             ins_id = torch.where(label >= 0, ins_id, 0)
 
         return sem_id, ins_id

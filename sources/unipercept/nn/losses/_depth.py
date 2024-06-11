@@ -43,9 +43,18 @@ def _reduce_pixels(image_loss, M):
     return torch.mean(image_loss)
 
 
-def _mean_var_with_mask(data: Tensor, mask: Tensor, dim: T.Tuple[int, ...]):
+def _mean_var_with_mask(
+    data: Tensor,
+    mask: Tensor,
+    dim: T.Tuple[int, ...] | int | str,
+    keepdim: bool = False,
+) -> T.Tuple[Tensor, Tensor]:
+    r"""
+    Compute the mean and variance of the data tensor along the specified dimension, optionally
+    using a mask tensor.
+    """
     if mask is None:
-        return data.mean(dim=dim, keepdim=True), data.var(dim=dim, keepdim=True)
+        return data.mean(dim=dim, keepdim=True), data.var(dim=dim, keepdim=keepdim)
     mask = mask.float()
     mask_sum = torch.sum(mask, dim=dim, keepdim=True)
     mask_mean = torch.sum(data * mask, dim=dim, keepdim=True) / torch.clamp(
@@ -54,18 +63,66 @@ def _mean_var_with_mask(data: Tensor, mask: Tensor, dim: T.Tuple[int, ...]):
     mask_var = torch.sum(
         mask * (data - mask_mean) ** 2, dim=dim, keepdim=True
     ) / torch.clamp(mask_sum, min=1.0)
-    return mask_mean.squeeze(dim), mask_var.squeeze(dim)
+    if not keepdim:
+        mask_mean = mask_mean.squeeze(dim)
+        mask_var = mask_var.squeeze(dim)
+
+    return mask_mean, mask_var
 
 
-def _mean_with_mask(data: Tensor, mask: Tensor | None, dim: T.Tuple[int, ...]):
+def _mean_with_mask(
+    data: Tensor,
+    mask: Tensor | None,
+    dim: T.Tuple[int, ...] | int | str,
+    keepdim: bool = False,
+) -> Tensor:
+    r"""
+    Compute the mean of the data tensor along the specified dimension, optionally
+    using a mask tensor.
+    """
     if mask is None:
-        return data.mean(dim=dim, keepdim=True)
+        return data.mean(dim=dim, keepdim=keepdim)
     mask = mask.float()
     mask_sum = torch.sum(mask, dim=dim, keepdim=True)
     mask_mean = torch.sum(data * mask, dim=dim, keepdim=True) / torch.clamp(
         mask_sum, min=1.0
     )
+    if not keepdim:
+        mask_mean = mask_mean.squeeze(dim)
     return mask_mean
+
+
+def _median_with_mask(
+    data: Tensor, mask: Tensor | None, dim: int | str, keepdim: bool = False
+) -> Tensor:
+    r"""
+    Compute the median of the data tensor along the specified dimension, optionally
+    using a mask tensor.
+    """
+    if mask is None:
+        return data.median(dim=dim, keepdim=keepdim).values
+    data = torch.where(mask, data, torch.nan)
+    return data.nanmedian(dim=dim, keepdim=keepdim).values
+
+
+def _median_mad_with_mask(
+    data: Tensor, mask: Tensor | None, dim: int | str, keepdim: bool = False
+) -> T.Tuple[Tensor, Tensor]:
+    """
+    Compute the median and mean absolute deviation of the data tensor along the specified
+    dimension, optionally using a mask tensor.
+    """
+    if mask is None:
+        median = data.median(dim=dim, keepdim=keepdim).values
+        mad = (data - median).abs().median(dim=dim, keepdim=keepdim).values
+        return median, mad
+    data = torch.where(mask, data, torch.nan)
+    median = data.nanmedian(dim=dim, keepdim=True).values
+    mad = (data - median).abs().nanmedian(dim=dim, keepdim=True).values
+    if not keepdim:
+        median = median.squeeze(dim)
+        mad = mad.squeeze(dim)
+    return median, mad
 
 
 ####################################
@@ -74,24 +131,55 @@ def _mean_with_mask(data: Tensor, mask: Tensor | None, dim: T.Tuple[int, ...]):
 
 
 def compute_silog_loss(
-    input: Tensor,
-    target: Tensor,
+    src: Tensor,
+    tgt: Tensor,
     mask: Tensor,
     dim: T.Tuple[int, ...],
     alpha: float = 0.15,
     eps: float = 1e-5,
 ):
-    input = input.float()
-    target = target.float()
-    error = input.clamp(min=eps).log1p() - target.clamp(min=eps).log1p()
-    mean_error, var_error = _mean_var_with_mask(error, mask, dim)
-    scale_error = mean_error**2
+    r"""
+    Compute the Scale-Invariant Logarithmic (SILog) loss between the source and target.
 
-    if var_error.ndim > 1:
-        var_error = var_error.sum(dim=1)
-        scale_error = scale_error.sum(dim=1)
-    scale_error = alpha * scale_error
-    return (var_error + scale_error).clamp_min(eps).sqrt()
+    Parameters
+    ----------
+    src : Tensor[N, ..., *dim]
+        The source tensor.
+    tgt : Tensor[N, ..., *dim] or Tensor[N, ..., *dim, P]
+        The target tensor. If the target tensor has an additional dimension P, then a
+        margin of error is computed using the median absolute deviation over the P dimension.
+    mask : Tensor[N, ..., *dim]
+        The mask tensor.
+    dim : Tuple[int, ...]
+        The dimensions to reduce over.
+    eps : float
+        The epsilon value to clamp the error to.
+    """
+    src = src.float()
+    tgt = tgt.float()
+
+    if src.ndim != tgt.ndim:
+        assert tgt.ndim == src.ndim + 1, (tgt.shape, src.shape)
+        tgt, tgt_mad = _median_mad_with_mask(tgt, tgt > 0, -1)
+        tgt[~mask] = 0.0
+        tgt_mad[~mask] = 0.0
+
+        src_log = src.clamp(eps).log()
+        err_min = src_log - (tgt - tgt_mad).clamp(eps).log()
+        err_max = src_log - (tgt + tgt_mad).clamp(eps).log()
+        err = torch.min(err_min.abs(), err_max.abs())
+    else:
+        err = src.clamp(min=eps).log() - tgt.clamp(min=eps).log()
+
+    # Compute the error
+    err_mean, err_var = _mean_var_with_mask(err, mask, dim, keepdim=True)
+    err_scale = err_mean**2
+
+    if err_var.ndim > 1:
+        err_var = err_var.sum(dim=1)
+        err_scale = err_scale.sum(dim=1)
+    err_scale = alpha * err_scale
+    return (err_var + err_scale).clamp_min(eps).sqrt()
 
 
 class SILogLoss(ScaledLossMixin, nn.Module):
@@ -119,8 +207,54 @@ class SILogLoss(ScaledLossMixin, nn.Module):
         target: Tensor,
         mask: Tensor,
     ) -> Tensor:
+        r"""
+        See :func:`compute_silog_loss` for more details.
+        """
         loss = compute_silog_loss(input, target, mask, self.dim, self.alpha, self.eps)
         return loss * self.scale
+
+
+def compute_rmse_loss(
+    src: Tensor,
+    tgt: Tensor,
+    mask: Tensor,
+    dim: T.Tuple[int, ...],
+    eps: float = 1e-6,
+):
+    r"""
+    Compute the Root Mean Squared Error (RMSE) loss between the source and target
+    tensors.
+
+    Parameters
+    ----------
+    src : Tensor[N, ..., *dim]
+        The source tensor.
+    tgt : Tensor[N, ..., *dim] or Tensor[N, ..., *dim, P]
+        The target tensor. If the target tensor has an additional dimension P, then a
+        margin of error is computed using the median absolute deviation over the P dimension.
+    mask : Tensor[N, ..., *dim]
+        The mask tensor.
+    dim : Tuple[int, ...]
+        The dimensions to reduce over.
+    eps : float
+        The epsilon value to clamp the error to.
+    """
+    src = src.float()
+    tgt = tgt.float()
+
+    if src.ndim != tgt.ndim:
+        assert tgt.ndim == src.ndim + 1, (tgt.shape, src.shape)
+        tgt, tgt_mad = _median_mad_with_mask(tgt, tgt > 0, -1)
+        tgt[~mask] = 0.0
+        tgt_mad[~mask] = 0.0
+    else:
+        tgt_mad = torch.zeros_like(tgt)
+
+    err = ((src - tgt).abs() - tgt_mad).clamp_min(eps)
+    err = _mean_with_mask(data=err.square(), mask=mask, dim=dim).sqrt()
+    if err.ndim > 1:
+        err = err.sum(dim=1)
+    return err
 
 
 class RMSELoss(ScaledLossMixin, nn.Module):
@@ -190,10 +324,10 @@ class RMSELoss(ScaledLossMixin, nn.Module):
         tgt: Tensor,
         mask: Tensor,
     ) -> Tensor:
-        err = (src - tgt).square()
-        err = _mean_with_mask(data=err, mask=mask, dim=self.dim).sqrt()
-        if err.ndim > 1:
-            err = err.sum(dim=1)
+        """
+        See :func:`compute_rmse_loss` for more details.
+        """
+        err = compute_rmse_loss(src, tgt, mask, self.dim, self.eps)
         return err * self.scale
 
 

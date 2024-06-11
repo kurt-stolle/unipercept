@@ -31,7 +31,10 @@ def __patch_tensor_repr():
         if self.ndim == 0:
             shape = "*"
         else:
-            shape = str(tuple(self.shape)).replace(" ", "")
+            try:
+                shape = str(tuple(self.shape)).replace(" ", "")
+            except RuntimeError:
+                shape = "?"
         name = self.__class__.__name__
         dtype = str(self.dtype).replace("torch.", "")
         kwargs = ", ".join(

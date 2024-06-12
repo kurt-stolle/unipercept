@@ -269,7 +269,9 @@ class ListVariantsSubcommand(Subcommand, name="list-variants"):
             df = pd.DataFrame(data=info_list)
             df_list.append(df)
 
-        df_all = pd.concat(df_list)
+        df_all = pd.concat(df_list, ignore_index=True)
+        df_all.drop(columns=["queue_fn"], inplace=True)
+        df_all.fillna("", inplace=True)
 
         print(create_table(df_all, format="wide"))
 

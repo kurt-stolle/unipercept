@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.data.sets._base import Metadata, PerceptionDataset, create_metadata
+from unipercept.data.sets import Metadata, PerceptionDataset, create_metadata
 from unipercept.data.sets.cityscapes import CLASSES
 from unipercept.data.types import (
     CaptureRecord,

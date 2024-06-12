@@ -252,12 +252,18 @@ class COCOWriter(SegmentationWriter):
 
     @staticmethod
     def _export_coco_at(
-        i: int, *, storage, translations_dataset, path_files
+        i: int,
+        *,
+        storage,
+        translations_dataset,
+        path_files,
+        key_segmentation_valid,
+        key_segmentation_true,
     ) -> COCOResultPanoptic | None:
-        valid = storage.get_at(VALID_PANOPTIC, i).item()
+        valid = storage.get_at(key_segmentation_valid, i).item()
         if not valid:
             return None
-        true = T.cast(Tensor, storage.get_at(PRED_PANOPTIC, i))
+        true = T.cast(Tensor, storage.get_at(key_segmentation_true, i))
         true = true.as_subclass(PanopticMap)
         true.translate_semantic_(translations_dataset, inverse=True)
         coco_img, coco_info = true.to_coco()
@@ -278,10 +284,15 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
     The following metrics are computed:
     - Pixel accuracy (PA)
     - Mean intersection over union (mIoU)
+    - Class-wise intersection over union (IoU)
+    - Dice coefficient
     """
 
-    show_details: bool = True  # override default (False) from base class
+    # Override default values from parent classes
+    show_details: bool = True
     segmentation_task: SegmentationTask = SegmentationTask.SEMANTIC_SEGMENTATION
+
+    # Configurations specific for this evaluator
     semseg_with_details: bool = D.field(
         default=False,
         metadata={
@@ -299,7 +310,7 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
         num_cats = self.info.semantic_amount
         sample_amt = storage.batch_size[0]
         assert sample_amt > 0, sample_amt
-        miou_per_cat = torch.zeros(num_cats, dtype=torch.float32, device=device)
+        miou_cls = torch.zeros(num_cats, dtype=torch.float32, device=device)
         miou_all = torch.zeros((1,), dtype=torch.float32, device=device)
         miou_samples = torch.zeros((1,), dtype=torch.int, device=device)
         compute_at = functools.partial(
@@ -324,18 +335,21 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
                 progress_bar.update(1)
                 if result is None:
                     continue
-                miou_per_cat += result[0]
+                miou_cls += result[0]
                 miou_all += result[1]
                 miou_samples += 1
 
         up_state.barrier()
 
-        miou_samples = up_state.reduce(miou_samples).wait()
-        miou_per_cat = up_state.reduce(miou_per_cat).wait() / miou_samples
-        miou_all = up_state.reduce(miou_all).wait() / miou_samples
+        miou_samples = up_state.reduce(miou_samples, dst=0).wait()
+        miou_cls = up_state.reduce(miou_cls, dst=0).wait() / miou_samples
+        miou_all = up_state.reduce(miou_all, dst=0).wait() / miou_samples
 
         if not up_state.check_main_process():
             return {}
+
+        miou_cls /= miou_samples
+        miou_all /= miou_samples
 
         results = super().compute(storage, **kwargs)
         results["semseg.mIoU.all"] = miou_all.item()
@@ -348,7 +362,7 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
                 for k in sorted(self.info.semantic_classes.keys())
                 if k >= 0
             ]
-            cat_miou_list = miou_per_cat.tolist()
+            cat_miou_list = miou_cls.tolist()
             assert len(cat_name_list) == len(
                 cat_miou_list
             ), f"{cat_name_list=} {cat_miou_list=}"
@@ -361,7 +375,7 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
             self._show_table("Semantic segmentation details", df)
         if self.semseg_with_details:
             for i, semcls in self.info.semantic_classes.items():
-                results[f"semseg.mIoU.{semcls.name}"] = miou_per_cat[i].item()
+                results[f"semseg.mIoU.{semcls.name}"] = miou_cls[i].item()
 
         return results
 
@@ -389,6 +403,7 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
         return accumulate_semantic_miou_partial(inter, union)
 
 
+@torch.no_grad()
 def accumulate_semantic_miou_partial(
     inter: PanopticMapLike, union: PanopticMapLike
 ) -> T.Tuple[Tensor, Tensor]:
@@ -401,6 +416,7 @@ def accumulate_semantic_miou_partial(
     return miou, miou.mean()
 
 
+@torch.no_grad()
 def compute_semantic_miou_partial(
     true: PanopticMapLike, pred: PanopticMapLike, n_cats: int
 ) -> tuple[Tensor, Tensor]:
@@ -410,13 +426,14 @@ def compute_semantic_miou_partial(
     assert (true <= 0).all() or (true >= PanopticMap.DIVISOR).any()
     assert (pred <= 0).all() or (pred >= PanopticMap.DIVISOR).any()
 
+    # Discard ignore category that is present in the ground truth
     ignore_mask = true < 0
     true = true[~ignore_mask]
     pred = pred[~ignore_mask]
 
-    unknown_mask = pred < 0
-    pred[unknown_mask] = n_cats  # set all negative values to new void category
-    n_cats += 1  # add void category
+    # Set negative values to new void category that is positive in the predictions
+    pred[pred < 0] = n_cats
+    n_cats += 1
 
     pred = PanopticMap.get_semantic_map(pred).long().flatten()
     assert pred.max() < n_cats, f"{pred.max()=} > {n_cats}"
@@ -433,6 +450,7 @@ def compute_semantic_miou_partial(
     return inter, union
 
 
+@torch.no_grad()
 def compute_semantic_miou(
     true: PanopticMapLike | T.List[PanopticMapLike],
     pred: PanopticMapLike | T.List[PanopticMapLike],

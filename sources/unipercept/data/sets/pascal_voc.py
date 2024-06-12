@@ -19,10 +19,8 @@ from unipercept import file_io
 from unipercept.log import get_logger
 from unipercept.render import colormap
 
-_logger = get_logger(__name__)
-
 from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.data.sets._base import (
+from . import (
     RGB,
     PerceptionDataset,
     SClass,

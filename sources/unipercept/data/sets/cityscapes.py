@@ -18,7 +18,7 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pipes import UniCoreFileLister
-from unipercept.data.sets._base import (
+from unipercept.data.sets import (
     RGB,
     PerceptionDataset,
     SClass,

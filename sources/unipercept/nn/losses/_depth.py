@@ -12,13 +12,12 @@ from torch import nn, Tensor
 from unipercept.nn.losses.mixins import ScaledLossMixin
 
 __all__ = [
-    "RMSELoss",
+    "MSELoss",
     "SILogLoss",
     "PEDLoss",
     "IGSLoss",
     "SSILoss",
     "compute_igs_loss",
-    "RMSELoss",
     "GradientLoss",
 ]
 
@@ -43,9 +42,30 @@ def _reduce_pixels(image_loss, M):
     return torch.mean(image_loss)
 
 
+class AvgStat(E.StrEnum):
+    r"""
+    Enum for the average statistics available in this module.
+    """
+
+    MEAN = E.auto()
+    MEDIAN = E.auto()
+    MODE = E.auto()
+
+
+class VarStat(E.StrEnum):
+    r"""
+    Enum for the variance statistics available in this module.
+    """
+
+    VAR = E.auto()
+    MAD = E.auto()
+    IQR = E.auto()
+
+
 def _mean_var_with_mask(
     data: Tensor,
     mask: Tensor,
+    *,
     dim: T.Tuple[int, ...] | int | str,
     keepdim: bool = False,
 ) -> T.Tuple[Tensor, Tensor]:
@@ -73,6 +93,7 @@ def _mean_var_with_mask(
 def _mean_with_mask(
     data: Tensor,
     mask: Tensor | None,
+    *,
     dim: T.Tuple[int, ...] | int | str,
     keepdim: bool = False,
 ) -> Tensor:
@@ -93,7 +114,7 @@ def _mean_with_mask(
 
 
 def _median_with_mask(
-    data: Tensor, mask: Tensor | None, dim: int | str, keepdim: bool = False
+    data: Tensor, mask: Tensor | None, *, dim: int | str, keepdim: bool = False
 ) -> Tensor:
     r"""
     Compute the median of the data tensor along the specified dimension, optionally
@@ -106,7 +127,7 @@ def _median_with_mask(
 
 
 def _median_mad_with_mask(
-    data: Tensor, mask: Tensor | None, dim: int | str, keepdim: bool = False
+    data: Tensor, mask: Tensor | None, *, dim: int | str, keepdim: bool = False
 ) -> T.Tuple[Tensor, Tensor]:
     """
     Compute the median and mean absolute deviation of the data tensor along the specified
@@ -125,6 +146,54 @@ def _median_mad_with_mask(
     return median, mad
 
 
+_DEFAULT_MARGIN_SCALE: T.Final[float] = 1.0
+
+
+def _target_error_margin(
+    avg: Tensor,
+    mask: Tensor,
+    *,
+    scale: float = _DEFAULT_MARGIN_SCALE,
+    eps: float = 1e-6,
+) -> T.Tuple[Tensor, Tensor]:
+    r"""
+    Compute the error margin of the target. Assumes the target has a dimension containing
+    the folded (i.e. stacked) pixels that would normally be merged during a downsampling
+    operation. This function computes an average (e.g. median) and deviation (e.g. MAD)
+    over the folded dimension to compute an error margin for the target.
+
+    Parameters
+    ----------
+    tgt : Tensor[..., *dim, P]
+        The target tensor. Only entries greater than 0 are considered valid.
+    mask : Tensor[..., *dim]
+        The mask tensor. Entries with `True` are considered valid.
+    scale : float
+        A parameter that controls the error margin. By default 1.0.
+    eps : float
+        The epsilon value to add to the average to prevent division by zero.
+
+    Returns
+    -------
+    Tensor[..., *dim]
+        The average target tensor.
+    Tensor[..., *dim]
+        The scaled margin of error.
+    """
+
+    # Compute average and deviation statistics
+    avg, dev = _median_mad_with_mask(avg, avg > 0, dim=-1, keepdim=False)
+    avg[~mask] = 0.0
+    dev[~mask] = 0.0
+
+    # Compute the allowed margin of error for the target from the average and deviation,
+    # considering the relative deviation for each pixel.
+    margin = dev / (avg + eps)
+    margin = margin * scale
+
+    return avg, margin
+
+
 ####################################
 # Scale-Invariant Logarithmic Loss #
 ####################################
@@ -137,6 +206,7 @@ def compute_silog_loss(
     dim: T.Tuple[int, ...],
     alpha: float = 0.15,
     eps: float = 1e-5,
+    margin_scale: float = _DEFAULT_MARGIN_SCALE,
 ):
     r"""
     Compute the Scale-Invariant Logarithmic (SILog) loss between the source and target.
@@ -154,25 +224,26 @@ def compute_silog_loss(
         The dimensions to reduce over.
     eps : float
         The epsilon value to clamp the error to.
+    margin_scale : float
+        The scale of the margin of error. See :func:`_target_error_margin` for more details.
     """
     src = src.float()
     tgt = tgt.float()
 
     if src.ndim != tgt.ndim:
         assert tgt.ndim == src.ndim + 1, (tgt.shape, src.shape)
-        tgt, tgt_mad = _median_mad_with_mask(tgt, tgt > 0, -1)
-        tgt[~mask] = 0.0
-        tgt_mad[~mask] = 0.0
+
+        tgt, margin = _target_error_margin(tgt, mask, scale=margin_scale)
 
         src_log = src.clamp(eps).log()
-        err_min = src_log - (tgt - tgt_mad).clamp(eps).log()
-        err_max = src_log - (tgt + tgt_mad).clamp(eps).log()
+        err_min = src_log - (tgt - margin / 2).clamp(eps).log()
+        err_max = src_log - (tgt + margin / 2).clamp(eps).log()
         err = torch.min(err_min.abs(), err_max.abs())
     else:
         err = src.clamp(min=eps).log() - tgt.clamp(min=eps).log()
 
     # Compute the error
-    err_mean, err_var = _mean_var_with_mask(err, mask, dim, keepdim=True)
+    err_mean, err_var = _mean_var_with_mask(err, mask, dim=dim, keepdim=True)
     err_scale = err_mean**2
 
     if err_var.ndim > 1:
@@ -214,15 +285,16 @@ class SILogLoss(ScaledLossMixin, nn.Module):
         return loss * self.scale
 
 
-def compute_rmse_loss(
+def compute_mse_loss(
     src: Tensor,
     tgt: Tensor,
     mask: Tensor,
     dim: T.Tuple[int, ...],
     eps: float = 1e-6,
+    margin_scale: float = _DEFAULT_MARGIN_SCALE,
 ):
     r"""
-    Compute the Root Mean Squared Error (RMSE) loss between the source and target
+    Compute the Mean Squared Error (MSE) loss between the source and target
     tensors.
 
     Parameters
@@ -238,26 +310,28 @@ def compute_rmse_loss(
         The dimensions to reduce over.
     eps : float
         The epsilon value to clamp the error to.
+    margin_scale : float
+        The scale of the margin of error. See :func:`_target_error_margin` for more details.
     """
     src = src.float()
     tgt = tgt.float()
 
     if src.ndim != tgt.ndim:
         assert tgt.ndim == src.ndim + 1, (tgt.shape, src.shape)
-        tgt, tgt_mad = _median_mad_with_mask(tgt, tgt > 0, -1)
+        tgt, margin = _target_error_margin(tgt, mask, scale=margin_scale)
         tgt[~mask] = 0.0
-        tgt_mad[~mask] = 0.0
+        margin[~mask] = 0.0
     else:
-        tgt_mad = torch.zeros_like(tgt)
+        margin = torch.zeros_like(tgt)
 
-    err = ((src - tgt).abs() - tgt_mad).clamp_min(eps)
-    err = _mean_with_mask(data=err.square(), mask=mask, dim=dim).sqrt()
+    err = ((src - tgt).abs() - margin).clamp_min(eps)
+    err = _mean_with_mask(data=err.square(), mask=mask, dim=dim)
     if err.ndim > 1:
         err = err.sum(dim=1)
     return err
 
 
-class RMSELoss(ScaledLossMixin, nn.Module):
+class MSELoss(ScaledLossMixin, nn.Module):
     dim: T.Final[T.Tuple[int, ...]]
     eps: T.Final[float]
 
@@ -296,7 +370,7 @@ class RMSELoss(ScaledLossMixin, nn.Module):
         assert info.depth_min is not None
 
         # The scale is computed by taking `n_points` in the range of depth values,
-        # computing the RMSE, and then scaling the loss such that the RMSE is 1.0.
+        # computing the MSE, and then scaling the loss such that the MSE is 1.0.
         scale = kwargs.pop("scale", 1.0)
         n_points = 1000
         with torch.no_grad():
@@ -309,7 +383,7 @@ class RMSELoss(ScaledLossMixin, nn.Module):
             tgt = tgt * dst_range + dst_mean
             src = src * dst_range + dst_mean
 
-            rmse = (tgt - tgt.flip(0) * init_scale).square().mean().sqrt()
+            rmse = (tgt - tgt.flip(0) * init_scale).square().mean()
             scale *= (1.0 / rmse).item()
             del rmse
             del tgt
@@ -325,9 +399,9 @@ class RMSELoss(ScaledLossMixin, nn.Module):
         mask: Tensor,
     ) -> Tensor:
         """
-        See :func:`compute_rmse_loss` for more details.
+        See :func:`compute_mse_loss` for more details.
         """
-        err = compute_rmse_loss(src, tgt, mask, self.dim, self.eps)
+        err = compute_mse_loss(src, tgt, mask, self.dim, self.eps)
         return err * self.scale
 
 
@@ -486,7 +560,7 @@ class SSILoss(nn.Module):
     def __init__(self, alpha=0.5, scales=4):
         super().__init__()
 
-        self.rmse = RMSELoss()
+        self.rmse = MSELoss()
         self.gradient = GradientLoss(scales=scales)
         self.alpha = alpha
 

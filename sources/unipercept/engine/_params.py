@@ -302,6 +302,22 @@ class EngineParams:
         default=False,
         metadata={"help": "Whether or not to use PyTorch jit trace for inference"},
     )
+    compiler_backend: str | None = D.field(
+        default="inductor",
+        metadata={
+            "help": "The backend to use for the compiler. If None/'no', the compiler is not used."
+        },
+    )
+    compiler_reset: bool = D.field(
+        default=False,
+        metadata={
+            "help": "Whether or not to reset the compiler before compiling the model."
+        },
+    )
+    compiler_config: T.Dict[str, T.Any] = D.field(
+        default_factory=dict,
+        metadata={"help": "Compiler configuration overrides, dict of keys and values."},
+    )
 
     ##############################
     # Debugging and profiling

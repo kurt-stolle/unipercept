@@ -33,11 +33,13 @@ def get_default_bias(value: bool | None, norm: nn.Module) -> bool:
         msg = f"Expected a nn.Module, got {type(norm)}. Did you forget to call get_norm()?"
         raise ValueError(msg)
 
-    # If the value is not None, return that value
-    if value is not None:
+    # If the value is a bool, return that value
+    if isinstance(value, bool):
         return value
 
     # Check if the norm module has a bias term via some heuristics
+    if isinstance(norm, nn.Identity):
+        return True
     if hasattr(norm, "affine"):
         return not norm.affine
     if hasattr(norm, "bias"):

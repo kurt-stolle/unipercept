@@ -12,11 +12,13 @@ See Also
 from __future__ import annotations
 
 import atexit
+import warnings
 import collections
 import functools
 import io
 import logging
 import os
+import enum as E
 import sys
 import time
 import typing as T
@@ -134,13 +136,20 @@ def log_every_n_seconds(
         _log_timers[key] = current_time
 
 
+class TableFormat(E.StrEnum):
+    LONG = E.auto()
+    WIDE = E.auto()
+    AUTO = E.auto()
+
+
 def create_table(
     mapping: T.Mapping[T.Any, T.Any] | pd.DataFrame,
-    format: T.Literal["long", "wide", "auto"] = "auto",
+    format: TableFormat | T.Literal["long", "wide", "auto"] = TableFormat.AUTO,
     *,
     style: str = "rounded_outline",
     max_depth: int = 5,
     max_width: int = 120,
+    index: bool = False,
     _depth: int = 0,
 ) -> str:
     """
@@ -158,19 +167,45 @@ def create_table(
     """
     from pprint import pformat
 
+    tabulate_kwargs: dict[str, T.Any] = {
+        "tablefmt": style,
+        "floatfmt": ".3f",
+        "stralign": "left",
+        "numalign": "right",
+    }
+
+    # Handling of various input types that need to be converted to a dictionary or
+    # can be handled directly.
     if isinstance(mapping, pd.DataFrame):
+        # In case of a Pandas DataFrame, we first try to convert it to a table by using
+        # the built-in `to_markdown` method. Note that this calls `tabulate` under
+        # the hood, so we do not actually get Markdown back, but rather the desired
+        # table as a string following our own specification.
+        try:
+            result = mapping.to_markdown(index=index, **tabulate_kwargs)
+        except Exception as e:
+            warnings.warn(
+                "Failed to convert DataFrame to table: " + str(e), stacklevel=2
+            )
+            result = None
+        # Check whether the conversion was successful
+        if isinstance(result, str):
+            return result
+        # Fallback to converting the dataframe to a dict in Pandas versions that do
+        # not support passing Tabulate keyword-arguments
         mapping = mapping.to_dict(orient="list")
     elif hasattr(mapping, "_asdict") and callable(mapping._asdict):
         # Support for namedtuples, which do not support instance checks.
         mapping = mapping._asdict()
 
-    if format == "auto":
+    # Determine the format of the table
+    if format == TableFormat.AUTO:
         if len(mapping) <= 5 and _depth <= 1:
-            format = "wide"
+            format = TableFormat.WIDE
         else:
-            format = "long"
+            format = TableFormat.LONG
 
-    if format == "wide":
+    if format == TableFormat.WIDE:
         headers = list(mapping.keys())
         # Create a wide table, i.e. where each key is a header and the values are under
         # the corresponding header. If the value is a non-sequence, it will be displayed as-is
@@ -202,8 +237,7 @@ def create_table(
             v.extend([""] * (pad_to - len(v)))
         # Transpose the data to make it wide
         data = list(zip(*data))
-
-    elif format == "long":
+    elif format == TableFormat.LONG:
         data = []
         for k, v in mapping.items():
             if isinstance(v, dict) and _depth < max_depth:
@@ -217,45 +251,38 @@ def create_table(
                     ).split("\n")
                 ):
                     data.append((k if linenum == 0 else "", line))
-            else:
+                continue
+            if not isinstance(v, str):
                 try:
                     v = pformat(v)
                 except Exception:  # noqa: PIE786
-                    v = repr(v)
+                    v = str(v)
 
-                v_lines = v.split("\n")
+            # Truncate long lines
+            v_lines = v.split("\n")
+            for v_i in range(len(v_lines)):
+                v_line = v_lines[v_i]
+                if len(v_line) > max_width:
+                    v_line = v_line[: max_width - 3] + "..."
 
-                # Truncate long lines
-                for v_i in range(len(v_lines)):
-                    v_line = v_lines[v_i]
-                    if len(v_line) > max_width:
-                        v_line = v_line[: max_width - 3] + "..."
+                v_line = v_line.replace("\t", "  ")
+                if (
+                    v_line[0] == " "
+                ):  # prevent tabulate from removing leading whitespace
+                    v_line = "␣" + v_line[1:]
+                v_lines[v_i] = v_line
 
-                    v_line = v_line.replace("\t", "  ")
-                    if (
-                        v_line[0] == " "
-                    ):  # prevent tabulate from removing leading whitespace
-                        v_line = "␣" + v_line[1:]
-                    v_lines[v_i] = v_line
-
-                # Put the first line in the same row as the key
-                data.append((k, v_lines[0]))
-                for v_line in v_lines[1:]:
-                    data.append(("", v_line))
+            # Put the first line in the same row as the key
+            data.append((k, v_lines[0]))
+            for v_line in v_lines[1:]:
+                data.append(("", v_line))
         # Create a long table, i.e. with a 'key' and 'value' header
         headers = ["Key", "Value"] if _depth == 0 else ()
     else:
         msg = f"Unknown table format: {format}"
         raise ValueError(msg)
 
-    return tabulate(
-        data,
-        headers=headers,
-        tablefmt=style,
-        floatfmt=".3f",
-        stralign="left",
-        numalign="right",
-    )
+    return tabulate(data, headers=headers, showindex=index, **tabulate_kwargs)
 
 
 def get_logger(name: Optional[str] = None, **kwargs: T.Any) -> logging.Logger:

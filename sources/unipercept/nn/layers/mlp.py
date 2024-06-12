@@ -122,7 +122,7 @@ class MLP(nn.Module):
             n_activation = post_activation if is_final else intra_activation
             n_dropout = post_dropout if is_final else intra_dropout
             n_bias = post_bias if is_final else intra_bias
-            n_init_gain = init_gain if is_final else None
+            n_init_gain = (is_final and init_gain) or (n == 0 and 1.0) or None
 
             layer_modules.append(
                 MLPLayer(
@@ -227,6 +227,8 @@ class MLPLayer(nn.Module):
         # output of the layer is roughly equal to the input scaled by the gain.
         if self.activation is None or self.init_gain is not None:
             nn.init.xavier_uniform_(self.linear.weight, gain=self.init_gain or 1.0)
+            if self.linear.bias is not None:
+                nn.init.zeros_(self.linear.bias)
         else:
             nonlin_name, nonlin_slope = get_nonlinearity_name(self.activation)
             nn.init.kaiming_uniform_(

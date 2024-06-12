@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import typing as T
-
+from ._meta import *
+from ._base import *
 from . import (
     cityscapes,
     huggingface,
@@ -13,6 +13,6 @@ from . import (
     pascal_voc,
     vistas,
     wilddash,
+    coco,
+    pattern,
 )
-from ._base import *
-from ._generic import *

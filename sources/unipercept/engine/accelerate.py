@@ -7,6 +7,7 @@ from __future__ import annotations
 import typing as T
 
 import accelerate
+from accelerate.accelerator import TorchDynamoPlugin
 import accelerate.utils
 import torch
 import torch._dynamo
@@ -33,11 +34,9 @@ class StatefulObject(T.Protocol):
     Protocol for classes that have a ``state_dict()`` and ``load_state_dict()`` method.
     """
 
-    def state_dict(self) -> T.Dict[str, T.Any]:
-        ...
+    def state_dict(self) -> T.Dict[str, T.Any]: ...
 
-    def load_state_dict(self, state_dict: T.Dict[str, T.Any]) -> None:
-        ...
+    def load_state_dict(self, state_dict: T.Dict[str, T.Any]) -> None: ...
 
 
 class Accelerator(accelerate.Accelerator):
@@ -64,8 +63,6 @@ class Accelerator(accelerate.Accelerator):
         from accelerate.utils import (
             DataLoaderConfiguration,
             DistributedDataParallelKwargs,
-            DynamoBackend,
-            TorchDynamoPlugin,
         )
 
         project_dir = root / "outputs"
@@ -104,11 +101,42 @@ class Accelerator(accelerate.Accelerator):
             **kwargs,
             # dynamo_backend=None,
         )
-        acc.state.dynamo_plugin = TorchDynamoPlugin(
-            # backend=DynamoBackend.EAGER,
-            # backend=DynamoBackend.CUDAGRAPHS
-        )
+        acc.dynamo = cls.dynamo_from_params(params)
+
         return acc
+
+    @classmethod
+    def dynamo_from_params(cls, params: EngineParams) -> TorchDynamoPlugin:
+        from accelerate.utils import (
+            DynamoBackend,
+            TorchDynamoPlugin,
+        )
+        from unipercept.config import get_env
+
+        if get_env(bool, "UP_ENGINE_COMPILE_RESET", default=params.compiler_reset):
+            torch._dynamo.reset()
+        backend = get_env(
+            str, "UP_ENGINE_COMPILE_BACKEND", default=params.compiler_backend
+        )
+        if backend is None:
+            backend = "no"
+        assert isinstance(backend, str), type(backend)
+        backend = DynamoBackend(backend.upper())
+        if backend == DynamoBackend.NO:
+            logger.debug("Skipping moddel compliation. Disabled by user/parms.")
+            return TorchDynamoPlugin()
+
+        config = params.compiler_config
+        config_mode = get_env(str, "UP_ENGINE_COMPILE_MODE", default=None)
+        if config_mode is not None:
+            config["mode"] = config_mode
+
+        logger.debug("Using compiler backend '%s' with config %s", backend, str(config))
+
+        return TorchDynamoPlugin(
+            backend=DynamoBackend(backend),
+            **config,
+        )
 
     @TX.override
     def prepare_model(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
@@ -118,16 +146,16 @@ class Accelerator(accelerate.Accelerator):
         from unipercept.config import get_env
 
         prepared_model = super().prepare_model(model, *args, **kwargs)
-        backend = get_env(str, "UP_ENGINE_COMPILE_BACKEND", default="inductor")
-        if backend != "disabled":
-            if get_env(bool, "UP_ENGINE_COMPILE_RESET", default=False):
-                torch._dynamo.reset()
-            logger.debug("Compiling model with backend '%s'.", backend)
-            prepared_model.compile(backend=backend)
-        else:
-            logger.debug(
-                "Got compile backend '%s'. Skipping model compilation.", backend
-            )
+        #     backend = get_env(str, "UP_ENGINE_COMPILE_BACKEND", default="inductor")
+        #     if backend != "disabled":
+        #         if get_env(bool, "UP_ENGINE_COMPILE_RESET", default=False):
+        #             torch._dynamo.reset()
+        #         logger.debug("Compiling model with backend '%s'.", backend)
+        #         prepared_model.compile(backend=backend)
+        #     else:
+        #         logger.debug(
+        #             "Got compile backend '%s'. Skipping model compilation.", backend
+        #         )
 
         return prepared_model
 
@@ -151,23 +179,20 @@ if T.TYPE_CHECKING:
         function: _Fin[_P, _R],
         *,
         starting_batch_size: int = 128,
-    ) -> _Fout[_P, _R]:
-        ...
+    ) -> _Fout[_P, _R]: ...
 
     @T.overload
     def find_executable_batch_size(
         function: None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]:
-        ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]]: ...
 
     def find_executable_batch_size(
         function: _Fin | None = None,
         *,
         starting_batch_size: int = 128,
-    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]:
-        ...
+    ) -> T.Callable[[_Fin[_P, _R]], _Fout[_P, _R]] | _Fout[_P, _R]: ...
 
 else:
     find_executable_batch_size = accelerate.utils.find_executable_batch_size

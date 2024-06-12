@@ -785,10 +785,9 @@ def instantiate(cfg: T.Any, /) -> T.Any:
         try:
             return cls(*cfg_args, **cfg)
         except Exception as err:
-            cfg_pretty = pprint.pformat(OmegaConf.to_container(cfg)).replace(
-                "\n", "\n\t"
+            msg = (
+                f"Error instantiating lazy object {cls_name}.\n\nConfig node:\n\t{cfg}!"
             )
-            msg = f"Error instantiating lazy object {cls_name}.\n\nConfig node:\n\t{cfg_pretty}!"
             raise RuntimeError(msg) from err
 
     if isinstance(cfg, (dict, omegaconf.DictConfig)):

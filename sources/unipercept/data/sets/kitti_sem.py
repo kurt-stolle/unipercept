@@ -28,7 +28,7 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.data.sets._base import (
+from . import (
     RGB,
     Metadata,
     PerceptionDataset,

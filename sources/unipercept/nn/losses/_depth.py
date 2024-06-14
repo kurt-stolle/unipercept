@@ -13,6 +13,7 @@ from unipercept.nn.losses.mixins import ScaledLossMixin
 
 __all__ = [
     "MSELoss",
+    "RelativeLoss",
     "SILogLoss",
     "PEDLoss",
     "IGSLoss",
@@ -290,6 +291,83 @@ class SILogLoss(ScaledLossMixin, nn.Module):
         return loss * self.scale
 
 
+def compute_relative_loss(
+    src: Tensor,
+    tgt: Tensor,
+    mask: Tensor,
+    dim: T.Tuple[int, ...],
+    eps: float = 1e-6,
+    margin_scale: float = _DEFAULT_MARGIN_SCALE,
+    square: bool = False,
+) -> Tensor:
+    """
+    See :class:`RelativeLoss` for more details.
+
+    This loss is a numerically stable version of the absolute relative error that
+    can be used to supervise depth estimation models.
+    """
+    src = src.float()
+    tgt = tgt.float()
+
+    if src.ndim != tgt.ndim:
+        assert tgt.ndim == src.ndim + 1, (tgt.shape, src.shape)
+        tgt, margin = _target_error_margin(tgt, mask, scale=margin_scale)
+        tgt[~mask] = 0.0
+        margin[~mask] = 0.0
+        margin /= 2
+
+        err_min = (src - (tgt - margin).clamp_min(eps)).abs()
+        err_max = (src - (tgt + margin).clamp_min(eps)).abs()
+        err = torch.min(err_min, err_max)
+    else:
+        err = (src - tgt).abs()
+    err = torch.where(tgt > 0, err / tgt, err)
+    if square:
+        err = err.square()
+    err = _mean_with_mask(data=err.clamp_min(eps), mask=mask, dim=dim)
+    if square:
+        err = err.clamp(eps).sqrt()
+    if err.ndim > 1:
+        err = err.sum(dim=1)
+    return err
+
+
+class RelativeLoss(ScaledLossMixin, nn.Module):
+    r"""
+    Relative loss for depth estimation.
+    """
+
+    def __init__(
+        self,
+        dim: T.Tuple[int, ...] = (-2, -1),
+        eps: float = 1e-6,
+        margin_scale: float = _DEFAULT_MARGIN_SCALE,
+        square: bool = False,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.dim = dim
+        self.eps = eps
+        self.margin_scale = margin_scale
+        self.square = square
+
+    @TX.override
+    @torch.autocast("cuda", enabled=False)
+    def forward(
+        self,
+        src: Tensor,
+        tgt: Tensor,
+        mask: Tensor,
+    ) -> Tensor:
+        """
+        See :func:`compute_absrel_loss` for more details.
+        """
+        err = compute_relative_loss(
+            src, tgt, mask, self.dim, self.eps, self.margin_scale, self.square
+        )
+        return err * self.scale
+
+
 def compute_mse_loss(
     src: Tensor,
     tgt: Tensor,
@@ -297,7 +375,6 @@ def compute_mse_loss(
     dim: T.Tuple[int, ...],
     eps: float = 1e-6,
     margin_scale: float = _DEFAULT_MARGIN_SCALE,
-    relative: bool = False,
 ):
     r"""
     Compute the Mean Squared Error (MSE) loss between the source and target
@@ -333,10 +410,7 @@ def compute_mse_loss(
         err_max = (src - (tgt + margin)).abs()
         err = torch.min(err_min, err_max)
     else:
-        err = (src - tgt).abs()
-
-    if relative:
-        err = err / tgt.clamp_min(eps)
+        err = src - tgt
 
     err = _mean_with_mask(data=err.clamp_min(eps).square(), mask=mask, dim=dim)
     if err.ndim > 1:
@@ -353,14 +427,12 @@ class MSELoss(ScaledLossMixin, nn.Module):
         dim: T.Tuple[int, ...] = (-2, -1),
         eps: float = 1e-6,
         margin_scale: float = _DEFAULT_MARGIN_SCALE,
-        relative: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.dim = dim
         self.eps = eps
         self.margin_scale = margin_scale
-        self.relative = relative
 
     @classmethod
     def from_metadata(
@@ -389,6 +461,7 @@ class MSELoss(ScaledLossMixin, nn.Module):
         # The scale is computed by taking `n_points` in the range of depth values,
         # computing the MSE, and then scaling the loss such that the MSE is 1.0.
         scale = kwargs.pop("scale", 1.0)
+        dim = kwargs.pop("dim", (-2, -1))
         n_points = 1000
         with torch.no_grad():
             tgt = torch.linspace(-1 / 2, 1 / 2, n_points, dtype=torch.float)
@@ -400,15 +473,9 @@ class MSELoss(ScaledLossMixin, nn.Module):
             tgt = tgt * dst_range + dst_mean
             src = src * dst_range + dst_mean
 
-            rmse = tgt - tgt.flip(0) * init_scale
-            if kwargs.get("relative", False):
-                rmse = rmse.abs() / tgt.clamp_min(1e-6)
-            rmse = rmse.square().mean()
-            scale *= (1.0 / rmse).item()
-            del rmse
-            del tgt
-
-        return cls(scale=scale, **kwargs)
+            mse = cls(dim=(-1,), **kwargs)(src, tgt, torch.ones_like(src)).item()
+            scale *= 1 / mse
+        return cls(scale=scale, dim=dim, **kwargs)
 
     @TX.override
     @torch.autocast("cuda", enabled=False)
@@ -421,10 +488,165 @@ class MSELoss(ScaledLossMixin, nn.Module):
         """
         See :func:`compute_mse_loss` for more details.
         """
-        err = compute_mse_loss(
-            src, tgt, mask, self.dim, self.eps, self.margin_scale, self.relative
-        )
+        err = compute_mse_loss(src, tgt, mask, self.dim, self.eps, self.margin_scale)
         return err * self.scale
+
+
+class DCELoss(nn.Module):
+    """
+    Discretized Cross-Entropy (DCE) loss for Depth Estimation
+    """
+
+    def __init__(
+        self,
+        depth_normalize: T.Tuple[int, int],
+        out_channel=200,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+        self.depth_min = depth_normalize[0]
+        self.depth_max = depth_normalize[1]
+        self.bins_num = out_channel
+        self.depth_min_log = torch.log10(torch.tensor(self.depth_min)).item()
+
+        self.alpha = 2
+        self.config_bins()
+        self.noise_sample_ratio = 0.9
+        self.eps = 1e-6
+
+    def config_bins(self):
+        # Modify some configs
+        self.depth_bins_interval = (
+            torch.log10(torch.tensor(self.depth_max)) - self.depth_min_log
+        ) / self.bins_num
+        bins_edges_in_log = (
+            self.depth_min_log
+            + self.depth_bins_interval
+            * torch.tensor(
+                list(range(self.bins_num))
+                + [
+                    self.bins_num,
+                ]
+            )
+        )
+        # bins_edges_in_log = torch.from_numpy(bins_edges_in_log)
+        # The boundary of each bin
+        # bins_edges_in_log = np.array([self.depth_min_log + self.depth_bins_interval * (i + 0.5)
+        #                         for i in range(self.bins_num)])
+        bins_weight = torch.tensor(
+            [
+                [np.exp(-self.alpha * (i - j) ** 2) for i in range(self.bins_num)]
+                for j in np.arange(self.bins_num)
+            ]
+        ).cuda()
+        self.register_buffer("bins_weight", bins_weight.float(), persistent=False)
+        self.register_buffer(
+            "bins_edges_in_log", bins_edges_in_log.float(), persistent=False
+        )
+
+    def depth_to_bins_in_log(self, depth, mask):
+        """
+        Discretize depth into depth bins. Predefined bins edges are in log space.
+        Mark invalid padding area as bins_num + 1
+        Args:
+            @depth: 1-channel depth, [B, 1, h, w]
+        return: depth bins [B, C, h, w]
+        """
+        invalid_mask = ~mask
+        # depth[depth < self.depth_min] = self.depth_min
+        # depth[depth > self.depth_max] = self.depth_max
+        mask_lower = depth <= self.depth_min
+        mask_higher = depth >= self.depth_max
+        depth_bins_log = (
+            (torch.log10(torch.abs(depth)) - self.depth_min_log)
+            / self.depth_bins_interval
+        ).to(torch.int)
+
+        depth_bins_log[mask_lower] = 0
+        depth_bins_log[mask_higher] = self.bins_num - 1
+        depth_bins_log[depth_bins_log == self.bins_num] = self.bins_num - 1
+
+        depth_bins_log[invalid_mask] = self.bins_num + 1
+        return depth_bins_log
+
+    def depth_to_bins(self, depth, mask, depth_edges, size_limite=(300, 300)):
+        """
+        Discretize depth into depth bins. Predefined bins edges are provided.
+        Mark invalid padding area as bins_num + 1
+        Args:
+            @depth: 1-channel depth, [B, 1, h, w]
+        return: depth bins [B, C, h, w]
+        """
+
+        def _depth_to_bins_block_(depth, mask, depth_edges):
+            bins_id = torch.sum(
+                depth_edges[:, None, None, None, :]
+                < torch.abs(depth)[:, :, :, :, None],
+                dim=-1,
+            )
+            bins_id = bins_id - 1
+            invalid_mask = ~mask
+            mask_lower = depth <= self.depth_min
+            mask_higher = depth >= self.depth_max
+
+            bins_id[mask_lower] = 0
+            bins_id[mask_higher] = self.bins_num - 1
+            bins_id[bins_id == self.bins_num] = self.bins_num - 1
+
+            bins_id[invalid_mask] = self.bins_num + 1
+            return bins_id
+
+        _, _, H, W = depth.shape
+        bins = mask.clone().long()
+        h_blocks = np.ceil(H / size_limite[0]).astype(np.int)
+        w_blocks = np.ceil(W / size_limite[1]).astype(np.int)
+        for i in range(h_blocks):
+            for j in range(w_blocks):
+                h_start = i * size_limite[0]
+                h_end_proposal = (i + 1) * size_limite[0]
+                h_end = h_end_proposal if h_end_proposal < H else H
+                w_start = j * size_limite[1]
+                w_end_proposal = (j + 1) * size_limite[1]
+                w_end = w_end_proposal if w_end_proposal < W else W
+                bins_ij = _depth_to_bins_block_(
+                    depth[:, :, h_start:h_end, w_start:w_end],
+                    mask[:, :, h_start:h_end, w_start:w_end],
+                    depth_edges,
+                )
+                bins[:, :, h_start:h_end, w_start:w_end] = bins_ij
+        return bins
+
+    @TX.override
+    def forward(
+        self, prediction, target, mask=None, pred_logit=None, **kwargs
+    ):  # pred_logit, gt_bins, gt):
+        B, _, H, W = target.shape
+        if "bins_edges" not in kwargs or kwargs["bins_edges"] is None:
+            # predefined depth bins in log space
+            gt_bins = self.depth_to_bins_in_log(target, mask)
+        else:
+            bins_edges = kwargs["bins_edges"]
+            gt_bins = self.depth_to_bins(target, mask, bins_edges)
+
+        classes_range = torch.arange(
+            self.bins_num, device=gt_bins.device, dtype=gt_bins.dtype
+        )
+        log_pred = torch.nn.functional.log_softmax(pred_logit, 1)
+        log_pred = log_pred.reshape(B, log_pred.size(1), -1).permute((0, 2, 1))
+        gt_reshape = gt_bins.reshape((B, -1))[:, :, None]
+        one_hot = (gt_reshape == classes_range).to(
+            dtype=torch.float, device=pred_logit.device
+        )
+        weight = torch.matmul(one_hot, self.bins_weight)
+        weight_log_pred = weight * log_pred
+        loss_pixeles = -torch.sum(weight_log_pred, dim=2)
+
+        valid_pixels = torch.sum(mask).to(dtype=torch.float, device=pred_logit.device)
+        loss = torch.sum(loss_pixeles) / (valid_pixels + self.eps)
+        if torch.isnan(loss).item() | torch.isinf(loss).item():
+            raise RuntimeError(f"WCEL error, {loss}")
+        return loss * self.loss_weight
 
 
 class PEDLoss(nn.Module):

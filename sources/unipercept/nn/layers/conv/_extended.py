@@ -11,6 +11,7 @@ from .utils import NormActivationMixin, NormActivationModule
 
 __all__ = [
     "Conv2d",
+    "ConvTranspose2d",
     "Standard2d",
     "Separable2d",
     "IntParam1d",
@@ -24,6 +25,10 @@ IntParam3d: T.TypeAlias = int | T.Tuple[int, int, int] | T.Sequence[int]
 
 
 class Conv2d(NormActivationMixin, nn.Conv2d):
+    pass
+
+
+class ConvTranspose2d(NormActivationMixin, nn.ConvTranspose2d):
     pass
 
 

@@ -24,8 +24,8 @@ __all__ = [
     "DepthFormat",
     "downsample_depthmap",
     "resize_depthmap",
-    "depth_to_normalized",
-    "depth_to_absolute",
+    "absolute_to_normalized_depth",
+    "normalized_to_absolute_depth",
 ]
 
 DEFAULT_DEPTH_DTYPE: T.Final = torch.float32
@@ -288,7 +288,36 @@ def interpolate_depthmap(
     return depth_map
 
 
-def depth_to_absolute(
+def clamp_absolute_depth(
+    value: Tensor,
+    min_depth: float | Tensor,
+    max_depth: float | Tensor,
+) -> Tensor:
+    """
+    Clamp depth values to the specified range. Uses ReLU instead of ``torch.clamp``
+    to avoid backpropagation through the gradient of the clamp function, which results
+    in numerical inaccuracy for PyTorch version < 2.3.0.
+
+    Parameters
+    ----------
+    value : Tensor[..., N, H, W]
+        The depth tensor.
+    min_depth : float or Tensor[..., N]
+        The minimum depth value.
+    max_depth : float or Tensor[..., N]
+        The maximum depth value.
+
+    Returns
+    -------
+    Tensor[..., N, H, W]
+        The clamped depth tensor.
+    """
+    result = (value - min_depth).relu() + min_depth
+    result = max_depth - (max_depth - result).relu()
+    return result
+
+
+def normalized_to_absolute_depth(
     value: Tensor,
     min_depth: float | Tensor,
     max_depth: float | Tensor,
@@ -332,7 +361,7 @@ def depth_to_absolute(
     return result
 
 
-def depth_to_normalized(
+def absolute_to_normalized_depth(
     value: Tensor,
     min_depth: float | Tensor,
     max_depth: float | Tensor,

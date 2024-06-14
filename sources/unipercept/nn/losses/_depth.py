@@ -263,12 +263,14 @@ class SILogLoss(ScaledLossMixin, nn.Module):
         alpha: float = 0.15,
         eps: float = 1e-5,
         dim: T.Tuple[int, ...] = (-2, -1),
+        margin_scale: float = _DEFAULT_MARGIN_SCALE,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.alpha: float = alpha
         self.dim = dim
         self.eps: float = eps
+        self.margin_scale = margin_scale
 
     @TX.override
     @torch.autocast("cuda", enabled=False)
@@ -281,7 +283,7 @@ class SILogLoss(ScaledLossMixin, nn.Module):
         r"""
         See :func:`compute_silog_loss` for more details.
         """
-        loss = compute_silog_loss(input, target, mask, self.dim, self.alpha, self.eps)
+        loss = compute_silog_loss(input, target, mask, self.dim, self.alpha, self.eps, self.margin_scale)
         return loss * self.scale
 
 
@@ -339,11 +341,13 @@ class MSELoss(ScaledLossMixin, nn.Module):
         self,
         dim: T.Tuple[int, ...] = (-2, -1),
         eps: float = 1e-6,
+        margin_scale: float = _DEFAULT_MARGIN_SCALE,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.dim = dim
         self.eps = eps
+        self.margin_scale = margin_scale
 
     @classmethod
     def from_metadata(
@@ -401,7 +405,7 @@ class MSELoss(ScaledLossMixin, nn.Module):
         """
         See :func:`compute_mse_loss` for more details.
         """
-        err = compute_mse_loss(src, tgt, mask, self.dim, self.eps)
+        err = compute_mse_loss(src, tgt, mask, self.dim, self.eps, self.margin_scale)
         return err * self.scale
 
 

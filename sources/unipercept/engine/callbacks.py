@@ -1181,7 +1181,7 @@ class UncertaintyLossWeightingCallback(_GroupedLossWeightingCallback):
             for loss_key in list(loss_dict.keys()):
                 for i, group in enumerate(self.groups):
                     if any(pattern.search(loss_key) for pattern in group):
-                        w = self.weights[i].detach()
+                        w = self.weights[i]
                         loss_dict[loss_key] = (
                             loss_dict[loss_key] * 1 / (2 * w.exp()) + w / 2
                         )

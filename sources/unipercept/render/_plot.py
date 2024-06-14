@@ -26,6 +26,7 @@ if T.TYPE_CHECKING:
 __all__ = [
     "plot_input_data",
     "plot_predictions",
+    "plot_depth_error",
     "draw_image",
     "draw_image_segmentation",
     "draw_image_depth",
@@ -198,6 +199,56 @@ def plot_predictions(
             depth_options = {}
         if depth_options not in SKIP:
             draw_image_depth(dep[i], info, ax=axs[i, 2], scale=scale, **depth_options)
+
+    fig.tight_layout(pad=0)
+    return fig
+
+
+def plot_depth_error(
+    pred: torch.Tensor,
+    true: torch.Tensor,
+    info: Metadata,
+    *,
+    palette: str = "viridis",
+    relative: bool = True,
+    scale: float = 1.0,
+) -> T.Any:
+    """
+    Draws the depth map as an RGB heatmap, normalized from 0 until 1 using the given ``'max_depth'`` in the ``info``
+    parameter, and then mapped to a color scheme generated ad-hoc and expressed as uint8.
+    """
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    true = _squeeze_to_2d(true.detach().cpu())
+    pred = _squeeze_to_2d(pred.detach().cpu())
+    error = (true - pred).abs()
+    valid = true > 0
+    error[~valid] = 0
+    if relative:
+        error[valid] /= true[valid]
+    fig, ax = plt.subplots()
+
+    divisor = make_axes_locatable(ax)
+    cax = divisor.append_axes("right", size="5%", pad=0.05)
+
+    cim = ax.imshow(error, cmap=palette)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    fig.colorbar(cim, cax=cax, orientation="vertical")
+
+    dax = divisor.append_axes("bottom", size="15%", pad=0.05)
+    dax.hist(
+        error[valid].flatten(),
+        color="red",
+        alpha=0.9,
+        bins=round(info.depth_max),
+        density=True,
+    )
+    dax.set_xlabel("Error distribution")
+    dax.set_ylabel("")
+    dax.set_yticks([])
 
     fig.tight_layout(pad=0)
     return fig
@@ -381,19 +432,14 @@ def draw_image_depth(
 
     import seaborn as sns
 
-    if dep.ndim > 2:
-        dep = dep.squeeze(0)
-    if dep.ndim > 2:
-        dep = dep.squeeze_(0)
-
-    assert dep.ndim == 2, f"Expected image with HW dimensions, got {dep.shape}!"
-
-    dep = dep.detach() / info.depth_max
-    dep.clamp_(0, 1)
+    dep = _squeeze_to_2d(dep.detach())
+    dep = dep / info.depth_max
+    dep = dep.clamp(0, 1)
 
     cmap = sns.color_palette(palette, as_cmap=True)
 
     out = cmap(dep.numpy())
+
     out = floating_to_pil(out)
     out = scale_pil_image(out, scale)
 
@@ -401,6 +447,15 @@ def draw_image_depth(
         ax.imshow(out)
         ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
     return rgba_to_rgb(out)
+
+
+def _squeeze_to_2d(t: torch.Tensor) -> torch.Tensor:
+    while t.ndim > 2 and t.shape[0] == 1:
+        t = t.squeeze(0)
+    if t.ndim != 2:
+        msg = f"Expected 2D tensor, got {t.shape}"
+        raise ValueError(msg)
+    return t
 
 
 def rgba_to_rgb(

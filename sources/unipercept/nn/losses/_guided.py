@@ -18,6 +18,48 @@ from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
 __all__ = ["DGPLoss", "PGTLoss", "PGSLoss"]
 
 
+def depth_guided_segmentation_loss(
+    seg_feat: torch.Tensor,
+    dep_true: torch.Tensor,
+    eps: float,
+    tau: int,
+    patch_size: T.Tuple[int, int],
+    patch_stride: T.Tuple[int, int],
+) -> T.Tuple[torch.Tensor, torch.Tensor]:
+    c_x = patch_size[0] // 2
+    c_y = patch_size[1] // 2
+
+    # Depth ground truths
+    with torch.no_grad():
+        dep_patch = split_into_patches(dep_true, patch_size, patch_stride)
+        dep_valid = dep_patch > eps
+        depth_center = dep_patch[..., c_x, c_y].contiguous()
+        depth_center.unsqueeze_(-1).unsqueeze_(-1)
+        dep_diff = torch.abs(depth_center - dep_patch)  # .clamp_(min=eps)
+
+    # Segmentation features
+    seg_patch = split_into_patches(seg_feat, patch_size, patch_stride)
+    seg_center = seg_patch[..., c_x, c_y].contiguous()
+    seg_center.unsqueeze_(-1).unsqueeze_(-1)
+    seg_diff = torch.norm(seg_center - seg_patch, dim=1)  # .clamp(min=eps)
+
+    # Compute loss for all patches and centers
+    # TODO: Stability of the loss function
+
+    import pdb
+
+    pdb.set_trace()
+
+    loss = torch.exp(-dep_diff / tau) * torch.exp(-(seg_diff**2))
+
+    # Compute the mask for which the loss function is valid
+    with torch.no_grad():
+        mask = (dep_diff > eps) & (seg_diff > eps) & dep_valid
+        mask[:, :, :, c_x, c_y] = False
+
+    return loss, mask
+
+
 class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
     """
     Implements a depth-guided panoptic loss (DGP) loss
@@ -52,89 +94,6 @@ class DGPLoss(StableLossMixin, ScaledLossMixin, nn.Module):
         loss = torch.masked_select(loss, mask).mean()
 
         return loss * self.scale
-
-
-def depth_guided_segmentation_loss(
-    seg_feat: torch.Tensor,
-    dep_true: torch.Tensor,
-    eps: float,
-    tau: int,
-    patch_size: T.Tuple[int, int],
-    patch_stride: T.Tuple[int, int],
-) -> T.Tuple[torch.Tensor, torch.Tensor]:
-    c_x = patch_size[0] // 2
-    c_y = patch_size[1] // 2
-
-    # Depth ground truths
-    with torch.no_grad():
-        dep_patch = split_into_patches(dep_true, patch_size, patch_stride)
-        dep_valid = dep_patch > eps
-        depth_center = dep_patch[:, :, :, c_x, c_y].contiguous()
-        depth_center.unsqueeze_(-1).unsqueeze_(-1)
-        dep_diff = torch.abs(depth_center - dep_patch)  # .clamp_(min=eps)
-
-    # Segmentation features
-    seg_patch = split_into_patches(seg_feat, patch_size, patch_stride)
-    seg_center = seg_patch[:, :, :, c_x, c_y].contiguous()
-    seg_center.unsqueeze_(-1).unsqueeze_(-1)
-    seg_diff = torch.norm(seg_center - seg_patch, dim=1)  # .clamp(min=eps)
-
-    # Compute loss for all patches and centers
-    # TODO: Stability of the loss function
-    loss = torch.exp(-dep_diff / tau) * torch.exp(-(seg_diff**2))
-
-    # Compute the mask for which the loss function is valid
-    with torch.no_grad():
-        mask = (dep_diff > eps) & (seg_diff > eps) & dep_valid
-        mask[:, :, :, c_x, c_y] = False
-
-    return loss, mask
-
-
-class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
-    """
-    Panoptic-guided Triplet Loss (PGT) loss
-
-    Paper: https://arxiv.org/abs/2210.07577
-    """
-
-    patch_size: T.Final[T.Tuple[int, int]]
-    patch_stride: T.Final[T.Tuple[int, int]]
-    margin: T.Final[float]
-    threshold: T.Final[int]
-
-    def __init__(
-        self,
-        *,
-        patch_size: T.Tuple[int, int] = (5, 5),
-        patch_stride: T.Tuple[int, int] | None = None,
-        margin=0.3,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-
-        self.patch_size = patch_size
-        self.patch_stride = patch_stride or patch_size
-        self.margin = margin
-        self.threshold = max(1, min(*patch_size) // 2)
-
-    @override
-    @torch.autocast("cuda", enabled=False)
-    def forward(self, dep_feat: torch.Tensor, seg_true: torch.Tensor):
-        dep_feat = dep_feat.float()
-        seg_true = seg_true.int()
-        loss, mask = segmentation_guided_triplet_loss(
-            dep_feat,
-            seg_true,
-            self.margin,
-            self.threshold,
-            self.patch_size,
-            self.patch_stride,
-        )
-        loss = torch.masked_select(loss, mask)  # N x C x P'
-
-        # Calculate overall loss
-        return loss.mean() * self.scale
 
 
 def segmentation_guided_triplet_loss(
@@ -220,6 +179,52 @@ def segmentation_guided_triplet_loss(
     mask = mask_pos & mask_neg
 
     return patch_losses, mask
+
+
+class PGTLoss(StableLossMixin, ScaledLossMixin, nn.Module):
+    """
+    Panoptic-guided Triplet Loss (PGT) loss
+
+    Paper: https://arxiv.org/abs/2210.07577
+    """
+
+    patch_size: T.Final[T.Tuple[int, int]]
+    patch_stride: T.Final[T.Tuple[int, int]]
+    margin: T.Final[float]
+    threshold: T.Final[int]
+
+    def __init__(
+        self,
+        *,
+        patch_size: T.Tuple[int, int] = (5, 5),
+        patch_stride: T.Tuple[int, int] | None = None,
+        margin=0.3,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+        self.patch_size = patch_size
+        self.patch_stride = patch_stride or patch_size
+        self.margin = margin
+        self.threshold = max(1, min(*patch_size) // 2)
+
+    @override
+    @torch.autocast("cuda", enabled=False)
+    def forward(self, dep_feat: torch.Tensor, seg_true: torch.Tensor):
+        dep_feat = dep_feat.float()
+        seg_true = seg_true.int()
+        loss, mask = segmentation_guided_triplet_loss(
+            dep_feat,
+            seg_true,
+            self.margin,
+            self.threshold,
+            self.patch_size,
+            self.patch_stride,
+        )
+        loss = torch.masked_select(loss, mask)  # N x C x P'
+
+        # Calculate overall loss
+        return loss.mean() * self.scale
 
 
 class PGSLoss(ScaledLossMixin, nn.Module):

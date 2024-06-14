@@ -9,6 +9,7 @@ import typing as T
 
 import torch
 import torch.nn as nn
+from einops import rearrange
 
 #####################
 # General utilities #
@@ -18,23 +19,23 @@ import torch.nn as nn
 def split_into_patches(
     x: torch.Tensor,
     sizes: T.Tuple[int, int],
-    strides: T.Optional[T.Tuple[int, int]] = None,
+    strides: T.Tuple[int, int] | None = None,
 ) -> torch.Tensor:
     r"""
     Splits tensor into N, p_height x p_width blocks.
     """
 
     if strides is None:
-        # strides = (sizes[0], sizes[1])
-        strides = (1, 1)
+        strides = (sizes[0], sizes[1])
+        # strides = (1, 1)
 
-    batch_size, channels, _, _ = x.shape
-
+    # Parse shape as [..., H, W]
+    *dots, _, _ = x.shape
     for dim, (size, stride) in enumerate(zip(sizes, strides)):
-        x = x.unfold(dim + 2, size, stride)
+        x = x.unfold(len(dots) + dim, size, stride)
 
-    # B x C x P x H x W
-    return x.reshape(batch_size, channels, -1, sizes[0], sizes[1])
+    # ... x P x Hp x Wp
+    return x.reshape(*dots, -1, sizes[0], sizes[1])
 
 
 def depth_to_normals(depth: torch.Tensor, fx: float, fy: float) -> torch.Tensor:

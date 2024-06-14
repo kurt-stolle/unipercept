@@ -46,6 +46,8 @@ class DepthWriter(Evaluator):
     depth_plot_samples: int = 1
     depth_plot_true: PlotMode = PlotMode.ONCE
     depth_plot_pred: PlotMode = PlotMode.ALWAYS
+    depth_plot_error: PlotMode = PlotMode.ALWAYS
+
     depth_requires_true: bool = D.field(
         default=True,
         metadata={"help": "Raise an error if the target depth is not found"},
@@ -133,11 +135,8 @@ class DepthWriter(Evaluator):
     def compute(self, *args, **kwargs):
         return super().compute(*args, **kwargs)
 
-    @TX.override
-    def plot(self, storage: TensorDictBase) -> dict[str, pil_image.Image]:
+    def _plot_true_pred(self, storage: TensorDictBase) -> dict[str, T.Any]:
         from unipercept.render import draw_image_depth
-
-        result = super().plot(storage)
 
         plot_keys = []
         for key, mode_attr in (
@@ -151,11 +150,35 @@ class DepthWriter(Evaluator):
                 setattr(self, mode_attr, PlotMode.NEVER)
             plot_keys.append(key)
 
+        result = {}
         for i in range(self.depth_plot_samples):
             for key in plot_keys:
                 result[f"{key}_{i}"] = draw_image_depth(
                     storage.get_at(key, i).clone().float(), self.info
                 )
+        return result
+
+    def _plot_error(self, storage: TensorDictBase) -> dict[str, T.Any]:
+        from unipercept.render import plot_depth_error
+
+        result = {}
+        if self.depth_plot_error == PlotMode.NEVER:
+            return result
+        elif self.depth_plot_error == PlotMode.ONCE:
+            self.depth_plot_error = PlotMode.NEVER
+
+        for i in range(self.depth_plot_samples):
+            pred = storage.get_at(self.depth_key_pred, i).clone().float()
+            true = storage.get_at(self.depth_key_true, i).clone().float()
+
+            result[f"depth_plot_error_{i}"] = plot_depth_error(pred, true, self.info)
+        return result
+
+    @TX.override
+    def plot(self, storage: TensorDictBase) -> dict[str, T.Any]:
+        result = super().plot(storage)
+        result.update(self._plot_true_pred(storage))
+        result.update(self._plot_error(storage))
         return result
 
 
@@ -366,6 +389,21 @@ def compute_eigen_metrics(
     DepthMetrics
         The computed metrics.
     """
+
+    assert pred.shape == true.shape, (pred.shape, true.shape)
+    assert pred.ndim in (2, 3), pred.shape
+
+    if pred.ndim == 3:
+        metrics = []
+        for i in range(pred.shape[0]):
+            metrics.append(
+                compute_eigen_metrics(
+                    pred=pred[i], true=true[i], t_base=t_base, t_n=t_n
+                )
+            )
+
+        metrics_concat = concat_eigen_metrics(metrics)
+        return tree_map(torch.mean, metrics_concat)
 
     pred, true = map(torch.flatten, (pred, true))
     pred, true = _align_and_promote(pred, true)

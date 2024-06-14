@@ -16,7 +16,6 @@ import sys
 import time
 import typing as T
 from datetime import datetime
-
 import torch
 import torch.optim
 import torch.types
@@ -57,6 +56,8 @@ from unipercept.utils.memory import retry_if_cuda_oom
 if T.TYPE_CHECKING:
     from accelerate.optimizer import AcceleratedOptimizer
     from timm.scheduler.scheduler import Scheduler as TimmScheduler
+
+    import matplotlib.pyplot as plt
 
     import unipercept as up
     from unipercept.evaluators import Evaluator as Evaluator
@@ -687,8 +688,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
 
     @T.overload
     def build_training_dataloader(
@@ -696,8 +696,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
 
     def build_training_dataloader(
         self,
@@ -1283,7 +1282,7 @@ class Engine:
                         step_amount=math.ceil(samples_processed * get_process_count()),
                     )
                 )
-            visuals: dict[str, pil_image.Image] = {}
+            visuals: dict[str, pil_image.Image | plt.Figure] = {}
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 storage = results_mem.read(executor)
                 for evaluator in handlers or []:
@@ -1616,14 +1615,13 @@ class Engine:
         return str(path)
 
     def _store_visualizations(
-        self, visuals: dict[str, pil_image.Image], prefix: str
+        self, visuals: dict[str, pil_image.Image | plt.Figure], prefix: str
     ) -> None:
         """
         Store visualizations that are provided as a mapping of (key) -> (PIL image).
         """
 
         import wandb
-        from wandb.sdk.wandb_run import Run
 
         if not check_main_process():
             return
@@ -1638,16 +1636,27 @@ class Engine:
                     file_io.Path(self.xlr.project_dir)
                     / "visuals"
                     / f"{prefix}-{self._state.step}"
-                    / f"{key}.png"
+                    / f"{key}"
                 )
                 img_path.parent.mkdir(parents=True, exist_ok=True)
-                img.save(img_path)
 
+                if isinstance(img, plt.Figure):
+                    img.savefig(img_path.with_suffix(".eps"))
+                elif isinstance(img, pil_image.Image):
+                    img.save(img_path.with_suffix(".png"))
+                else:
+                    _logger.warning(
+                        "Visualizations: cannot save image type %s", type(img)
+                    )
             if wandb.run is not None:
-                wandb.log(
-                    {f"{prefix}/{key}": wandb.Image(img)},  # , step=self._state.step
-                    commit=False,
-                )
+                if isinstance(img, pil_image.Image):
+                    img_wandb = wandb.Image(img)
+                else:
+                    img_wandb = img
+                try:
+                    wandb.log({f"{prefix}/{key}": img_wandb}, commit=False)
+                except Exception as err:
+                    _logger.warning("WandB: failed to log image %s: %s", key, err)
 
     def _default_setup(self):
         """

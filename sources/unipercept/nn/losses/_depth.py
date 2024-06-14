@@ -234,10 +234,11 @@ def compute_silog_loss(
         assert tgt.ndim == src.ndim + 1, (tgt.shape, src.shape)
 
         tgt, margin = _target_error_margin(tgt, mask, scale=margin_scale)
+        margin /= 2
 
         src_log = src.clamp(eps).log()
-        err_min = src_log - (tgt - margin / 2).clamp(eps).log()
-        err_max = src_log - (tgt + margin / 2).clamp(eps).log()
+        err_min = src_log - (tgt - margin).clamp(eps).log()
+        err_max = src_log - (tgt + margin).clamp(eps).log()
         err = torch.min(err_min.abs(), err_max.abs())
     else:
         err = src.clamp(min=eps).log() - tgt.clamp(min=eps).log()
@@ -283,7 +284,9 @@ class SILogLoss(ScaledLossMixin, nn.Module):
         r"""
         See :func:`compute_silog_loss` for more details.
         """
-        loss = compute_silog_loss(input, target, mask, self.dim, self.alpha, self.eps, self.margin_scale)
+        loss = compute_silog_loss(
+            input, target, mask, self.dim, self.alpha, self.eps, self.margin_scale
+        )
         return loss * self.scale
 
 
@@ -294,6 +297,7 @@ def compute_mse_loss(
     dim: T.Tuple[int, ...],
     eps: float = 1e-6,
     margin_scale: float = _DEFAULT_MARGIN_SCALE,
+    relative: bool = False,
 ):
     r"""
     Compute the Mean Squared Error (MSE) loss between the source and target
@@ -323,11 +327,18 @@ def compute_mse_loss(
         tgt, margin = _target_error_margin(tgt, mask, scale=margin_scale)
         tgt[~mask] = 0.0
         margin[~mask] = 0.0
-    else:
-        margin = torch.zeros_like(tgt)
+        margin /= 2
 
-    err = ((src - tgt).abs() - margin).clamp_min(eps)
-    err = _mean_with_mask(data=err.square(), mask=mask, dim=dim)
+        err_min = (src - (tgt - margin)).abs()
+        err_max = (src - (tgt + margin)).abs()
+        err = torch.min(err_min, err_max)
+    else:
+        err = (src - tgt).abs()
+
+    if relative:
+        err = err / tgt.clamp_min(eps)
+
+    err = _mean_with_mask(data=err.clamp_min(eps).square(), mask=mask, dim=dim)
     if err.ndim > 1:
         err = err.sum(dim=1)
     return err
@@ -342,12 +353,14 @@ class MSELoss(ScaledLossMixin, nn.Module):
         dim: T.Tuple[int, ...] = (-2, -1),
         eps: float = 1e-6,
         margin_scale: float = _DEFAULT_MARGIN_SCALE,
+        relative: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.dim = dim
         self.eps = eps
         self.margin_scale = margin_scale
+        self.relative = relative
 
     @classmethod
     def from_metadata(
@@ -387,7 +400,10 @@ class MSELoss(ScaledLossMixin, nn.Module):
             tgt = tgt * dst_range + dst_mean
             src = src * dst_range + dst_mean
 
-            rmse = (tgt - tgt.flip(0) * init_scale).square().mean()
+            rmse = tgt - tgt.flip(0) * init_scale
+            if kwargs.get("relative", False):
+                rmse = rmse.abs() / tgt.clamp_min(1e-6)
+            rmse = rmse.square().mean()
             scale *= (1.0 / rmse).item()
             del rmse
             del tgt
@@ -405,7 +421,9 @@ class MSELoss(ScaledLossMixin, nn.Module):
         """
         See :func:`compute_mse_loss` for more details.
         """
-        err = compute_mse_loss(src, tgt, mask, self.dim, self.eps, self.margin_scale)
+        err = compute_mse_loss(
+            src, tgt, mask, self.dim, self.eps, self.margin_scale, self.relative
+        )
         return err * self.scale
 
 

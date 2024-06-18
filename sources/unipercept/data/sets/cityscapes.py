@@ -129,7 +129,7 @@ class CameraCalibration:
 
     extrinsic: CameraExtrinsic
     intrinsic: CameraIntrinsic
-    size: "datatypes.HW"
+    size: tuple[float, float]
 
     def to_canonical(self) -> datatypes.PinholeModelParameters:
         """

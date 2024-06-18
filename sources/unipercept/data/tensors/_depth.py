@@ -54,6 +54,19 @@ class DepthMode(E.StrEnum):
 
 @pixel_maps.register
 class DepthMap(Mask):
+    def __new__(
+        cls,
+        data: Any,
+        *,
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[Union[torch.device, str, int]] = None,
+        requires_grad: Optional[bool] = None,
+    ) -> T.Self:
+        tensor = cls._to_tensor(
+            data, dtype=dtype, device=device, requires_grad=requires_grad
+        )
+        return tensor.as_subclass(cls)
+
     @classmethod
     def default_like(cls, other: Tensor) -> T.Self:
         """Returns a default instance of this class with the same shape as the given tensor."""
@@ -65,9 +78,9 @@ class DepthMap(Mask):
         return cls(torch.zeros(shape, device=device, dtype=torch.float32))  # type: ignore
 
     def save(self, path: Pathable, format: DepthFormat | str | None = None) -> None:
-        import numpy as np
-
         from unipercept import file_io
+
+        self = self.detach().cpu()
 
         path = file_io.Path(path)
         if format is None:

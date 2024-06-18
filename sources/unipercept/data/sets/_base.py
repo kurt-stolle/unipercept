@@ -29,11 +29,9 @@ from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
 from unipercept.utils.dataset import _Datapipe, _Dataqueue
 from unipercept.utils.tensorclass import Tensorclass
+from unipercept.model import CaptureData, InputData, MotionData
 
 from . import Metadata
-
-if T.TYPE_CHECKING:
-    from unipercept.model import CaptureData, InputData, MotionData
 
 
 __all__ = [
@@ -211,13 +209,19 @@ class PerceptionDataset(
 
         # Camera
         camera_spec = item["camera"]
-        camera_data = PinholeCamera.from_parameters(
-            focal_length=camera_spec["focal_length"],
-            principal_point=camera_spec["principal_point"],
-            translation=camera_spec["translation"],
-            rotation=camera_spec["rotation"],
-            canvas=camera_spec["image_size"],
-        )
+        if not isinstance(camera_spec, T.Sequence):
+            camera_spec = [camera_spec]
+
+        camera_data = torch.stack([
+            PinholeCamera.from_parameters(
+                focal_length=cam["focal_length"],
+                principal_point=cam["principal_point"],
+                translation=cam["translation"],
+                rotation=cam["rotation"],
+                canvas=cam["image_size"],
+            )
+            for cam in camera_spec
+        ]).as_subclass(PinholeCamera)
 
         # IDs: (sequence, frame)
         ids = torch.tensor(
@@ -229,12 +233,6 @@ class PerceptionDataset(
             captures=caps_data,
             motions=data_mots,
             cameras=camera_data,
-            content_boxes=torch.cat(
-                [
-                    torch.tensor([0, 0], dtype=torch.int32),
-                    camera_data.image_size.to(dtype=torch.int32),
-                ]
-            ),
             batch_size=[],
         )  # .memmap_()
 

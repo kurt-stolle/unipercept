@@ -358,6 +358,17 @@ def _align_and_promote(pred: Tensor, true: Tensor):
     return pred, true
 
 
+def _trunc_to_uint16(depth: Tensor) -> Tensor:
+    r"""
+    Many benchmarks are based on 16-bit PNG depth maps. Since models outputs' are
+    floats, we need to compress them to match the precision of the benchmarks.
+    """
+
+    depth = depth * 256.0
+    depth.trunc_()
+    return depth / 256.0
+
+
 ############################################
 # Eigen metrics for per-sample computation #
 ############################################
@@ -369,6 +380,7 @@ def compute_eigen_metrics(
     true: Tensor,
     t_base: float = 1.25,
     t_n: T.Iterable[int] = _THRES_DEFAULT,
+    trunc_to_uint16: bool = True,
 ) -> EigenMetrics:
     """
     Computation of error metrics between predicted and ground truth depths.
@@ -383,6 +395,8 @@ def compute_eigen_metrics(
         Base value for the accuracy thresholds, by default 1.25.
     t_n : T.Iterable[int], optional
         Exponents for the accuracy thresholds, by default [1, 2, 3].
+    trunc_to_uint16: bool, optional
+        Truncate the depth maps (floating point) to 16-bit unsigned integers, by default True.
 
     Returns
     -------
@@ -392,6 +406,9 @@ def compute_eigen_metrics(
 
     assert pred.shape == true.shape, (pred.shape, true.shape)
     assert pred.ndim in (2, 3), pred.shape
+
+    if trunc_to_uint16:
+        true, pred = map(_trunc_to_uint16, (true, pred))
 
     if pred.ndim == 3:
         metrics = []
@@ -403,7 +420,7 @@ def compute_eigen_metrics(
             )
 
         metrics_concat = concat_eigen_metrics(metrics)
-        return tree_map(torch.mean, metrics_concat)
+        return tree_map(lambda x: x.sum() / pred.shape[0], metrics_concat)
 
     pred, true = map(torch.flatten, (pred, true))
     pred, true = _align_and_promote(pred, true)
@@ -414,9 +431,9 @@ def compute_eigen_metrics(
     return EigenMetrics(
         valid=px_amt,
         abs_rel=((true - pred).abs() / true).mean(),
-        sq_rel=((true - pred).square() / true).mean(),
+        sq_rel=((true - pred).square() / true.square()).mean(),
         rmse=(true - pred).square().mean().sqrt(),
-        rmse_log=((torch.log1p(true) - torch.log1p(pred)) ** 2).mean().sqrt(),
+        rmse_log=(true.log() - pred.log()).square().mean().sqrt(),
         accuracy={
             _threshold_to_key(t_base, n): (max_rel < (t_base**n)).double().mean()
             for n in t_n
@@ -458,6 +475,7 @@ def compute_eigen_partial(
     true: Tensor,
     t_base: float = 1.25,
     t_n: T.Iterable[int] = _THRES_DEFAULT,
+    trunc_to_uint16: bool = True,
 ) -> EigenMetrics:
     """
     Computation of error metrics between predicted and ground truth depths.
@@ -472,12 +490,17 @@ def compute_eigen_partial(
         Base value for the accuracy thresholds, by default 1.25.
     t_n : T.Iterable[int], optional
         Exponents for the accuracy thresholds, by default [1, 2, 3].
+    trunc_to_uint16: bool, optional
+        Truncate the depth maps (floating point) to 16-bit unsigned integers, by default True.
 
     Returns
     -------
     DepthMetrics | None
         The partially computed metrics, which still need to be accumulated.
     """
+
+    if trunc_to_uint16:
+        true, pred = map(_trunc_to_uint16, (true, pred))
 
     pred, true = map(torch.flatten, (pred, true))
     pred, true = _align_and_promote(pred, true)
@@ -503,7 +526,7 @@ def accumulate_eigen_partial(metrics: EigenMetrics | T.Iterable[EigenMetrics]):
     if isinstance(metrics, EigenMetrics):
         valid = metrics.valid.sum()
         return EigenMetrics(
-            valid=metrics.valid.mean(),
+            valid=metrics.valid.sum() / valid.numel(),
             abs_rel=metrics.abs_rel.sum() / valid,
             sq_rel=metrics.sq_rel.sum() / valid,
             rmse=(metrics.rmse.sum() / valid).sqrt_(),

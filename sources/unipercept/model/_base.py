@@ -176,13 +176,20 @@ class InputData(Tensorclass):
     )
     captures: CaptureData = field(
         metadata={
-            "shape": ["B", "F"],
+            "shape": ["B", "F"],  # batch, num_frames_per_capture
             "help": (
                 "Capture data for each frame in the batch. The first dimension is the batch dimension, the second "
                 "dimension is the frame/pair dimension."
             ),
             "tensorclass": CaptureData,
         }
+    )
+    cameras: PinholeCamera = field(
+        default=None,  # type: ignore
+        metadata={
+            "shape": ["B", "N"],  # batch, num_cameras_per_capture
+            "help": "Camera parameters for each capture item in the batch.",
+        },
     )
     motions: MotionData | None = field(
         default=None,
@@ -192,28 +199,24 @@ class InputData(Tensorclass):
             "tensorclass": MotionData,
         },
     )
-    cameras: PinholeCamera | None = field(
-        default=None,
-        metadata={
-            "shape": ["B"],
-            "help": "Camera parameters for each capture item in the batch.",
-        },
-    )
-    content_boxes: Tensor | None = field(
-        default=None,
-        metadata={
-            "shape": ["B", 4],
-            "help": (
-                "Bounding boxes that describe the content of the image. "
-                "Useful in cases where some of the images in a batch "
-                "are padded, e.g. when using a sampler that samples from a dataset with images of different sizes."
-            ),
-        },
-    )
     metadata: TensorDict | None = field(
         default=None,
         metadata={"help": "Additional metadata for the input data."},
     )
+
+    def __post_init__(self):
+        if self.cameras is None:
+            cam = PinholeCamera.with_defaults_as(self.captures.images)
+
+    @property
+    def group_id(self) -> Tensor:
+        """Returns the group ID of the input data."""
+        return self.ids[..., 0]
+    
+    @property
+    def item_id(self) -> Tensor:
+        """Returns the item ID of the input data."""
+        return self.ids[..., 1]
 
     @property
     def num_frames(self) -> int:
@@ -245,8 +248,7 @@ class InputData(Tensorclass):
             ids=self.ids.clone(),
             captures=self.captures[..., index].clone(),
             motions=None,
-            cameras=self.cameras.clone(),
-            content_boxes=self.content_boxes.clone(),
+            cameras=self.cameras.clone().as_subclass(PinholeCamera),
             batch_size=self.batch_size,
         )
 

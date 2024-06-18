@@ -7,3 +7,4 @@ from ._depth import *
 from ._flow import *
 from ._panoptic import *
 from ._torchvision import *
+from ._camera import *

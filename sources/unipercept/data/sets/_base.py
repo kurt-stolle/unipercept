@@ -17,7 +17,7 @@ import torch
 import torch.utils.data
 import typing_extensions as TX
 
-from unipercept.data.tensors import PanopticMap
+from unipercept.data.tensors import PanopticMap, PinholeCamera
 from unipercept.data.types import (
     CaptureSources,
     Manifest,
@@ -25,7 +25,6 @@ from unipercept.data.types import (
     MotionSources,
     QueueItem,
 )
-from unipercept.utils.camera import build_calibration_matrix
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
 from unipercept.utils.dataset import _Datapipe, _Dataqueue
@@ -190,8 +189,6 @@ class PerceptionDataset(
     @classmethod
     @TX.override
     def _load_data(cls, key: str, item: QueueItem, info: Metadata) -> InputData:
-        from unipercept.model import CameraModel, InputData
-
         # Check for cache hit, should be a memmaped tensor
         # if key in cls._data_cache:
         #     return cls._data_cache[key].clone().contiguous()
@@ -214,15 +211,12 @@ class PerceptionDataset(
 
         # Camera
         camera_spec = item["camera"]
-        camera_data = CameraModel(
-            matrix=build_calibration_matrix(
-                focal_lengths=[camera_spec["focal_length"]],
-                principal_points=[camera_spec["principal_point"]],
-                orthographic=False,
-            ),
-            image_size=torch.tensor(camera_spec["image_size"]),
-            pose=torch.eye(4),
-            batch_size=[],
+        camera_data = PinholeCamera.from_parameters(
+            focal_length=camera_spec["focal_length"],
+            principal_point=camera_spec["principal_point"],
+            translation=camera_spec["translation"],
+            rotation=camera_spec["rotation"],
+            canvas=camera_spec["image_size"],
         )
 
         # IDs: (sequence, frame)

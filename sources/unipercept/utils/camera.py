@@ -6,9 +6,85 @@ import torch
 from torch import Size, Tensor, nn
 
 
-def build_calibration_matrix(
-    focal_lengths: T.List[T.Tuple[float, float]] | Tensor,
-    principal_points: T.List[T.Tuple[float, float]] | Tensor,
+def build_extrinsic_matrix(
+    rotation: T.List[T.Tuple[float, float, float]] | Tensor,
+    translation: T.List[T.Tuple[float, float, float]] | Tensor,
+) -> Tensor:
+    r"""
+    Build the extrinsic matrix (R|t) using the rotations and translations.
+    """
+
+    def _pyr_to_rot(pyr: Tensor) -> Tensor:
+        """
+        Convert Pitch Yaw Roll values to a 3x3 rotation matrix.
+        """
+        pitch, yaw, roll = pyr.unbind(-1)
+        sin_p = torch.sin(pitch)
+        cos_p = torch.cos(pitch)
+        sin_y = torch.sin(yaw)
+        cos_y = torch.cos(yaw)
+        sin_r = torch.sin(roll)
+        cos_r = torch.cos(roll)
+
+        R_x = torch.tensor(
+            [
+                [1, 0, 0],
+                [0, cos_p, -sin_p],
+                [0, sin_p, cos_p],
+            ],
+            device=pyr.device,
+        )
+        R_y = torch.tensor(
+            [
+                [cos_y, 0, sin_y],
+                [0, 1, 0],
+                [-sin_y, 0, cos_y],
+            ],
+            device=pyr.device,
+        )
+        R_z = torch.tensor(
+            [
+                [cos_r, -sin_r, 0],
+                [sin_r, cos_r, 0],
+                [0, 0, 1],
+            ],
+            device=pyr.device,
+        )
+        return R_z @ R_y @ R_x
+
+    rotation = torch.as_tensor(rotation).float()
+    translation = torch.as_tensor(translation).float()
+
+    # Amount of cameras
+    ndim = rotation.ndim
+    assert ndim == translation.ndim
+    if ndim == 1:
+        rotation = rotation.unsqueeze(0)
+        translation = translation.unsqueeze(0)
+
+    N = rotation.size(0)
+
+    # Value checks
+    assert N == len(translation)
+    assert rotation[0].shape == (3, 3)
+    assert translation[0].shape == (3,)
+
+    # Create extrinsic matrix [R|t] + [0 0 0 1]
+    extrinsic_matrix = torch.zeros(N, 4, 4, device=rotation[0].device)
+    for i in range(N):
+        extrinsic_matrix[i, :3, :3] = _pyr_to_rot(rotation[i])
+        extrinsic_matrix[i, :3, 3] = translation[i]
+        extrinsic_matrix[i, 3, 3] = 1.0
+
+    if ndim == 1:
+        extrinsic_matrix = extrinsic_matrix.squeeze(0)
+
+    return extrinsic_matrix
+
+
+def build_intrinsic_matrix(
+    focal_length: T.List[T.Tuple[float, float]] | Tensor,
+    principal_point: T.List[T.Tuple[float, float]] | Tensor,
     orthographic: bool,
 ) -> Tensor:
     r"""
@@ -17,24 +93,29 @@ def build_calibration_matrix(
     """
 
     # Focal length, shape (), (N, 1) or (N, 2)
-    if not isinstance(focal_lengths, Tensor):
-        focal_lengths = torch.tensor([list(t) for t in focal_lengths])
-    if focal_lengths.ndim in [0, 1] or focal_lengths.shape[1] == 1:
-        fx = fy = focal_lengths
+    if not isinstance(focal_length, Tensor):
+        focal_length = torch.as_tensor(focal_length).float()
+    if focal_length.shape[-1] == 1:
+        fx = fy = focal_length
     else:
-        fx, fy = focal_lengths.unbind(1)
+        fx, fy = focal_length.unbind(-1)
 
     # Principal point
-    if not isinstance(principal_points, Tensor):
-        principal_points = torch.tensor([list(p) for p in principal_points])
-    px, py = principal_points.unbind(1)
+    if not isinstance(principal_point, Tensor):
+        principal_point = torch.as_tensor(principal_point).float()
+    px, py = principal_point.unbind(-1)
+
+    # Batched/unbatched
+    ndim = focal_length.ndim
+    assert ndim == principal_point.ndim
+    if ndim == 1:
+        fx = fx.unsqueeze(0)
+        fy = fy.unsqueeze(0)
+        px = px.unsqueeze(0)
+        py = py.unsqueeze(0)
 
     # Amount of cameras
-    N = len(focal_lengths)
-
-    # Value checks
-    assert N == len(principal_points)
-    assert focal_lengths.device == principal_points.device
+    N = fx.size(0)
 
     # Create calibration matrix
     K: Tensor = fx.new_zeros(N, 4, 4)
@@ -51,18 +132,20 @@ def build_calibration_matrix(
         K[:, 3, 2] = 1.0
         K[:, 2, 3] = 1.0
 
+    if ndim == 1:
+        K = K.squeeze(0)
+
     return K
 
 
-def create_intrinsic_maps(
-    shape: Size | T.Sequence[int], intrinsics: Tensor | T.Sequence[float]
-) -> Tensor:
+def encode_intrinsic_map(shape: Size | T.Sequence[int], K: Tensor) -> Tensor:
     r"""
     Encode the camera intrinsic parameters (focal length and principle point) to a map
     with channels for the distance to the principle point and the field of view.
     """
     *_, height, width = shape
-    fx, fy, u0, v0 = intrinsics
+    fx, fy = K[..., :2, :2].diagonal()
+    u0, v0 = K[..., :2, 2]
     f = (fx + fy) / 2.0
     # principle point location
     x_row = torch.arange(0, width, dtype=torch.float32)
@@ -82,12 +165,12 @@ def create_intrinsic_maps(
 
 
 def generate_rays(
-    camera_intrinsics: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False
+    K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False
 ):
     batch_size, device, dtype = (
-        camera_intrinsics.shape[0],
-        camera_intrinsics.device,
-        camera_intrinsics.dtype,
+        K.shape[0],
+        K.device,
+        K.dtype,
     )
     height, width = image_shape
     # Generate grid of pixel coordinates
@@ -103,10 +186,10 @@ def generate_rays(
 
     # Calculate ray directions
     intrinsics_inv = torch.eye(3, device=device).unsqueeze(0).repeat(batch_size, 1, 1)
-    intrinsics_inv[:, 0, 0] = 1.0 / camera_intrinsics[:, 0, 0]
-    intrinsics_inv[:, 1, 1] = 1.0 / camera_intrinsics[:, 1, 1]
-    intrinsics_inv[:, 0, 2] = -camera_intrinsics[:, 0, 2] / camera_intrinsics[:, 0, 0]
-    intrinsics_inv[:, 1, 2] = -camera_intrinsics[:, 1, 2] / camera_intrinsics[:, 1, 1]
+    intrinsics_inv[:, 0, 0] = 1.0 / K[:, 0, 0]
+    intrinsics_inv[:, 1, 1] = 1.0 / K[:, 1, 1]
+    intrinsics_inv[:, 0, 2] = -K[:, 0, 2] / K[:, 0, 0]
+    intrinsics_inv[:, 1, 2] = -K[:, 1, 2] / K[:, 1, 1]
     homogeneous_coords = torch.cat(
         [pixel_coords, torch.ones_like(pixel_coords[:, :, :1])], dim=2
     )  # (H, W, 3)
@@ -185,7 +268,7 @@ def unproject_points(depth: Tensor, camera_intrinsics: Tensor) -> Tensor:
 
     Parameters
     ----------
-    depth: Tensor[B, 1, H, W]
+    depth: Tensor[B, H, W]
         Batch of depth maps.
     camera_intrinsics: Tensor[B, 3, 3]
         Camera intrinsic matrix of shape.
@@ -193,9 +276,9 @@ def unproject_points(depth: Tensor, camera_intrinsics: Tensor) -> Tensor:
     Returns
     -------
     Tensor[B, 3, H, W]
-        Batch of 3D point clouds.
+        Projected coordinates (XYZ) for each pixel in the depth map.
     """
-    batch_size, _, height, width = depth.shape
+    batch_size, height, width = depth.shape
     device = depth.device
 
     # Create pixel grid
@@ -220,7 +303,7 @@ def unproject_points(depth: Tensor, camera_intrinsics: Tensor) -> Tensor:
     unprojected_points = unprojected_points.view(
         batch_size, 3, height, width
     )  # (B, 3, H, W)
-    unprojected_points = unprojected_points * depth  # (B, 3, H, W)
+    unprojected_points = unprojected_points * depth.unsqueeze(-3)  # (B, 3, H, W)
     return unprojected_points
 
 
@@ -245,8 +328,8 @@ def project_points(
 
     Returns
     -------
-    Tensor[B, N, 2]
-        Batch of 2D points.
+    Tensor[B, H, W]
+        Depth map from the projected points.
     """
     points_2d = torch.matmul(points_3d, intrinsic_matrix.transpose(1, 2))
 
@@ -255,7 +338,7 @@ def project_points(
 
     points_2d = points_2d.int()
 
-    # points need to be inside the image (can it diverge onto all points out???)
+    # Valid points inside the image plane
     valid_mask = (
         (points_2d[..., 0] >= 0)
         & (points_2d[..., 0] < image_shape[1])

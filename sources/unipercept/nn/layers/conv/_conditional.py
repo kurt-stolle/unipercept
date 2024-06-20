@@ -47,7 +47,7 @@ class CondConv2d(NormActivationMixin, nn.Module):
     Conditional convolution layer.
     """
 
-    __constants__ = ["in_channels", "out_channels", "dynamic_padding"]
+    __constants__ = ["in_channels", "out_channels"]
 
     def __init__(
         self,
@@ -126,7 +126,6 @@ class CondConv2d(NormActivationMixin, nn.Module):
         # move batch elements with channels so each batch element can be efficiently convolved with separate kernel
         # reshape instead of view to work with channels_last input
         x = x.reshape(1, B * C, H, W)
-        x = self._padding_forward(x, self.kernel_size, self.stride, self.dilation)
         x = F.conv2d(
             x,
             weight,

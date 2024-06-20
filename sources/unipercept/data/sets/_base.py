@@ -217,8 +217,9 @@ class PerceptionDataset(
                 focal_length=cam["focal_length"],
                 principal_point=cam["principal_point"],
                 translation=cam["translation"],
-                rotation=cam["rotation"],
+                angles=cam["rotation"],
                 canvas=cam["image_size"],
+                convention=cam.get("convention", "opencv"),
             )
             for cam in camera_spec
         ]).as_subclass(PinholeCamera)

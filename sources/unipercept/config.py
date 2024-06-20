@@ -875,7 +875,13 @@ def as_list(*args):
     return call(make_list)(items=args)
 
 
-def partial(*, func: T.Callable[..., T.Any], **kwargs) -> T.Callable[..., T.Any]:
+def _call_partial(
+    *, _func_: T.Callable[..., T.Any], **kwargs
+) -> T.Callable[..., T.Any]:
+    return functools.partial(_func_, **kwargs)
+
+
+def partial(func: T.Callable[..., T.Any], /) -> T.Callable[..., T.Any]:
     """
     Partially apply a function with keyword arguments.
 
@@ -883,12 +889,10 @@ def partial(*, func: T.Callable[..., T.Any], **kwargs) -> T.Callable[..., T.Any]
     ----------
     func : callable
         The function to partially apply.
-    kwargs : dict
-        The keyword arguments to apply to the function.
 
     Returns
     -------
     callable
-        A partially applied function.
+        A lazy callable object that is forwarded to ``functools.partial``.
     """
-    return functools.partial(func, **kwargs)
+    return lambda **kwargs: call(_call_partial)(_func_=func, **kwargs)

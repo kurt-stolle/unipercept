@@ -7,7 +7,7 @@ import typing_extensions as TX
 from . import (
     abbreviate,
     box,
-    camera,
+    geometry,
     cli,
     conifg,
     dicttools,

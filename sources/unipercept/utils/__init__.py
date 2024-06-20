@@ -9,7 +9,7 @@ from unipercept.utils.module import lazy_module_factory
 __all__ = [
     "abbreviate",
     "box",
-    "camera",
+    "geometry",
     "dicttools",
     "function",
     "inspect",

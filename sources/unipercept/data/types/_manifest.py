@@ -159,10 +159,12 @@ class PinholeModelParameters(T.TypedDict):
     rotation: tuple[float, float, float]  # (pitch (x), yaw (y), roll (z))
     translation: tuple[float, float, float]  # (tx, ty, tz)
     image_size: tuple[int, int]  # (height, width)
+    convention: T.NotRequired[str]  # 'opencv' (default) or 'opengl'
     observer: T.NotRequired[str]
 
 
 CameraModelParameters: T.TypeAlias = PinholeModelParameters
+CameraResource: T.TypeAlias = FileResourceWithMeta[FormatMeta[str]]
 
 # ------------------- #
 # Manifest of records #
@@ -190,8 +192,13 @@ class ManifestSequence(T.TypedDict):
         Remember that each motion references a range of frames, and thus the order of the motions is not important.
     """
 
-    # singular 'camera' instead of 'cameras' because the '-s' in captures and motions refers to the temporal nature of data, while the camera parameters are assumed to be fixed during each sequence.
-    camera: CameraModelParameters | None | list[CameraModelParameters]
+    camera: (
+        CameraResource
+        | list[CameraResource]
+        | CameraModelParameters
+        | list[CameraModelParameters]
+        | None
+    )
     fps: float | None
     captures: list[CaptureRecord]
     motions: T.NotRequired[list[MotionRecord]]

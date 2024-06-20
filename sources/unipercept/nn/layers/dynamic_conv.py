@@ -34,6 +34,7 @@ class DynamicConv2d(nn.Module):
         layers: int | T.Tuple[int, int] | T.Sequence[int] = (1, 3),
         activation: ActivationSpec = InplaceReLU,
         dropout: float = 0.0,
+        affine: bool = False,
         init_gain: float | T.Tuple[float, float] | T.Sequence[float] = (0.33, 0.33),
     ):
         r"""
@@ -49,6 +50,9 @@ class DynamicConv2d(nn.Module):
             The activation function to use in projection layers.
         dropout : float
             The dropout rate in the projection layers.
+        affine : bool
+            Whether to use affine transformation in the normalization layers at
+            the input.
         init_gain : float | Tuple[float,float] | Sequence[float]
             The gain to apply to the output tensor initialization.
         """
@@ -62,8 +66,8 @@ class DynamicConv2d(nn.Module):
         f_layers, k_layers = to_2tuple(layers)
         f_gain, k_gain = to_2tuple(init_gain)
 
-        self.norm_k = nn.LayerNorm(d_k, elementwise_affine=False)
-        self.norm_f = nn.LayerNorm(d_f, elementwise_affine=False)
+        self.norm_k = nn.LayerNorm(d_k, elementwise_affine=affine)
+        self.norm_f = nn.LayerNorm(d_f, elementwise_affine=affine)
 
         if k_layers > 0:
             self.proj_k = MLP(

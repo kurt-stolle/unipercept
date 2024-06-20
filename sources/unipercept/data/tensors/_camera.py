@@ -3,11 +3,19 @@ Implements the camera s a TVTensor.
 """
 
 from __future__ import annotations
-import pprint
 import typing as T
 import typing_extensions as TX
 import torch
-from torch import Tensor, Size
+from torch import Tensor, Size, nn
+
+from unipercept.utils.geometry import (
+    AxesConvention,
+    intrinsics_from_parameters,
+    extrinsics_from_parameters,
+    homogeneous_to_euclidean_points,
+    euclidean_to_homogeneous_points,
+    unsafe_inverse,
+)
 
 from torchvision.transforms.v2.functional import register_kernel
 from torchvision.tv_tensors import TVTensor
@@ -54,10 +62,10 @@ class PinholeCamera(TVTensor):
             raise NotImplementedError(msg)
 
         H, W = like.shape[-2:]
-        F = torch.tensor([1.0, 1.0])
+        F = torch.tensor([1.0, 1.0]) * max(H, W) * 2
         P = torch.tensor([W / 2, H / 2])
 
-        cam = cls.from_parameters(F, P, canvas=[0, 0, W, H])
+        cam = cls.from_parameters(F, P, canvas=[W, H])
         cam = cam.unsqueeze(0)
         cam = cam.expand((n_cameras, -1, -1))
         return cam.as_subclass(cls)
@@ -66,27 +74,37 @@ class PinholeCamera(TVTensor):
     def from_parameters(
         cls,
         focal_length: Tensor | T.Iterable[int | float],
-        principal_point: Tensor | T.Iterable[float | int],
-        rotation: Tensor | T.Iterable[float | int] | None = None,  # pitch, yaw, roll
-        translation: Tensor | T.Iterable[float | int] | None = None,  # x, y, z
-        canvas: Tensor | T.Iterable[float | int] | None = None,
+        principal_point: Tensor | T.Iterable[int | float],
+        angles: Tensor | T.Iterable[int | float] | None = None,  # pitch, yaw, roll
+        translation: Tensor | T.Iterable[int | float] | None = None,  # x, y, z
+        convention: AxesConvention | str = AxesConvention.OPENCV,
+        canvas: Tensor | T.Iterable[int] | None = None,
     ) -> T.Self:
         """
         Constructs a PinholeCamera tensor from the camera parameters.
         """
-        K = cls.build_intrinsic_matrix(focal_length, principal_point, orthographic=False)
-        if rotation is None and translation is None:
-            E = torch.zeros_like(K)
-        else:
-            if rotation is None:
-                translation = torch.as_tensor(translation)
-                rotation = torch.zeros_like(translation)
-            else:
-                rotation = torch.as_tensor(rotation)
-                translation = torch.as_tensor(translation)
-            E = cls.build_extrinsic_matrix(rotation, translation)
+        focal_length = torch.as_tensor(focal_length).float()
+        principal_point = torch.as_tensor(principal_point).to(focal_length)
 
-        return cls.from_parts(K, E, canvas)
+        intrinsics = intrinsics_from_parameters(
+            focal_length, principal_point, orthographic=False  # type: ignore
+        )
+
+        if angles is None and translation is None:
+            extrinsics = None
+        else:
+            if angles is None:
+                translation = torch.as_tensor(translation).to(focal_length)
+                angles = torch.zeros_like(translation)
+            else:
+                angles = torch.as_tensor(angles).to(focal_length)
+                translation = torch.as_tensor(translation)
+            extrinsics = extrinsics_from_parameters(angles, translation, convention)
+
+        if canvas is not None:
+            canvas = torch.as_tensor(canvas).to(focal_length)
+
+        return cls.from_parts(intrinsics, extrinsics, canvas)
 
     @classmethod
     def from_parts(
@@ -104,6 +122,7 @@ class PinholeCamera(TVTensor):
 
         if extrinsics is None:
             extrinsics = torch.zeros_like(intrinsics)
+            extrinsics[..., :, :] = torch.eye(4, device=intrinsics.device)
         else:
             extrinsics = torch.as_tensor(extrinsics)
         assert extrinsics.ndim >= 2 and extrinsics.size(-1) == 4
@@ -113,156 +132,25 @@ class PinholeCamera(TVTensor):
             canvas = torch.cat([v0 * 2, u0 * 2], dim=-1)
         else:
             canvas = torch.as_tensor(canvas).to(intrinsics)
-            if canvas.size(-1) == 2:
-                canvas = canvas.flip(-1)  # H, W -> W, H
-                canvas = torch.cat([torch.zeros_like(canvas), canvas], dim=-1)  # bbox
-            elif canvas.size(-1) != 4:
-                msg = (
-                    "Canvas must be a tensor of shape (V, U) or (u1, v1, u2, v2). "
-                    f"Got: {canvas.shape}"
-                )
-                raise ValueError(msg)
-
-        assert canvas.ndim == intrinsics.ndim - 1
+        if canvas.size(-1) == 2:
+            spatial_size = canvas.flip(-1)  # H, W -> W, H
+            canvas = torch.zeros((*intrinsics.shape[:-2], 4, 2), dtype=intrinsics.dtype)
+            canvas[..., 2:, 0] = spatial_size  # canvas bbox end
+            canvas[..., 2:, 1] = spatial_size  # image bbox end
+        elif canvas.size(-1) != 4 or canvas.ndim != intrinsics.ndim:
+            msg = (
+                "Canvas must be a tensor of shape [(V, U)] or "
+                "[(img_left, img_top, img_right, img_bottom), "
+                "(crop_left, crop_top, crop_right, crop_bottom)]. "
+                f"Got: {canvas.shape}"
+            )
+            raise ValueError(msg)
 
         res = torch.zeros((*intrinsics.shape[:-2], 4, 10), dtype=intrinsics.dtype)
-        res[..., :, 0:4] = intrinsics
+        res[..., :, :4] = intrinsics
         res[..., :, 4:8] = extrinsics
-        res[..., :, 8] = canvas
+        res[..., :, 8:] = canvas
         return res.as_subclass(cls)
-    
-    
-    @staticmethod
-    def build_extrinsic_matrix(
-        rotation: T.List[T.Tuple[float, float, float]] | Tensor,
-        translation: T.List[T.Tuple[float, float, float]] | Tensor,
-    ) -> Tensor:
-        r"""
-        Build the extrinsic matrix (R|t) using the rotations and translations.
-        """
-
-        def _pyr_to_rot(pyr: Tensor) -> Tensor:
-            """
-            Convert Pitch Yaw Roll values to a 3x3 rotation matrix.
-            """
-            pitch, yaw, roll = pyr.unbind(-1)
-            sin_p = torch.sin(pitch)
-            cos_p = torch.cos(pitch)
-            sin_y = torch.sin(yaw)
-            cos_y = torch.cos(yaw)
-            sin_r = torch.sin(roll)
-            cos_r = torch.cos(roll)
-
-            R_x = torch.tensor(
-                [
-                    [1, 0, 0],
-                    [0, cos_p, -sin_p],
-                    [0, sin_p, cos_p],
-                ],
-                device=pyr.device,
-            )
-            R_y = torch.tensor(
-                [
-                    [cos_y, 0, sin_y],
-                    [0, 1, 0],
-                    [-sin_y, 0, cos_y],
-                ],
-                device=pyr.device,
-            )
-            R_z = torch.tensor(
-                [
-                    [cos_r, -sin_r, 0],
-                    [sin_r, cos_r, 0],
-                    [0, 0, 1],
-                ],
-                device=pyr.device,
-            )
-            return R_z @ R_y @ R_x
-
-        rotation = torch.as_tensor(rotation).float()
-        translation = torch.as_tensor(translation).float()
-
-        # Amount of cameras
-        ndim = rotation.ndim
-        assert ndim == translation.ndim
-        if ndim == 1:
-            rotation = rotation.unsqueeze(0)
-            translation = translation.unsqueeze(0)
-
-        N = rotation.size(0)
-
-        # Value checks
-        assert rotation.shape[-1] == 3, rotation.shape
-        assert translation.shape[-1]== 3, translation.shape
-
-        # Create extrinsic matrix [R|t] + [0 0 0 1]
-        extrinsic_matrix = torch.zeros(N, 4, 4, device=rotation[0].device)
-        for i in range(N):
-            extrinsic_matrix[i, :3, :3] = _pyr_to_rot(rotation[i])
-            extrinsic_matrix[i, :3, 3] = translation[i]
-            extrinsic_matrix[i, 3, 3] = 1.0
-
-        if ndim == 1:
-            extrinsic_matrix = extrinsic_matrix.squeeze(0)
-
-        return extrinsic_matrix
-
-    @staticmethod
-    def build_intrinsic_matrix(
-        focal_length: T.List[T.Tuple[float, float]] | Tensor,
-        principal_point: T.List[T.Tuple[float, float]] | Tensor,
-        orthographic: bool,
-    ) -> Tensor:
-        r"""
-        Build the calibration matrix (K-matrix) using the focal lengths and
-        principal points.
-        """
-
-        # Focal length, shape (), (N, 1) or (N, 2)
-        if not isinstance(focal_length, Tensor):
-            focal_length = torch.as_tensor(focal_length).float()
-        if focal_length.shape[-1] == 1:
-            fx = fy = focal_length
-        else:
-            fx, fy = focal_length.unbind(-1)
-
-        # Principal point
-        if not isinstance(principal_point, Tensor):
-            principal_point = torch.as_tensor(principal_point).float()
-        px, py = principal_point.unbind(-1)
-
-        # Batched/unbatched
-        ndim = focal_length.ndim
-        assert ndim == principal_point.ndim
-        if ndim == 1:
-            fx = fx.unsqueeze(0)
-            fy = fy.unsqueeze(0)
-            px = px.unsqueeze(0)
-            py = py.unsqueeze(0)
-
-        # Amount of cameras
-        N = fx.size(0)
-
-        # Create calibration matrix
-        K: Tensor = fx.new_zeros(N, 4, 4)
-        K[:, 0, 0] = fx
-        K[:, 1, 1] = fy
-        if orthographic:
-            K[:, 0, 3] = px
-            K[:, 1, 3] = py
-            K[:, 2, 2] = 1.0
-            K[:, 3, 3] = 1.0
-        else:
-            K[:, 0, 2] = px
-            K[:, 1, 2] = py
-            K[:, 3, 2] = 1.0
-            K[:, 2, 3] = 1.0
-
-        if ndim == 1:
-            K = K.squeeze(0)
-
-        return K
-
 
     def __new__(
         cls,
@@ -289,30 +177,90 @@ class PinholeCamera(TVTensor):
         PinholeCamera. It only checks the shape of the tensor and whether this would
         be a valid shape for a PinholeCamera tensor.
         """
-        return tensor.size(-2) == 4 and tensor.size(-1) == 9
+        return tensor.size(-2) == 4 and tensor.size(-1) == 10
 
     ########################
     # Tensor destructuring #
     ########################
 
     @property
-    def intrinsic_matrix(self) -> Tensor:
+    def I(self) -> Tensor:
         """
         Returns the intrinsic matrix as a (batch_size, 4, 4) tensor.
         """
         return self[..., :, 0:4]
 
     @property
-    def extrinsic_matrix(self) -> Tensor:
+    def I_inv(self) -> Tensor:
+        """
+        Returns the inverse intrinsic matrix as a (batch_size, 4, 4) tensor.
+        """
+        return unsafe_inverse(self.I)
+
+    @property
+    def E(self) -> Tensor:
         """
         Returns the extrinsic matrix as a (batch_size, 4, 4) tensor.
         """
         return self[..., :, 4:8]
 
     @property
-    def canvas_size(self) -> Tensor:
+    def E_inv(self) -> Tensor:
+        """
+        Returns the inverse extrinsic matrix as a (batch_size, 4, 4) tensor.
+        """
+        return unsafe_inverse(self.E)
+
+    @property
+    def image_bbox(self) -> Tensor:
+        """
+        Returns the image crop bounding box as a [B, (u1, v1, u2, v2)] tensor.
+        """
+        return self[..., 8]
+
+    @property
+    def image_size(self) -> Tensor:
         """
         Returns the image size as a (batch_size, (V, U)) tensor.
+        """
+        bbox = self.image_bbox
+        size = bbox[..., 2:] - bbox[..., :2]
+        return size.flip(-1)
+
+    @property
+    def image_height(self) -> Tensor:
+        """
+        Returns the image height as a (batch_size, V) tensor.
+        """
+        return self.image_bbox[..., 3] - self.image_bbox[..., 1]
+
+    @property
+    def image_width(self) -> Tensor:
+        """
+        Returns the image width as a (batch_size, U) tensor.
+        """
+        return self.image_bbox[..., 2] - self.image_bbox[..., 0]
+
+    @property
+    def image_center(self) -> Tensor:
+        """
+        Returns the image center as a (batch_size, (U, V)) tensor.
+        """
+        bbox = self.image_bbox
+        size = self.image_size
+        return bbox[..., :2] + size.flip(-1) / 2
+
+    @property
+    def canvas_bbox(self) -> Tensor:
+        """
+        Returns the canvas crop bounding box as a [B, (u1, v1, u2, v2)] tensor.
+        """
+        return self[..., 9]
+
+    @property
+    def canvas_size(self) -> Tensor:
+        """
+        Returns the canvas size as a (batch_size, (V, U)) tensor.
         """
         bbox = self.canvas_bbox
         size = bbox[..., 2:] - bbox[..., :2]
@@ -321,32 +269,25 @@ class PinholeCamera(TVTensor):
     @property
     def canvas_height(self) -> Tensor:
         """
-        Returns the image height as a (batch_size, V) tensor.
+        Returns the canvas height as a (batch_size, V) tensor.
         """
         return self.canvas_bbox[..., 3] - self.canvas_bbox[..., 1]
 
     @property
     def canvas_width(self) -> Tensor:
         """
-        Returns the image width as a (batch_size, U) tensor.
+        Returns the canvas width as a (batch_size, U) tensor.
         """
         return self.canvas_bbox[..., 2] - self.canvas_bbox[..., 0]
 
     @property
     def canvas_center(self) -> Tensor:
         """
-        Returns the image center as a (batch_size, (V, U)) tensor.
+        Returns the canvas center as a (batch_size, (U, V)) tensor.
         """
         bbox = self.canvas_bbox
         size = self.canvas_size
-        return bbox[..., :2].flip(-1) + size / 2
-
-    @property
-    def canvas_bbox(self) -> Tensor:
-        """
-        Returns the image crop bounding box as a [B, (u1, v1, u2, v2)] tensor.
-        """
-        return self[..., 8]
+        return bbox[..., :2] + size.flip(-1) / 2
 
     ##########################
     # Sub-matrices and views #
@@ -357,7 +298,7 @@ class PinholeCamera(TVTensor):
         """
         Returns the focal length of the camera as a [..., (fx, fy)] tensor.
         """
-        return self[..., :2, :2].diagonal(0,-2,-1)
+        return self[..., :2, :2].diagonal(0, -2, -1)
 
     @property
     def principal_point(self) -> Tensor:
@@ -367,65 +308,303 @@ class PinholeCamera(TVTensor):
         return self[..., :2, 2]
 
     @property
-    def camera_matrix(self) -> Tensor:
-        """
-        Returns the camera matrix of the camera.
-        """
-        return self[..., :3, 0:3]
-
-    @property
-    def rotation_matrix(self) -> Tensor:
-        """
-        Returns the rotation part of the extrinsic parameters as a (batch_size, 3, 3) tensor.
-        """
-        return self[..., :3, 4:7]
-
-    @property
-    def translation_vector(self) -> Tensor:
+    def translation(self) -> Tensor:
         """
         Returns the translation part of the extrinsic parameters as a (batch_size, 3) tensor.
         """
         return self[..., :3, 4:7]
 
     @property
-    def rotation_translation_matrix(self) -> Tensor:
+    def K(self) -> Tensor:
         """
-        Returns the concatenated rotation-translation matrix of the camera as a
-        (batch_size, 3, 4) tensor.
+        Returns the camera matrix of the camera.
+        """
+        return self[..., :3, 0:3]
+
+    @property
+    def R(self) -> Tensor:
+        """
+        Returns the rotation part of the extrinsic parameters as a (batch_size, 3, 3) tensor.
+        """
+        return self[..., :3, 4:7]
+
+    @property
+    def Rt(self) -> Tensor:
+        """
+        Rotation-translation matrix, i.e. the concatenation :math:`[R|t]`.
+
+        Returns
+        -------
+        Tensor[..., 3, 4]
+            Rotation-translation matrix.
         """
         return self[..., :3, 4:8]
-    
+
+    @property
+    def P(self) -> Tensor:
+        """
+        Projection matrix, defined as :math:`P = IE`.
+
+        Returns
+        -------
+        Tensor[..., 4, 4]
+            Projection matrix.
+        """
+        return self.I @ self.E
+
+    @property
+    def P_inv(self) -> Tensor:
+        """
+        Inverse projection matrix :math:`P^{-1}`.
+
+        Returns
+        -------
+        Tensor[..., 4, 4]
+            Inverse projection matrix.
+        """
+        return unsafe_inverse(self.P)
+
     ##########################
     # Representation methods #
     ##########################
-    
-    def to_map(self, like: Size | T.Iterable[int] | Tensor) -> Tensor:
+
+    @torch.no_grad()
+    def get_fov_map(self, like: Size | Tensor) -> Tensor:
         r"""
         Encode the camera intrinsic parameters (focal length and principle point) to a map
         with channels for the distance to the principle point and the field of view.
         """
         if isinstance(like, Tensor):
-            *_, height, width = like.shape
+            height, width = like.shape[-2:]
         else:
-            *_, height, width = like
-        fx, fy = self.focal_length.unbind(-1)
-        u0, v0 = self.principal_point.unbind(-1)
-        f = (fx + fy) / 2.0
-        # principle point location
-        x_row = torch.arange(0, width, dtype=torch.float32)
-        x_row_center_norm = (x_row - u0) / width
-        x_center = torch.tile(x_row_center_norm, (height, 1))  # [H, W]
+            height, width = like[-2:]
 
-        y_col = torch.arange(0, height, dtype=torch.float32)
-        y_col_center_norm = (y_col - v0) / height
-        y_center = torch.tile(y_col_center_norm, (width, 1)).T
+        shape = self.shape[:-2]
+        if len(shape) == 0:
+            self = self.unsqueeze(0).as_subclass(PinholeCamera)
+        elif len(shape) > 1:
+            self = self.flatten(0, -3).as_subclass(PinholeCamera)
 
-        # FoV
-        fov_x = torch.arctan(x_center / (f / width))
-        fov_y = torch.arctan(y_center / (f / height))
+        results = []
+        for focal_length, principal_point in zip(
+            self.focal_length, self.principal_point
+        ):
+            fx, fy = focal_length.unbind(-1)
+            u0, v0 = principal_point.unbind(-1)
 
-        return torch.stack([x_center, y_center, fov_x, fov_y], dim=2)
+            # Distance to principal point
+            x_row = torch.arange(0, width, dtype=torch.float32)
+            x_row_center_norm = (x_row - u0) / (width * 2)
+            x_center = torch.tile(x_row_center_norm, (height, 1))  # [H, W]
 
+            y_col = torch.arange(0, height, dtype=torch.float32)
+            y_col_center_norm = (y_col - v0) / (height * 2)
+            y_center = torch.tile(y_col_center_norm, (width, 1)).T
+
+            # FoV
+            fov_x = torch.arctan(x_center / (fx / width))
+            fov_y = torch.arctan(y_center / (fy / height))
+
+            res = torch.stack([x_center, y_center, fov_x, fov_y], dim=2)
+            results.append(res)
+
+        res = torch.stack(results)
+
+        if len(shape) == 0:
+            res = res.squeeze(0)
+        elif len(shape) > 1:
+            res = res.unflatten(0, shape)
+
+        return res
+
+    def normalize_points(self, points_2d: Tensor) -> Tensor:
+        r"""
+        Normalize a set of 2D points to the camera plane.
+
+        Returns
+        -------
+        Tensor[B, N, 2]
+            Normalized points in the camera plane.
+        """
+        return (points_2d - self.principal_point) / self.focal_length
+
+    def denormalize_points(self, points_2d: Tensor) -> Tensor:
+        r"""
+        Denormalize a set of 2D points to the image plane.
+
+        Returns
+        -------
+        Tensor[B, N, 2]
+            Denormalized points in the image plane.
+        """
+        return points_2d * self.focal_length + self.principal_point
+
+    def reproject_map(self, depth_map: Tensor) -> Tensor:
+        r"""
+        reprojects each pixel to 3D coordinates.
+
+        Parameters
+        ----------
+        depth_map: Tensor[..., H, W]
+            Depth map containing depth values for every pixel.
+
+        Returns
+        -------
+        Tensor[B, H, W, 3]
+            Projected coordinates (XYZ) for each pixel in the depth map.
+        """
+        assert depth_map.ndim >= 3
+
+        *batch_shape, height, width = depth_map.shape
+
+        # Create pixel grid
+        with depth_map.device, torch.no_grad():
+            # Define a grid over the image plane
+            y_coords, x_coords = torch.meshgrid(
+                torch.arange(height),
+                torch.arange(width),
+                indexing="ij",
+            )
+            # Create the point coordinates as a stack of x, y coordinates
+            point_coords = torch.stack((x_coords, y_coords), dim=-1)  # (H, W, 2)
+            point_coords = point_coords.flatten(0, 1).float()  # (H*W, 2)
+
+        # Reshape depth map to a depth value for every point
+        point_depths = depth_map.flatten(0, -3)  # (B', H, W)
+        point_depths = point_depths.reshape(-1, height * width, 1)  # (B', H*W, 1)
+
+        # Repeat pixel coordinates for each batch item
+        point_coords = point_coords.unsqueeze(0).expand(
+            point_depths.size(0), -1, -1
+        )  # (B', H*W, 2)
+
+        result = self.image_to_world(point_coords, point_depths)  # (B', H*W, 3)
+        result = result.unflatten(1, (height, width))
+        result = result.unflatten(0, batch_shape)
+
+        return result
+
+    def image_to_camera(
+        self,
+        coords: Tensor,
+        depths: Tensor | None = None,
+    ) -> Tensor:
+        r"""
+        Reprojects pixel coordinates to the camera plane. If depth is None, then
+        the pixels are projected to the z=1 plane.
+        """
+        # points = self.normalize_points(coords)
+        # points = nn.functional.normalize(points, dim=-1, p=2.0)
+        # if depths is not None:
+        #    points = points * depths
+        points = euclidean_to_homogeneous_points(coords)
+        points = _apply_points(self.I_inv, points) * depths
+        return points
+
+    def camera_to_world(
+        self,
+        points: Tensor,
+    ) -> Tensor:
+        r"""
+        Reprojects a set of 3D points in the camera system to 3D points in the world.
+
+        Parameters
+        ----------
+        points: Tensor[B, N, 3]
+            2D points to reproject.
+
+        Returns
+        -------
+        Tensor[B, N, 3]
+            Projected coordinates (XYZ) for each pixel in the depth map.
+        """
+        points = _apply_points(self.E_inv, points)
+        return points
+
+    def image_to_world(
+        self,
+        coords: Tensor,
+        depths: Tensor | None = None,
+    ) -> Tensor:
+        r"""
+        Reprojects pixel coordinates (u,v) to 3D coordinates (x,y,z) in the world.
+        """
+        points = self.image_to_camera(coords, depths)
+        return self.camera_to_world(points)
+
+    def project_map(
+        self,
+        points: Tensor,
+        image_shape: T.Tuple[int, int] | Size | T.Sequence[int],
+    ) -> Tensor:
+        r"""
+        Project a set of points onto a 2D depth map.
+
+        Parameters
+        ----------
+        points: Tensor[B, N, 3]
+            Batch of 3D points.
+        image_shape: Tuple[int, int]
+            Image shape (height, width).
+
+        Returns
+        -------
+        Tensor[B, H, W]
+            Depth map from the projected points.
+        """
+        points_2d = torch.matmul(points, self.K.transpose(1, 2))
+
+        # Normalize projected points: (u v w) -> (u / w, v / w, 1)
+        points_2d = points_2d[..., :2] / points_2d[..., 2:]
+
+        points_2d = points_2d.int()
+
+        # Valid points inside the image plane
+        valid_mask = (
+            (points_2d[..., 0] >= 0)
+            & (points_2d[..., 0] < image_shape[1])
+            & (points_2d[..., 1] >= 0)
+            & (points_2d[..., 1] < image_shape[0])
+        )
+
+        # Calculate the flat indices of the valid pixels
+        flat_points_2d = points_2d[..., 0] + points_2d[..., 1] * image_shape[1]
+        flat_indices = flat_points_2d.long()
+
+        # Create depth maps and counts using scatter_add, (B, H, W)
+        depth_maps = torch.zeros([points.shape[0], *image_shape], device=points.device)
+        counts = torch.zeros([points.shape[0], *image_shape], device=points.device)
+
+        # Loop over batches to apply masks and accumulate depth/count values
+        for i in range(points.shape[0]):
+            valid_indices = flat_indices[i, valid_mask[i]]
+            depth_maps[i].view(-1).scatter_add_(
+                0, valid_indices, points[i, valid_mask[i], 2]
+            )
+            counts[i].view(-1).scatter_add_(
+                0, valid_indices, torch.ones_like(points[i, valid_mask[i], 2])
+            )
+
+        # Calculate mean depth for each pixel in each batch
+        mean_depth_maps = depth_maps / counts.clamp(min=1.0)
+        return mean_depth_maps.reshape(-1, *image_shape)  # (B, H, W)
+
+    def project_points(self, points: Tensor) -> Tensor:
+        r"""
+        Project a set of 3D points to 2D points.
+
+        Parameters
+        ----------
+        points: Tensor[B, N, 3]
+            3D points to project.
+
+        Returns
+        -------
+        Tensor[B, N, 2]
+            2D points projected by the camera.
+        """
+        result_homo = _apply_points(self.P, points)
+        return homogeneous_to_euclidean_points(result_homo)
 
     #####################
     # Modifying methods #
@@ -441,20 +620,26 @@ class PinholeCamera(TVTensor):
             msg = f"Expected a tensor of shape [..., (V, U)], but got {factor.shape}"
             raise ValueError(msg)
 
-        factor = factor.to(self)
-        scale_h, scale_w = factor[..., 0], factor[..., 1]
+        factor_hw = factor.to(self)
+        factor_wh = factor_hw.flip(-1)
 
         # Modify the intrinsic matrix
-        self.intrinsic_matrix[..., 0, 0] *= scale_w
-        self.intrinsic_matrix[..., 1, 1] *= scale_h
-        self.intrinsic_matrix[..., 0, 2] *= scale_w
-        self.intrinsic_matrix[..., 1, 2] *= scale_h
+        self.principal_point[..., :] *= factor_wh
+        self.focal_length[..., :] *= factor_hw
 
-        # Modify the crop (and convert H, W -> V, U)
-        crop_center = (self.canvas_center * factor).flip(-1)
-        crop_size = (self.canvas_size * factor).flip(-1)
+        # Modify the image size
+        image_center = self.image_center * factor_wh
+        image_size = (self.image_size * factor_hw).flip(-1)
 
         self[..., 8] = torch.cat(
+            [image_center - image_size / 2, image_center + image_size / 2], dim=-1
+        )
+
+        # Modify the crop (and convert H, W -> V, U)
+        crop_center = self.canvas_center * factor_wh
+        crop_size = (self.canvas_size * factor_hw).flip(-1)
+
+        self[..., 9] = torch.cat(
             [crop_center - crop_size / 2, crop_center + crop_size / 2], dim=-1
         )
 
@@ -474,7 +659,20 @@ class PinholeCamera(TVTensor):
         """
         This is the inplace variant of :meth:`crop`.
         """
-        self[..., 8] = crop.to(self)
+        crop_width = crop[..., 2] - crop[..., 0]
+        crop_height = crop[..., 3] - crop[..., 1]
+
+        # Move the principal point
+        self.principal_point[..., :] -= crop[..., :2]
+
+        assert (
+            self.canvas_width >= crop_width
+        ), f"Cannot crop outside bounds: {self.canvas_width=} < {crop_width=}"
+        assert (
+            self.canvas_height >= crop_height
+        ), f"Cannot crop outside bounds: {self.canvas_height=} < {crop_height=}"
+
+        self[..., 9] = crop.to(self)
         return self
 
     def crop(self, crop: Tensor, inplace: bool = False) -> T.Self:
@@ -510,13 +708,14 @@ class PinholeCamera(TVTensor):
             for k, v in {
                 "focal_length": self.focal_length.tolist(),
                 "principal_point": self.principal_point.tolist(),
-                "rotation": self.rotation_matrix.tolist(),
-                "translation": self.translation_vector.tolist(),
+                "rotation": self.R.tolist(),
+                "translation": self.translation.tolist(),
                 "canvas_size": self.canvas_size.tolist(),
                 "canvas_center": self.canvas_center.tolist(),
             }.items()
         )
         return f"{self.__class__.__name__}({self.dtype}, {kwds}){{\n{TAB}{fields}\n}}"
+
 
 @register_kernel(functional="resize", tv_tensor_cls=PinholeCamera)
 def resize_camera(
@@ -527,12 +726,29 @@ def resize_camera(
     antialias: T.Any = False,  # noqa: U100
     use_rescale: bool = False,
 ) -> Tensor:
+    if camera.ndim >= 3:
+        shape = camera.shape[:-2]
+        cams = camera.flatten(0, -3)
+        resized_cams = [
+            resize_camera(
+                cam.as_subclass(PinholeCamera),
+                size,
+                interpolation,
+                max_size,
+                antialias,
+                use_rescale,
+            )
+            for cam in cams
+        ]
+        return torch.stack(resized_cams).unflatten(0, shape)
+
     h_old, w_old = camera.canvas_size.tolist()
     h_new, w_new = _compute_resized_output_size(
         (h_old, w_old), size=size, max_size=max_size
     )
 
-    return camera.scale(torch.tensor([h_new / h_old, w_new / w_old]))
+    camera = camera.scale(torch.tensor([h_new / h_old, w_new / w_old]))
+    return camera.as_subclass(PinholeCamera)
 
 
 @register_kernel(functional="crop", tv_tensor_cls=PinholeCamera)
@@ -544,11 +760,57 @@ def crop_camera(
     width: int,
 ) -> Tensor:
     crop = torch.tensor([left, top, left + width, top + height])
-    return camera.crop(crop)
+    camera = camera.crop(crop)
+    return camera.as_subclass(PinholeCamera)
 
-def generate_rays(
-    K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False
-):
+
+####################################################
+# Various helper methods for geometric projections #
+####################################################
+
+
+def _apply_points(transform: Tensor, points: Tensor) -> Tensor:
+    r"""
+    Apply a transformation on a set of points.
+
+    Parameters
+    ----------
+    transform: Tensor[*, D+1, D+1]
+        Transformation matrix.
+    points: Tensor[*, N, D]
+        Points to transform.
+
+    Returns
+    -------
+    Tensor[*, N, D]
+        Transformed points.
+    """
+
+    *shape, _, _ = points.shape
+
+    points = points.reshape(-1, points.shape[-2], points.shape[-1])
+
+    transform = transform.reshape(-1, transform.shape[-2], transform.shape[-1])
+    transform = torch.repeat_interleave(
+        transform, repeats=points.shape[0] // transform.shape[0], dim=0
+    )
+
+    points_homo = euclidean_to_homogeneous_points(points)
+
+    result_homo = torch.bmm(points_homo, transform.permute(0, 2, 1))
+    result_homo = torch.squeeze(result_homo, dim=-1)
+    result = homogeneous_to_euclidean_points(result_homo)
+
+    shape.extend(result.shape[-2:])
+    return result.reshape(shape)
+
+
+#######################
+# Rendering utilities #
+#######################
+
+
+def generate_rays(K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False):
     batch_size, device, dtype = (
         K.shape[0],
         K.device,
@@ -642,115 +904,6 @@ def euclidean_to_spherical_zbuffer(euclidean_tensor: Tensor) -> Tensor:
     z = euclidean_tensor[..., 2]  # Extract zbuffer depth
     euclidean_tensor = torch.stack((pitch, yaw, z), dim=-1)
     return euclidean_tensor
-
-
-def unproject_points(depth: Tensor, camera_intrinsics: Tensor) -> Tensor:
-    r"""
-    Unprojects a batch of depth maps to 3D point clouds using camera intrinsics.
-
-    Parameters
-    ----------
-    depth: Tensor[B, H, W]
-        Batch of depth maps.
-    camera_intrinsics: Tensor[B, 3, 3]
-        Camera intrinsic matrix of shape.
-
-    Returns
-    -------
-    Tensor[B, 3, H, W]
-        Projected coordinates (XYZ) for each pixel in the depth map.
-    """
-    batch_size, height, width = depth.shape
-    device = depth.device
-
-    # Create pixel grid
-    y_coords, x_coords = torch.meshgrid(
-        torch.arange(height, device=device),
-        torch.arange(width, device=device),
-        indexing="ij",
-    )
-    pixel_coords = torch.stack((x_coords, y_coords), dim=-1)  # (H, W, 2)
-
-    # Get homogeneous coords (u v 1)
-    pixel_coords_homogeneous = torch.cat(
-        (pixel_coords, torch.ones((height, width, 1), device=device)), dim=-1
-    )
-    pixel_coords_homogeneous = pixel_coords_homogeneous.permute(2, 0, 1).flatten(
-        1
-    )  # (3, H*W)
-    # Apply K^-1 @ (u v 1): [B, 3, 3] @ [3, H*W] -> [B, 3, H*W]
-    unprojected_points = torch.matmul(
-        torch.inverse(camera_intrinsics), pixel_coords_homogeneous
-    )  # (B, 3, H*W)
-    unprojected_points = unprojected_points.view(
-        batch_size, 3, height, width
-    )  # (B, 3, H, W)
-    unprojected_points = unprojected_points * depth.unsqueeze(-3)  # (B, 3, H, W)
-    return unprojected_points
-
-
-def project_points(
-    points_3d: Tensor,
-    intrinsic_matrix: Tensor,
-    image_shape: T.Tuple[int, int],
-) -> Tensor:
-    r"""
-    Project 3D points onto the image plane using camera intrinsics:
-
-    :math:`(u v w) = (x y z) @ K^T`
-
-    Parameters
-    ----------
-    points_3d: Tensor[B, N, 3]
-        Batch of 3D points.
-    intrinsic_matrix: Tensor[B, 3, 3]
-        Camera intrinsic matrix.
-    image_shape: Tuple[int, int]
-        Image shape (height, width).
-
-    Returns
-    -------
-    Tensor[B, H, W]
-        Depth map from the projected points.
-    """
-    points_2d = torch.matmul(points_3d, intrinsic_matrix.transpose(1, 2))
-
-    # Normalize projected points: (u v w) -> (u / w, v / w, 1)
-    points_2d = points_2d[..., :2] / points_2d[..., 2:]
-
-    points_2d = points_2d.int()
-
-    # Valid points inside the image plane
-    valid_mask = (
-        (points_2d[..., 0] >= 0)
-        & (points_2d[..., 0] < image_shape[1])
-        & (points_2d[..., 1] >= 0)
-        & (points_2d[..., 1] < image_shape[0])
-    )
-
-    # Calculate the flat indices of the valid pixels
-    flat_points_2d = points_2d[..., 0] + points_2d[..., 1] * image_shape[1]
-    flat_indices = flat_points_2d.long()
-
-    # Create depth maps and counts using scatter_add, (B, H, W)
-    depth_maps = torch.zeros(
-        [points_3d.shape[0], *image_shape], device=points_3d.device
-    )
-    counts = torch.zeros([points_3d.shape[0], *image_shape], device=points_3d.device)
-
-    # Loop over batches to apply masks and accumulate depth/count values
-    for i in range(points_3d.shape[0]):
-        valid_indices = flat_indices[i, valid_mask[i]]
-        depth_maps[i].view(-1).scatter_add_(
-            0, valid_indices, points_3d[i, valid_mask[i], 2]
-        )
-        counts[i].view(-1).scatter_add_(
-            0, valid_indices, torch.ones_like(points_3d[i, valid_mask[i], 2])
-        )
-
-    # Calculate mean depth for each pixel in each batch
-    mean_depth_maps = depth_maps / counts.clamp(min=1.0)
-    return mean_depth_maps.reshape(-1, 1, *image_shape)  # (B, 1, H, W)
 
 
 def downsample(data: Tensor, factor: int):

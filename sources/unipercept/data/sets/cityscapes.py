@@ -113,8 +113,8 @@ class CameraIntrinsic:
 @dataclass(frozen=True, kw_only=True, slots=True)
 class CameraExtrinsic:
     baseline: float
-    pitch: float
     roll: float
+    pitch: float
     yaw: float
     x: float
     y: float
@@ -129,7 +129,7 @@ class CameraCalibration:
 
     extrinsic: CameraExtrinsic
     intrinsic: CameraIntrinsic
-    size: tuple[float, float]
+    size: tuple[int, int]
 
     def to_canonical(self) -> datatypes.PinholeModelParameters:
         """
@@ -139,15 +139,22 @@ class CameraCalibration:
         return {
             "focal_length": (self.intrinsic.fx, self.intrinsic.fy),
             "principal_point": (self.intrinsic.u0, self.intrinsic.v0),
-            "rotation": (self.extrinsic.pitch, self.extrinsic.yaw, self.extrinsic.roll),
+            "rotation": (self.extrinsic.yaw, self.extrinsic.pitch, self.extrinsic.roll),
             "translation": (self.extrinsic.x, self.extrinsic.y, self.extrinsic.z),
             "image_size": self.size,
+            "convention": "iso8855",
         }
 
 
 CAMERA = CameraCalibration(
     extrinsic=CameraExtrinsic(
-        baseline=0.222126, pitch=0.05, roll=0.0, x=1.7, y=-0.1, yaw=0.007, z=1.18
+        baseline=0.222126,
+        roll=0.0,
+        pitch=0.05,
+        yaw=0.007,
+        x=1.7,
+        y=-0.1,
+        z=1.18,
     ),
     intrinsic=CameraIntrinsic(
         fx=2268.36, fy=2225.5405988775956, u0=1048.64, v0=519.277
@@ -305,7 +312,7 @@ CLASSES: T.Final[T.Sequence[SClass]] = [
 def get_info():
     return create_metadata(
         CLASSES,
-        depth_max=80.0,
+        depth_max=88.0,
         fps=17.0,
     )
 

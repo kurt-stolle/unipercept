@@ -7,11 +7,11 @@ import typing_extensions as TX
 from . import (
     abbreviate,
     box,
-    geometry,
     cli,
     conifg,
     dicttools,
     function,
+    geometry,
     inspect,
     logutils,
     mask,

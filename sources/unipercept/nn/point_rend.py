@@ -10,10 +10,12 @@ References
 [1] `PointRend: Image Segmentation as Rendering <https://arxiv.org/abs/1912.08193>`_
 """
 
+from __future__ import annotations
+
 import typing as T
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 
 def point_sample(input, point_coords, align_corners: bool = False, **kwargs):

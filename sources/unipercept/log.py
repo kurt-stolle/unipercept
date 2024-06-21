@@ -12,25 +12,26 @@ See Also
 from __future__ import annotations
 
 import atexit
-import warnings
 import collections
+import enum as E
 import functools
 import io
 import logging
 import os
-import enum as E
 import sys
 import time
 import typing as T
+import warnings
 from collections import Counter
 from typing import Optional
-import unipercept.utils.inspect as inspect_utils
-import unipercept.file_io as file_io
 
 import pandas as pd
 from tabulate import tabulate
 from termcolor import colored
 from typing_extensions import override
+
+import unipercept.file_io as file_io
+import unipercept.utils.inspect as inspect_utils
 
 __all__ = []
 

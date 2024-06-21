@@ -1,13 +1,19 @@
 r"""
 Various utilities for working with geometry transformations and conversions.
+
+See Also
+--------
+- `Quaternions <https://danceswithcode.net/engineeringnotes/quaternions/quaternions.html>`_
+- `PyTorch3D <https://pytorch3d.readthedocs.io/>`_
 """
 
 from __future__ import annotations
 
-import typing as T
-import torch
-from torch import nn, Tensor
 import enum as E
+import typing as T
+
+import torch
+from torch import Tensor, nn
 
 
 class AxesConvention(E.StrEnum):

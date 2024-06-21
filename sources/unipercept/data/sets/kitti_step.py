@@ -21,13 +21,6 @@ from tqdm import tqdm
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from . import (
-    RGB,
-    PerceptionDataset,
-    SClass,
-    SType,
-    create_metadata,
-)
 from unipercept.data.types import (
     CaptureRecord,
     CaptureSources,
@@ -36,6 +29,8 @@ from unipercept.data.types import (
     PinholeModelParameters,
 )
 from unipercept.log import get_logger
+
+from . import RGB, PerceptionDataset, SClass, SType, create_metadata
 
 __all__ = ["KITTISTEPDataset"]
 

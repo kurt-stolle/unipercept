@@ -12,6 +12,7 @@ import typing_extensions as TX
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
+
 from . import PerceptionDataset, create_metadata
 
 if T.TYPE_CHECKING:

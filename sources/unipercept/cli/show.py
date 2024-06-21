@@ -7,11 +7,14 @@ The item is rendered shown in the terminal using the appropriate viewer.
 
 from __future__ import annotations
 
-from ._command import command
-from unipercept import file_io, render
-from sys import stdout
-from PIL import Image as pil_image
 import argparse
+from sys import stdout
+
+from PIL import Image as pil_image
+
+from unipercept import file_io, render
+
+from ._command import command
 
 
 @command("show")

@@ -8,9 +8,12 @@ registered through the environment are listed.
 from __future__ import annotations
 
 from sys import stdout
+
 from tabulate import tabulate
 from tqdm import tqdm
+
 from unipercept import file_io
+
 from ._command import command
 
 DEFAULT_PREFIXES = ["//output/", "//cache/", "//scratch/", "//datasets/", "//configs/"]

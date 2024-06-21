@@ -3,24 +3,24 @@ Implements the camera s a TVTensor.
 """
 
 from __future__ import annotations
+
 import typing as T
-import typing_extensions as TX
+
 import torch
-from torch import Tensor, Size, nn
+import typing_extensions as TX
+from torch import Size, Tensor, nn
+from torchvision.transforms.v2.functional import register_kernel
+from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
+from torchvision.tv_tensors import TVTensor
 
 from unipercept.utils.geometry import (
     AxesConvention,
-    intrinsics_from_parameters,
+    euclidean_to_homogeneous_points,
     extrinsics_from_parameters,
     homogeneous_to_euclidean_points,
-    euclidean_to_homogeneous_points,
+    intrinsics_from_parameters,
     unsafe_inverse,
 )
-
-from torchvision.transforms.v2.functional import register_kernel
-from torchvision.tv_tensors import TVTensor
-
-from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 
 __all__ = ["PinholeCamera"]
 

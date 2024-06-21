@@ -28,14 +28,6 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from . import (
-    RGB,
-    Metadata,
-    PerceptionDataset,
-    SClass,
-    SType,
-    create_metadata,
-)
 from unipercept.data.types import (
     CameraModelParameters,
     CaptureRecord,
@@ -44,6 +36,8 @@ from unipercept.data.types import (
     ManifestSequence,
 )
 from unipercept.utils.time import get_timestamp
+
+from . import RGB, Metadata, PerceptionDataset, SClass, SType, create_metadata
 
 __all__ = ["SemKITTIDataset"]
 

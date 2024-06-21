@@ -4,21 +4,22 @@ Tests for `unipercept.evaluators.depth`.
 
 from __future__ import annotations
 
-from pathlib import Path
 import pprint
+import subprocess
 import tempfile
+import typing as T
+from pathlib import Path
+
 import numpy as np
 import pytest
-import typing as T
-import torch
 import regex as re
+import torch
 from torch.utils._pytree import tree_map
-import subprocess
 
 from unipercept import file_io
 from unipercept.config import get_env
+from unipercept.data.tensors import DepthFormat, DepthMap
 from unipercept.evaluators.depth import EigenMetrics, compute_eigen_metrics
-from unipercept.data.tensors import DepthMap, DepthFormat
 from unipercept.log import create_table
 from unipercept.utils.typings import Pathable
 

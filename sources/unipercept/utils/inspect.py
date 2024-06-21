@@ -6,7 +6,9 @@ import types
 import typing as T
 
 
-def calling_module_name(frames: int = 0, left: T.Optional[int] = None, strict: bool = True) -> str:
+def calling_module_name(
+    frames: int = 0, left: T.Optional[int] = None, strict: bool = True
+) -> str:
     """
     Return the name of the module that called the current function from the perspective
     of the function that calls this function.
@@ -19,7 +21,7 @@ def calling_module_name(frames: int = 0, left: T.Optional[int] = None, strict: b
         The number nested modules to return, e.g. when the module name is `a.b.c` and `left=1` the return value would
         be `a.b`. By default `None`, which returns the full module name.
     strict
-        If the module is not found, raise an error. 
+        If the module is not found, raise an error.
         If `False`, return the name of the module that called the current function is returned.
 
     Returns

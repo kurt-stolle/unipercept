@@ -6,17 +6,18 @@ The following methods are supported:
     1. LibSixel (via ``img2sixel`` or the Python bindings)
     2. KiTTy (via ``icat``)
 """
+
 from __future__ import annotations
 
-import typing as T
-import typing_extensions as TX
-import tempfile
-import subprocess
-import shutil
 import importlib
+import shutil
+import subprocess
+import tempfile
+import typing as T
 
 import matplotlib.pyplot as plt
 import PIL.Image as pil_image
+import typing_extensions as TX
 
 if T.TYPE_CHECKING:
     from unipercept.utils.typings import Pathable
@@ -33,8 +34,8 @@ def show(image: pil_image.Image | plt.Figure | Pathable) -> None:
     image : PIL.Image
         The image to show.
     """
-    from unipercept.file_io import Path
     from unipercept.config import get_env
+    from unipercept.file_io import Path
 
     if isinstance(image, plt.Figure):
         image.canvas.draw()

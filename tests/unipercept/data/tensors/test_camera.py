@@ -1,8 +1,10 @@
-from unipercept.data.tensors import PinholeCamera
+from __future__ import annotations
+
+import pytest
+import torch
 import torchvision.transforms.v2.functional as tvfn
 
-import torch
-import pytest
+from unipercept.data.tensors import PinholeCamera
 
 H, W = 256, 512
 FX = 10.0

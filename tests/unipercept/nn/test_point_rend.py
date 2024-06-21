@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 
 from unipercept.nn.point_rend import (
@@ -37,8 +39,8 @@ def test_random_points_with_mask():
             [[False, True, False], [False, False, False], [False, False, False]]
         )[None, None, :, :],
         torch.arange(20).view(1, 1, 2, 10) == 15,
-        torch.rand_like(src) < 0.5, # mild sparsity
-        torch.rand_like(src) < 0.1, # high sparsity
+        torch.rand_like(src) < 0.5,  # mild sparsity
+        torch.rand_like(src) < 0.1,  # high sparsity
     ):
         points = random_points(src, n_points, d_coord, mask)
 

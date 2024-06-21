@@ -21,10 +21,7 @@ from torch import Tensor
 
 from unipercept import file_io
 from unipercept.log import get_logger
-from unipercept.state import (
-    cpus_available,
-    main_process_first,
-)
+from unipercept.state import cpus_available, main_process_first
 from unipercept.utils.tensorclass import Tensorclass
 from unipercept.utils.typings import Pathable
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from . import helpers, registry
+from ._camera import *
 from ._depth import *
 from ._flow import *
 from ._panoptic import *
 from ._torchvision import *
-from ._camera import *

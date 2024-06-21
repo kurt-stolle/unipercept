@@ -8,8 +8,8 @@ See Also
 
 from __future__ import annotations
 
-import functools
 import contextlib
+import functools
 import typing as T
 
 import torch

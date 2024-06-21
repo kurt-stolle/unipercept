@@ -16,17 +16,11 @@ from tqdm import tqdm
 from typing_extensions import override
 
 from unipercept import file_io
+from unipercept.data.pseudolabeler import PseudoGenerator
 from unipercept.log import get_logger
 from unipercept.render import colormap
 
-from unipercept.data.pseudolabeler import PseudoGenerator
-from . import (
-    RGB,
-    PerceptionDataset,
-    SClass,
-    SType,
-    create_metadata,
-)
+from . import RGB, PerceptionDataset, SClass, SType, create_metadata
 
 if T.TYPE_CHECKING:
     import unipercept as up

@@ -37,6 +37,7 @@ def split_into_patches(
     # ... x P x Hp x Wp
     return x.reshape(*dots, -1, sizes[0], sizes[1])
 
+
 def depth_to_normals(depth: torch.Tensor, fx: float, fy: float) -> torch.Tensor:
     r"""
     Compute surface normals from depth map.

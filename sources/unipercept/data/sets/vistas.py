@@ -12,7 +12,6 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from . import PerceptionDataset, SClass, SType, create_metadata
 from unipercept.data.sets.cityscapes import CAMERA
 from unipercept.data.types import (
     CaptureRecord,
@@ -20,6 +19,8 @@ from unipercept.data.types import (
     Manifest,
     ManifestSequence,
 )
+
+from . import PerceptionDataset, SClass, SType, create_metadata
 
 CLASSES_AS_CITYSCAPES = [
     SClass(

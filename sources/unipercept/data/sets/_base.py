@@ -4,9 +4,9 @@ Baseclass for all datasets in UniPercept.
 
 from __future__ import annotations
 
+import copy
 import dataclasses as D
 import enum as E
-import copy
 import functools
 import itertools
 import typing as T
@@ -25,14 +25,13 @@ from unipercept.data.types import (
     MotionSources,
     QueueItem,
 )
+from unipercept.model import CaptureData, InputData, MotionData
 from unipercept.utils.catalog import DataManager
 from unipercept.utils.dataset import Dataset as _BaseDataset
 from unipercept.utils.dataset import _Datapipe, _Dataqueue
 from unipercept.utils.tensorclass import Tensorclass
-from unipercept.model import CaptureData, InputData, MotionData
 
 from . import Metadata
-
 
 __all__ = [
     "PerceptionDataset",
@@ -212,17 +211,19 @@ class PerceptionDataset(
         if not isinstance(camera_spec, T.Sequence):
             camera_spec = [camera_spec]
 
-        camera_data = torch.stack([
-            PinholeCamera.from_parameters(
-                focal_length=cam["focal_length"],
-                principal_point=cam["principal_point"],
-                translation=cam["translation"],
-                angles=cam["rotation"],
-                canvas=cam["image_size"],
-                convention=cam.get("convention", "opencv"),
-            )
-            for cam in camera_spec
-        ]).as_subclass(PinholeCamera)
+        camera_data = torch.stack(
+            [
+                PinholeCamera.from_parameters(
+                    focal_length=cam["focal_length"],
+                    principal_point=cam["principal_point"],
+                    translation=cam["translation"],
+                    angles=cam["rotation"],
+                    canvas=cam["image_size"],
+                    convention=cam.get("convention", "opencv"),
+                )
+                for cam in camera_spec
+            ]
+        ).as_subclass(PinholeCamera)
 
         # IDs: (sequence, frame)
         ids = torch.tensor(

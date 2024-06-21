@@ -8,13 +8,13 @@ import argparse
 import typing as T
 
 import pandas as pd
+import regex as re
 import safetensors.torch
 import torch
 import typing_extensions as TX
 
 import unipercept as up
 from unipercept.cli._command import command, logger
-import regex as re
 
 __all__ = []
 
@@ -64,9 +64,9 @@ class StatsSubcommand(Subcommand, name="stats"):
                 "dtype": str(weight.dtype).split(".")[-1],
                 "min": weight.min().item(),
                 "max": weight.max().item(),
-                "mean": weight.mean().item()
-                if torch.is_floating_point(weight)
-                else None,
+                "mean": (
+                    weight.mean().item() if torch.is_floating_point(weight) else None
+                ),
                 "std": weight.std().item() if torch.is_floating_point(weight) else None,
             }
             data.append(rec)

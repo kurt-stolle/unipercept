@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 
 from unipercept import file_io
+
 from ._command import command
 
 

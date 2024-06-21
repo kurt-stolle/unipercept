@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import typing as T
-import typing_extensions as TX
 import enum as E
+import typing as T
 
 import torch
-from torch import nn, Tensor
+import typing_extensions as TX
+from torch import Tensor, nn
 
 from unipercept.nn.losses.mixins import ScaledLossMixin
 
@@ -452,7 +452,7 @@ class MSELoss(ScaledLossMixin, nn.Module):
         **kwargs : dict
             Additional keyword arguments to pass to the loss.
         """
-        from unipercept.data.sets import catalog, Metadata
+        from unipercept.data.sets import Metadata, catalog
 
         info: Metadata = catalog.get_info(dataset_name)
         assert info.depth_max is not None

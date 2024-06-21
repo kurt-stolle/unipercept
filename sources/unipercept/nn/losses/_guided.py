@@ -8,12 +8,12 @@ import typing as T
 
 import torch
 from einops import rearrange, reduce
-from torch import nn, Tensor
+from torch import Tensor, nn
 from typing_extensions import override
 
+from unipercept.data.tensors import absolute_to_normalized_depth
 from unipercept.nn.losses.functional import split_into_patches
 from unipercept.nn.losses.mixins import ScaledLossMixin, StableLossMixin
-from unipercept.data.tensors import absolute_to_normalized_depth
 
 __all__ = ["DGPLoss", "PGTLoss", "PGSLoss"]
 

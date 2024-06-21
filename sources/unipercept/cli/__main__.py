@@ -4,8 +4,9 @@ Entry point for the CLI.
 
 from __future__ import annotations
 
-import sys
 import importlib
+import sys
+
 from ._command import command
 
 

@@ -7,7 +7,6 @@ from __future__ import annotations
 import typing as T
 
 import accelerate
-from accelerate.accelerator import TorchDynamoPlugin
 import accelerate.utils
 import torch
 import torch._dynamo
@@ -16,6 +15,7 @@ import torch.nn
 import torch.types
 import torch.utils.data
 import typing_extensions as TX
+from accelerate.accelerator import TorchDynamoPlugin
 
 from unipercept import file_io
 from unipercept.log import logger
@@ -107,10 +107,8 @@ class Accelerator(accelerate.Accelerator):
 
     @classmethod
     def dynamo_from_params(cls, params: EngineParams) -> TorchDynamoPlugin:
-        from accelerate.utils import (
-            DynamoBackend,
-            TorchDynamoPlugin,
-        )
+        from accelerate.utils import DynamoBackend, TorchDynamoPlugin
+
         from unipercept.config import get_env
 
         if get_env(bool, "UP_ENGINE_COMPILE_RESET", default=params.compiler_reset):

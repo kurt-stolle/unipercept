@@ -16,7 +16,13 @@ from tensordict import LazyStackedTensorDict, TensorDict, TensorDictBase
 from torch import Tensor, nn
 from torch.utils._pytree import TreeSpec, tree_flatten, tree_unflatten
 
-from unipercept.data.tensors import DepthMap, Image, OpticalFlow, PanopticMap, PinholeCamera
+from unipercept.data.tensors import (
+    DepthMap,
+    Image,
+    OpticalFlow,
+    PanopticMap,
+    PinholeCamera,
+)
 from unipercept.log import get_logger
 from unipercept.utils.tensorclass import Tensorclass
 from unipercept.utils.typings import Pathable
@@ -139,6 +145,7 @@ class CaptureData(Tensorclass):
 
         return self
 
+
 class MotionData(Tensorclass):
     """Data describing motion between time steps."""
 
@@ -212,7 +219,7 @@ class InputData(Tensorclass):
     def group_id(self) -> Tensor:
         """Returns the group ID of the input data."""
         return self.ids[..., 0]
-    
+
     @property
     def item_id(self) -> Tensor:
         """Returns the item ID of the input data."""

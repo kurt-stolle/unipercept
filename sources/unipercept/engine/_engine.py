@@ -16,6 +16,7 @@ import sys
 import time
 import typing as T
 from datetime import datetime
+
 import torch
 import torch.optim
 import torch.types
@@ -40,24 +41,23 @@ from unipercept.model import InputData, ModelBase, ModelOutput
 from unipercept.state import (
     barrier,
     check_main_process,
-    reduce,
     get_process_count,
     get_process_index,
     get_total_batchsize,
+    reduce,
 )
+from unipercept.utils.memory import retry_if_cuda_oom
 from unipercept.utils.seed import set_seed
 from unipercept.utils.status import StatusDescriptor
 from unipercept.utils.tensorclass import Tensorclass, is_tensordict_like
 from unipercept.utils.time import ProfileAccumulator, profile
 from unipercept.utils.typings import Pathable
 from unipercept.utils.ulid import ULID
-from unipercept.utils.memory import retry_if_cuda_oom
 
 if T.TYPE_CHECKING:
+    import matplotlib.pyplot as plt
     from accelerate.optimizer import AcceleratedOptimizer
     from timm.scheduler.scheduler import Scheduler as TimmScheduler
-
-    import matplotlib.pyplot as plt
 
     import unipercept as up
     from unipercept.evaluators import Evaluator as Evaluator
@@ -1868,6 +1868,7 @@ def _generate_session_id() -> str:
     """
 
     from torch.distributed import broadcast_object_list, is_available, is_initialized
+
     from unipercept.state import check_distributed, check_main_process
 
     def _read_session_name():

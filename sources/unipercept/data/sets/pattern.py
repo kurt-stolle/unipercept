@@ -4,9 +4,9 @@ Generic pattern-based dataset.
 
 from __future__ import annotations
 
-import regex as re
 import typing as T
 
+import regex as re
 import typing_extensions as TX
 
 from . import Metadata, PerceptionDataset

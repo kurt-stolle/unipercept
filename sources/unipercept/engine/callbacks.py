@@ -886,6 +886,15 @@ class EarlyStoppingCallback(CallbackDispatcher):
 ######################
 
 
+class GradientClippingMode(E.StrEnum):
+    """
+    Enum for the gradient clipping mode.
+    """
+
+    GLOBAL = "global"
+    PARAMETER = "parameter"
+
+
 class GradientClippingCallback(CallbackDispatcher):
     """
     A ``Callback`` that handles gradient clipping during training.
@@ -896,6 +905,7 @@ class GradientClippingCallback(CallbackDispatcher):
         max_norm: float | None = None,
         max_value: float | None = None,
         norm_tracker: nn.Module | None = None,
+        mode: GradientClippingMode = GradientClippingMode.GLOBAL,
     ):
         """
         Parameters
@@ -907,10 +917,13 @@ class GradientClippingCallback(CallbackDispatcher):
         norm_tracker:
             The tracker module to use for tracking the total norm of the gradients.
             If None, the gradient is clipped based only by the ``max_norm`` value.
+        mode:
+            The mode of the gradient clipping. See :class:`GradientClippingMode`.
         """
         self.max_norm = max_norm
         self.max_value = max_value
         self.norm_tracker = norm_tracker
+        self.mode = mode
         self.total_norm: Tensor | None = None
         self.step_counter: Tensor | None = None
 
@@ -1005,6 +1018,9 @@ class GradientClippingCallback(CallbackDispatcher):
         **kwargs,
     ):
         assert self.step_counter is not None
+        if self.mode != GradientClippingMode.GLOBAL:
+            msg = f"Gradient clipping mode {self.mode} is not implemented."
+            raise NotImplementedError(msg)
 
         model_params = list(model.parameters())
         for p in model_params:

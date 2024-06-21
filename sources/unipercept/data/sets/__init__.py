@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._meta import *
+from ._base import *
 from . import (
     cityscapes,
     coco,
@@ -14,5 +16,3 @@ from . import (
     vistas,
     wilddash,
 )
-from ._base import *
-from ._meta import *

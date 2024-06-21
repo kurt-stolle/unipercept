@@ -13,7 +13,7 @@ from torchvision.transforms.v2.functional import register_kernel
 from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 from torchvision.tv_tensors import TVTensor
 
-from unipercept.utils.geometry import (
+from unipercept.vision.geometry import (
     AxesConvention,
     euclidean_to_homogeneous_points,
     extrinsics_from_parameters,

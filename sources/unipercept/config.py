@@ -876,8 +876,10 @@ def as_list(*args):
 
 
 def _call_partial(
-    *, _func_: T.Callable[..., T.Any], **kwargs
+    *, _func_: T.Callable[..., T.Any] | str, **kwargs
 ) -> T.Callable[..., T.Any]:
+    if isinstance(_func_, str):
+        _func_ = locate_object(_func_)
     return functools.partial(_func_, **kwargs)
 
 

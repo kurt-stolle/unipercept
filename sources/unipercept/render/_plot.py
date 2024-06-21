@@ -13,15 +13,13 @@ import numpy as np
 import PIL.Image as pil_image
 import torch
 import torchvision.transforms.functional as F
+from matplotlib.axes import Axes as MatplotlibAxesObject
+from PIL.Image import Image as PILImageObject
 from tensordict import TensorDict, TensorDictBase
 
-if T.TYPE_CHECKING:
-    from matplotlib.axes import Axes as MatplotlibAxesObject
-    from PIL.Image import Image as PILImageObject
-
-    from unipercept.data.sets import Metadata
-    from unipercept.data.tensors import PanopticMap
-    from unipercept.model import InputData, ModelOutput
+from unipercept.data.sets import Metadata
+from unipercept.data.tensors import PanopticMap
+from unipercept.model import InputData, ModelOutput
 
 __all__ = [
     "plot_input_data",
@@ -134,37 +132,43 @@ def plot_input_data(
 
 def plot_predictions(
     inputs: InputData,
-    predictions: TensorDictBase | ModelOutput,
+    predictions: T.Mapping[str, Tensor] | ModelOutput,
     /,
     info: Metadata,
     height: float = 4.0,
     scale: float = 1.0,
     image_options: MissingValue["SKIP"] | dict[str, T.Any] | None = None,
     segmentation_options: dict[str, T.Any] | MissingValue["SKIP"] | None = None,
+    segmentation_key: str = "panoptic_segmentation",
     depth_options: dict[str, T.Any] | MissingValue["SKIP"] | None = None,
+    depth_key="depth",
 ) -> T.Any:
     """
     Plots the given input data.
     """
 
-    try:
-        predictions: TensorDict = predictions.get("predictions")
-    except (AttributeError, KeyError):
-        pass
+    if isinstance(predictions, ModelOutput):
+        predictions = predictions.predictions
 
     img = inputs.captures.images[
         :, 0, :, :, :
     ]  # batch (=1) x pairs (=1) x C (=3) x H (=1024) x W (=2048)
-    seg = predictions.get("segmentations", None)  # batch (=1) x H (=1024) x W (=2048)
-    if seg is None:
+    seg = [
+        p.get(segmentation_key, None) for p in predictions
+    ]  # batch (=1) x H (=1024) x W (=2048)
+    if all(s is None for s in seg):
+        seg = None
         segmentation_options = SKIP
-    dep = predictions.get("depths", None)  # batch (=1) x H (=1024) x W (=2048))
-    if dep is None:
+    dep = [
+        p.get(depth_key, None) for p in predictions
+    ]  # batch (=1) x H (=1024) x W (=2048))
+    if all(d is None for d in dep):
+        dep = None
         depth_options = SKIP
 
-    nrows = predictions.batch_size[0]
+    nrows = img.size(0)
     ncols = 3  # image, segmentation, depth
-    figsize = (3 * height * seg.shape[-2] / seg.shape[-1], height)
+    figsize = (3 * height * img.shape[-2] / img.shape[-1], height)
 
     fig, axs = plt.subplots(
         nrows,

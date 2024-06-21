@@ -34,6 +34,7 @@ def set_seed(seed: int = DEFAULT_SEED, fully_deterministic: bool = False):
     if fully_deterministic:
         os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+        torch.set_float32_matmul_precision("highest")
         torch.use_deterministic_algorithms(True, warn_only=True)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False

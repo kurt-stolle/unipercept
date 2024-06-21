@@ -76,7 +76,7 @@ class Backbone(nn.Module):
 
 @functools.lru_cache()
 def query_feature_info(
-    module: type[Backbone],
+    module: type[Backbone] | str,
     *args,
     match: str | re.Pattern | T.Iterable[str] | None = None,
     empty_ok: bool = False,
@@ -86,6 +86,11 @@ def query_feature_info(
     Utility function to query the feature information of a backbone in configuration
     files.
     """
+    from unipercept.config import locate_object
+
+    if isinstance(module, str):
+        module = locate_object(module)
+
     info = module(*args, **kwargs).feature_info
     if match is not None:
         if isinstance(match, str):

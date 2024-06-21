@@ -17,6 +17,7 @@ from unipercept import (
     data,
     engine,
     evaluators,
+    vision,
     file_io,
     log,
     model,

@@ -10,6 +10,7 @@ __all__ = [
     "abbreviate",
     "box",
     "geometry",
+    "check",
     "dicttools",
     "function",
     "inspect",

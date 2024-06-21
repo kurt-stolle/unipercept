@@ -95,8 +95,8 @@ def depth_guided_segmentation_loss(
         valid_diff = (dep_patch > 0) & (dep_anchor > 0)  # (B, P, pH * pW)
         valid_amount = valid_diff.float().sum(dim=(-2, -1))  # (B)
 
-    if not valid_amount.any():
-        return seg_feat * 0.0
+    # if not valid_amount.any():
+    #    return seg_feat * 0.0
 
     # Segmentation features
     seg_patch = split_into_patches(seg_feat, patch_size, patch_stride)

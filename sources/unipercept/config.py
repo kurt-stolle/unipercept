@@ -382,7 +382,6 @@ def load_config_local(path: str):
     """
     from unipercept import __version__ as up_version
 
-    path = file_io.get_local_path(path)
     ext = os.path.splitext(path)[1]
     match ext.lower():
         case ".py":
@@ -399,7 +398,7 @@ def load_config_local(path: str):
                 # Compile first with filename to:
                 # 1. make filename appears in stacktrace
                 # 2. make load_rel able to find its parent's (possibly remote) location
-                exec(compile(content, path, "exec"), nsp)
+                exec(compile(content, file_io.get_local_path(path), "exec"), nsp)
 
             export = nsp.get(
                 "__all__",
@@ -800,50 +799,55 @@ def instantiate(cfg: T.Any, /) -> T.Any:
     raise ValueError(err)
 
 
-def make_dict(**kwargs) -> dict[str, T.Any]:
-    return dict(**kwargs)
+class ConfigDict(dict):
+    def __new__(cls, **kwargs):
+        return call(cls.target)(**kwargs)
+
+    @classmethod
+    def target(cls, **kwargs) -> dict:
+        return {k: v for k, v in kwargs.items()}
 
 
 class ConfigSet(set):
-    pass
+    def __new__(cls, *args):
+        return call(cls.target)(items=list(args))
 
-
-def make_set(items) -> set[T.Any]:
-    items = (
-        omegaconf.OmegaConf.to_object(items)
-        if isinstance(items, omegaconf.ListConfig)
-        else items
-    )
-    return ConfigSet(i for i in items)  # type: ignore
+    @classmethod
+    def target(cls, items: T.Any) -> set:
+        items = (
+            omegaconf.OmegaConf.to_object(items)
+            if isinstance(items, omegaconf.ListConfig)
+            else items
+        )
+        return set(i for i in items)
 
 
 class ConfigTuple(tuple):
-    pass
+    def __new__(cls, *args):
+        return call(cls.target)(items=list(args))
 
-
-_T = T.TypeVar("_T", bound=tuple, covariant=True)
-
-
-def make_tuple(items) -> _T:
-    items = (
-        omegaconf.OmegaConf.to_object(items)
-        if isinstance(items, omegaconf.ListConfig)
-        else items
-    )
-    return ConfigTuple(i for i in items)  # type: ignore
+    @classmethod
+    def target(cls, items: T.Any) -> tuple:
+        items = (
+            omegaconf.OmegaConf.to_object(items)
+            if isinstance(items, omegaconf.ListConfig)
+            else items
+        )
+        return tuple(i for i in items)
 
 
 class ConfigList(list):
-    pass
+    def __new__(cls, *args):
+        return call(cls.target)(items=list(args))
 
-
-def make_list(items) -> list[T.Any]:
-    items = (
-        omegaconf.OmegaConf.to_object(items)
-        if isinstance(items, omegaconf.ListConfig)
-        else items
-    )
-    return ConfigList(i for i in items)  # type: ignore
+    @classmethod
+    def target(cls, items: T.Any) -> list:
+        items = (
+            omegaconf.OmegaConf.to_object(items)
+            if isinstance(items, omegaconf.ListConfig)
+            else items
+        )
+        return list(i for i in items)
 
 
 def wrap_on_result(func_wrap, func_next, **kwargs_next):
@@ -859,28 +863,19 @@ def wrap_on_result(func_wrap, func_next, **kwargs_next):
     return wrapper
 
 
-def as_dict(**kwargs):
-    return call(make_dict)(*kwargs)
-
-
-def as_set(*args):
-    return call(make_set)(items=args)
-
-
-def as_tuple(*args):
-    return call(make_tuple)(items=args)
-
-
-def as_list(*args):
-    return call(make_list)(items=args)
-
-
 def _call_partial(
-    *, _func_: T.Callable[..., T.Any] | str, **kwargs
+    *, _callable_: T.Callable[..., T.Any] | str = None, **kwargs  # type: ignore
 ) -> T.Callable[..., T.Any]:
-    if isinstance(_func_, str):
-        _func_ = locate_object(_func_)
-    return functools.partial(_func_, **kwargs)
+    if _callable_ is None:
+        cb = kwargs.pop("_func_", None)  # legacy support
+    else:
+        cb = _callable_
+    if isinstance(cb, str):
+        cb = locate_object(cb)
+    if not callable(cb):
+        msg = f"Expected a callable object or location (str), got {_callable_} (type {type(_callable_)}"
+        raise TypeError(msg)
+    return functools.partial(cb, **kwargs)
 
 
 def partial(func: T.Callable[..., T.Any], /) -> T.Callable[..., T.Any]:
@@ -897,4 +892,4 @@ def partial(func: T.Callable[..., T.Any], /) -> T.Callable[..., T.Any]:
     callable
         A lazy callable object that is forwarded to ``functools.partial``.
     """
-    return lambda **kwargs: call(_call_partial)(_func_=func, **kwargs)
+    return lambda **kwargs: call(_call_partial)(_callable_=func, **kwargs)

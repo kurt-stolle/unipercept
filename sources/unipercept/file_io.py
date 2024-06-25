@@ -16,7 +16,11 @@ from iopath.common.file_io import (
     PathManagerFactory,
 )
 
-from unipercept.utils.iopath_handlers import EnvironPathHandler, WandBArtifactHandler
+from unipercept.utils.iopath_handlers import (
+    EnvironPathHandler,
+    MetadataPathHandler,
+    WandBArtifactHandler,
+)
 from unipercept.utils.iopath_path import IoPath
 from unipercept.utils.typings import Pathable
 
@@ -71,6 +75,7 @@ for h in (
     OneDrivePathHandler(),
     HTTPURLHandler(),
     WandBArtifactHandler(),
+    MetadataPathHandler("configs://", "unipercept.configs"),
     EnvironPathHandler(
         "//datasets/",
         "UP_DATASETS",
@@ -93,9 +98,6 @@ for h in (
         "UNIPERCEPT_OUTPUT",
         "UNICORE_OUTPUT",
         default="./output",
-    ),
-    EnvironPathHandler(
-        "//configs/", "UP_CONFIGS", "UNIPERCEPT_CONFIGS", default="./configs"
     ),
     EnvironPathHandler(
         "//scratch/",

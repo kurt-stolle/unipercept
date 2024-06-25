@@ -7,18 +7,19 @@ from __future__ import annotations
 import functools as F
 import gzip
 import html
-import os
+from importlib.abc import Traversable
+from importlib.resources import files
 
 import ftfy
 import regex as re
 import torch
 
+from unipercept.file_io import Path
+from unipercept.utils.typings import Pathable
 
-@F.lru_cache()
-def default_bpe():
-    return os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "bpe_simple_vocab_16e6.txt.gz"
-    )
+DEFAULT_BPE = (files(__package__) if __package__ else Path(__file__).parent).joinpath(
+    "tokenizer_bpe_16e6.txt.gz"
+)
 
 
 @F.lru_cache()
@@ -118,19 +119,23 @@ class SimpleTokenizer:
     Implementes the GPT-2 BPE tokenizer.
     """
 
-    def __init__(self, bpe_path: str | None = None):
-        if bpe_path is None:
-            bpe_path = default_bpe()
+    def __init__(self, bpe_path: Pathable | Traversable = DEFAULT_BPE):
         self.byte_encoder = bytes_to_unicode()
         self.byte_decoder = {v: k for k, v in self.byte_encoder.items()}
-        merges = gzip.open(bpe_path).read().decode("utf-8").split("\n")
+
+        if not isinstance(bpe_path, (Traversable, Path)):
+            bpe_path = Path(bpe_path)
+        with bpe_path.open("rb") as fh:
+            merges = gzip.open(fh).read().decode("utf-8").split("\n")
         merges = merges[1 : 49152 - 256 - 2 + 1]
         merges = [tuple(merge.split()) for merge in merges]
+
         vocab = list(bytes_to_unicode().values())
         vocab = vocab + [v + "</w>" for v in vocab]
         for merge in merges:
             vocab.append("".join(merge))
         vocab.extend(["<|startoftext|>", "<|endoftext|>"])
+
         self.encoder = dict(zip(vocab, range(len(vocab))))
         self.decoder = {v: k for k, v in self.encoder.items()}
         self.bpe_ranks = dict(zip(merges, range(len(merges))))

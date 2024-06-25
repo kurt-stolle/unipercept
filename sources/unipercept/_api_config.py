@@ -166,7 +166,7 @@ def read_config(config: ConfigParam) -> DictConfig:
         if config_path.suffix not in (".py", ".yaml"):
             msg = f"Configuration file must be a .py or .yaml file, got {config_path}"
             raise ValueError(msg)
-        obj = load_config_local(str(config_path))
+        obj = load_config_local(str(config))
         if not isinstance(obj, DictConfig):
             msg = f"Expected a DictConfig, got {obj}"
             raise TypeError(msg)

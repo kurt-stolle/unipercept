@@ -21,16 +21,20 @@ from tqdm import tqdm
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.data.types import (
-    CaptureRecord,
+from unipercept.log import get_logger
+
+from . import (
+    RGB,
     CaptureSources,
     Manifest,
     ManifestSequence,
-    PinholeModelParameters,
+    Metadata,
+    MotionSources,
+    PerceptionDataset,
+    QueueItem,
+    SClass,
+    SType,
 )
-from unipercept.log import get_logger
-
-from . import RGB, PerceptionDataset, SClass, SType, create_metadata
 
 __all__ = ["KITTISTEPDataset"]
 
@@ -225,7 +229,7 @@ class FileID:
 
 class KITTISTEPDataset(
     PerceptionDataset,
-    info=functools.partial(create_metadata, CLASSES, depth_max=80, fps=15),
+    info=functools.partial(Metadata.from_parameters, CLASSES, depth_max=80, fps=15),
     id="kitti-step",
 ):
     split: T.Literal["train", "val", "test"]

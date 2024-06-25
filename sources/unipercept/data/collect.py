@@ -6,29 +6,23 @@ import typing as T
 
 from typing_extensions import override
 
-import unipercept.data.types as data_types
-from unipercept.log import get_logger
+from unipercept.log import logger
 
-__all__ = [
-    "GroupAdjacentTime",
-    "ExtractIndividualFrames",
-    "QueueGeneratorType",
-    "KnownCaptureSources",
-]
-
-
-_logger = get_logger(__name__)
-
-QueueGeneratorType: T.TypeAlias = T.Generator[
-    tuple[str, data_types.QueueItem], None, None
-]
-KnownCaptureSources: T.TypeAlias = T.Literal["image", "depth", "panoptic"]
+if T.TYPE_CHECKING:
+    from unipercept.data.sets import (
+        CaptureSourceKey,
+        Manifest,
+        QueueGenerator,
+        QueueItem,
+    )
 
 
 class GroupAdjacentTime:
     """
-    Queue that collects queue items of a specified length from the manifest, where items in the queue are temporally
-    adjacent to each other. This is useful for tasks such as optical flow, where the input is a sequence of images.
+    Queue that collects queue items of a specified length from the manifest, where items
+    in the queue are temporally adjacent to each other.
+
+    This is useful for tasks such as optical flow, where the input is a sequence of images.
     """
 
     def __init__(
@@ -36,9 +30,7 @@ class GroupAdjacentTime:
         num_frames: int,
         *,
         required_capture_sources: (
-            set[KnownCaptureSources | str]
-            | T.Sequence[set[KnownCaptureSources | str]]
-            | None
+            set[CaptureSourceKey] | T.Sequence[set[CaptureSourceKey]] | None
         ) = None,
         verbose: bool = False,
         step_size: T.Collection[int] | None = None,
@@ -68,7 +60,7 @@ class GroupAdjacentTime:
         self._num_frames = num_frames
         self._verbose = verbose
         self._step_size = set(step_size) if step_size is not None else {1}
-        # _logger.debug(
+        # logger.debug(
         #     f"Using adjacent collector ({num_frames} frames) with required sources {self._required_capture_sources}"
         # )
 
@@ -84,7 +76,7 @@ class GroupAdjacentTime:
 
     __repr__ = __str__
 
-    def __call__(self, mfst: data_types.Manifest, /) -> QueueGeneratorType:
+    def __call__(self, mfst: Manifest, /) -> QueueGenerator:
         success = 0
 
         for seq, rec in mfst["sequences"].items():
@@ -131,12 +123,12 @@ class GroupAdjacentTime:
                     if self._verbose:
                         wants = list(tuple(r) for r in self._required_capture_sources)
                         has = list(tuple(c.keys()) for c in sources)
-                        _logger.debug(
+                        logger.debug(
                             f"Skipping sequence {seq} due to missing capture sources! Wants {wants}, got {has}!"
                         )
                     continue
 
-                item: data_types.QueueItem = {
+                item: QueueItem = {
                     "sequence": seq,
                     "frame": i,
                     "fps": 1.0,
@@ -148,7 +140,7 @@ class GroupAdjacentTime:
                 success += 1
         if success <= 0:
             raise ValueError(f"No sequences with {self._num_frames} captures found!")
-        # _logger.debug(f"{self}: {success} pairs with {self._num_frames} captures!")
+        # logger.debug(f"{self}: {success} pairs with {self._num_frames} captures!")
 
 
 class ExtractIndividualFrames(GroupAdjacentTime):

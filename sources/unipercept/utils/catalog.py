@@ -4,13 +4,16 @@ Implements a simple data manager for registering datasets and their info functio
 
 from __future__ import annotations
 
+import importlib.metadata
 import re
 import typing as T
+
+import typing_extensions as TX
 
 from unipercept.utils.dataset import Dataset
 from unipercept.utils.registry import Registry
 
-__all__ = ["DataManager"]
+__all__ = ["DataManager", "DataManagerWithMetadataGroup"]
 
 
 _DEFAULT_ID_PATTERN: T.Final[re.Pattern] = re.compile(r"^[a-z\d\-]+$")
@@ -21,7 +24,6 @@ _I_co = T.TypeVar("_I_co", covariant=True)
 _P = T.ParamSpec("_P")
 
 
-@T.final
 class DataManager(T.Generic[_D_co, _I_co]):
     """
     Data manager for registering datasets and their info functions.
@@ -31,9 +33,8 @@ class DataManager(T.Generic[_D_co, _I_co]):
         "name",
         "variant_separator",
         "id_pattern",
-        "base",
-        "__info__",
-        "__data__",
+        "_info_registry",
+        "_data_registry",
     )
 
     def __init__(
@@ -52,10 +53,13 @@ class DataManager(T.Generic[_D_co, _I_co]):
         """
         self.variant_separator: T.Final[str] = variant_separator
         self.id_pattern: T.Final[re.Pattern[str]] = id_pattern
-        self.__info__ = T.cast(
+
+        self._info_registry = T.cast(
             Registry[T.Callable[..., _I_co], str], Registry(self.parse_key)
         )
-        self.__data__ = T.cast(Registry[type[_D_co], str], Registry(self.parse_key))
+        self._data_registry = T.cast(
+            Registry[type[_D_co], str], Registry(self.parse_key)
+        )
 
     def parse_key(self, key: str | type[_D_co], *, check_valid: bool = True) -> str:
         """
@@ -78,7 +82,7 @@ class DataManager(T.Generic[_D_co, _I_co]):
 
         return id_
 
-    def split_query(self, query: str) -> tuple[str, list[str]]:
+    def split_query(self, query: str) -> tuple[str, frozenset[str]]:
         """
         Split a query into a dataset ID and a variant ID.
         """
@@ -93,8 +97,8 @@ class DataManager(T.Generic[_D_co, _I_co]):
         Merge the data and info registries of this manager with another.
         The other manager takes precedence in case of conflicts.
         """
-        self.__data__ |= __other.__data__
-        self.__info__ |= __other.__info__
+        self._data_registry |= __other._data_registry
+        self._info_registry |= __other._info_registry
 
         return self
 
@@ -131,21 +135,13 @@ class DataManager(T.Generic[_D_co, _I_co]):
 
         def wrapped(ds: type[_D_co]) -> type[_D_co]:
             key = id or self.parse_key(ds)
-            if key in self.list_datasets():
-                raise KeyError(f"Already registered: {key}")
-            if key in self.list_info():
-                raise KeyError(
-                    f"Already registered as info: {key}. Dataset keys cannot be dually registered."
-                )
-
-            self.__data__[key] = ds
-
+            self._data_registry[key] = ds
             if info is None:
                 raise ValueError(
                     f"Dataset {key} has no info function and no info function was provided."
                 )
             if callable(info):
-                self.__info__[key] = info
+                self._info_registry[key] = info
             else:
                 raise TypeError(f"Invalid info function: {info}")
 
@@ -157,13 +153,13 @@ class DataManager(T.Generic[_D_co, _I_co]):
         """
         Return the dataset class for the given dataset ID.
         """
-        return self.__data__[query]
+        return self._data_registry[query]
 
-    def list_datasets(self) -> list[str]:
+    def list_datasets(self) -> frozenset[str]:
         """
         Return a frozenset of all registered dataset IDs.
         """
-        return list(self.__data__.keys())
+        return frozenset(self._data_registry.keys())
 
     # ---- #
     # Info #
@@ -185,7 +181,7 @@ class DataManager(T.Generic[_D_co, _I_co]):
         """
 
         def wrapped(info: T.Callable[_P, _I_co]) -> T.Callable[_P, _I_co]:
-            self.__info__[key] = info
+            self._info_registry[key] = info
 
             return info
 
@@ -196,17 +192,120 @@ class DataManager(T.Generic[_D_co, _I_co]):
         Return the info for the given dataset ID.
         """
         _id, variant = self.split_query(query)
-        return self.__info__[_id](*variant)
+        return self._info_registry[_id](*variant)
 
     def get_info_at(self, query: str, key: str) -> T.Any:
         """
         Return the info for the given dataset ID.
         """
         _id, variant = self.split_query(query)
-        return self.__info__[_id](*variant)[key]  # type: ignore
+        return self._info_registry[_id](*variant)[key]  # type: ignore
 
-    def list_info(self) -> list[str]:
+    def list_info(self) -> frozenset[str]:
         """
         Return a frozenset of all registered dataset IDs.
         """
-        return list(self.__info__.keys())
+        return frozenset(self._info_registry.keys())
+
+
+class DataManagerWithMetadataGroup(DataManager[_D_co, _I_co], T.Generic[_D_co, _I_co]):
+    """
+    Variant of :class:`DataManager` that reads registered items from the metadata
+    registered through ``importlib.metadata``.
+
+    Notes
+    -----
+    This comes with the restriction that each registered ID can only reference both
+    a dataset and an info function.
+    """
+
+    __slots__ = "group"
+
+    def __init__(
+        self,
+        *,
+        group: str,
+        **kwargs,
+    ):
+        """
+        Parameters
+        ----------
+        group : str
+            The metadata group to read from.
+        **kwargs
+            See :class:`DataManager`.
+        """
+        super().__init__(**kwargs)
+
+        self.group = group
+
+    def list_entrypoints(self) -> frozenset[str]:
+        """
+        Returns a list of all registered keys from ``importlib.metadata`` with
+        ``self.group``.
+        """
+        return frozenset(importlib.metadata.entry_points(group=self.group).names)
+
+    def get_entrypoint(self, query: str) -> type[_D_co]:
+        """
+        Return the entrypoint for the given dataset ID.
+        """
+        return importlib.metadata.entry_points(group=self.group)[query].load()
+
+    @TX.override
+    def get_dataset(self, query: str) -> type[_D_co]:
+        """
+        Return the dataset class for the given dataset ID.
+        """
+        try:
+            return self._data_registry[query]
+        except KeyError:
+            return self.get_entrypoint(query)
+
+    @TX.override
+    def list_datasets(self) -> frozenset[str]:
+        """
+        Return a frozenset of all registered dataset IDs.
+        """
+        reg_ds = set(super().list_datasets())
+        meta_ds = set(self.list_entrypoints())
+
+        return frozenset(reg_ds | meta_ds)
+
+    def _maybe_load_entrypoint(self, query: str, *, raises: bool = True) -> None:
+        _id, _ = self.split_query(query)
+        if _id in super().list_info():
+            return
+        if _id not in self.list_entrypoints():
+            return
+        ds = self.get_entrypoint(_id)  # this should trigger registration
+        if _id not in super().list_info() and raises:
+            msg = (
+                f"Could not find info for dataset ID {_id=}. "
+                f"While {_id=} is a valid entrypoint, loading it did not yield a "
+                f"registered info function. Found entrypoint: {ds}"
+            )
+            raise KeyError(msg)
+
+    @TX.override
+    def get_info(self, query: str) -> _I_co:
+        """
+        Return the info for the given dataset ID.
+        """
+        self._maybe_load_entrypoint(query)
+        return super().get_info(query)
+
+    @TX.override
+    def get_info_at(self, query: str, key: str) -> T.Any:
+        """
+        Return the info for the given dataset ID.
+        """
+        self._maybe_load_entrypoint(query)
+        return super().get_info_at(query, key)
+
+    @TX.override
+    def list_info(self) -> frozenset[str]:
+        """
+        Return a frozenset of all registered dataset IDs.
+        """
+        return super().list_info() | self.list_entrypoints()

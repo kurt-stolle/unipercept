@@ -8,10 +8,19 @@ import typing as T
 
 import typing_extensions as TX
 
-from . import Metadata, PerceptionDataset
-
-if T.TYPE_CHECKING:
-    from ..tensors import DepthFormat, LabelsFormat
+from . import (
+    RGB,
+    CaptureSources,
+    Manifest,
+    ManifestSequence,
+    Metadata,
+    MotionSources,
+    PerceptionDataset,
+    QueueItem,
+    SClass,
+    SType,
+    create_metadata,
+)
 
 
 class GenericCOCODataset(

@@ -16,7 +16,8 @@ from tqdm import tqdm
 
 from unipercept import file_io
 from unipercept.data.pipes import PILImageLoaderDataset
-from unipercept.log import get_logger
+from unipercept.log import logger
+from unipercept.utils.memory import find_executable_batch_size
 
 from ..utils.typings import Pathable
 
@@ -29,10 +30,6 @@ if T.TYPE_CHECKING:
 
     from unipercept.data.tensors import DepthMap, LabelsFormat, PanopticMap
 
-
-__all__ = ["PseudoGenerator"]
-
-_logger = get_logger(__name__)
 
 
 class PseudoGenerator:
@@ -85,7 +82,7 @@ class PseudoGenerator:
     def _panoptic_pipeline(self) -> ImageSegmentationPipeline:
         from transformers import pipeline
 
-        _logger.info("Loading panoptic segmentation pipeline: %s", self._depth_model)
+        logger.info("Loading panoptic segmentation pipeline: %s", self._depth_model)
 
         pl = pipeline(
             task="image-segmentation",
@@ -166,7 +163,7 @@ class PseudoGenerator:
     def _depth_pipeline(self) -> DepthEstimationPipeline:
         from transformers import pipeline
 
-        _logger.info("Loading depth estimation pipeline: %s", self._depth_model)
+        logger.info("Loading depth estimation pipeline: %s", self._depth_model)
 
         pl = pipeline(
             task="depth-estimation",
@@ -188,6 +185,7 @@ class PseudoGenerator:
         """Run the depth generator on the queue."""
 
         from unipercept.data.tensors import DepthMap
+        from accelerate.utils import 
 
         if len(self._depth_generate_queue) == 0:
             return

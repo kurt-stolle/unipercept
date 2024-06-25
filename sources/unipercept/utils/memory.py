@@ -12,6 +12,11 @@ import contextlib
 import functools
 import typing as T
 
+
+import functools
+import gc
+import inspect
+
 import torch
 
 CUDA_OOM_ERROR: T.Final[str] = "CUDA out of memory. "
@@ -97,4 +102,96 @@ def _maybe_to_cpu(x):
     if like_gpu_tensor:
         return x.to(device="cpu")
     else:
-        return x
+
+def release_memory():
+    """
+    Attempt to free memory from the GPU, XPU, NPU, or MPS.
+    """
+    gc.collect()
+    # torch.xpu.empty_cache()
+    # torch.mlu.empty_cache()
+    # torch.npu.empty_cache()
+    # torch.mps.empty_cache()
+    torch.cuda.empty_cache()
+
+
+_OOM_EXCEPTION_PATTERNS = [
+    "CUDA out of memory.",
+    "cuDNN error: CUDNN_STATUS_NOT_SUPPORTED.",
+    "DefaultCPUAllocator: can't allocate memory",
+]
+
+
+def check_oom_exception(e: Exception) -> bool:
+    """
+    Checks whether an exception is CUDA out-of-memory, CUDNN not supported, or CPU out-of-memory.
+    """
+    if isinstance(e, RuntimeError) and len(e.args) == 1:
+        return any(err in e.args[0] for err in _OOM_EXCEPTION_PATTERNS)
+    return False
+
+
+_R = T.TypeVar("_R")
+_P = T.ParamSpec("_P")
+
+
+def find_executable(
+    fn: T.Callable[T.Concatenate[int, _P], _R] | None = None, /, *, max_iter: int = 10
+) -> (
+    T.Callable[T.Concatenate[_P], _R]
+    | T.Callable[[T.Callable[T.Concatenate[_P], _R]], T.Callable[T.Concatenate[_P], _R]]
+):
+    """
+    A basic decorator that will try to execute `function`. If it fails from exceptions
+    related to out-of-memory or CUDNN, the function will be retried with the first
+    integer argument increased by one.
+
+    This will continue until the function executes successfully or the user interrupts
+    the process.
+
+    Parameters
+    ----------
+    fn :
+        The function to decorate. If not provided, the decorator will return a partial
+        function that can be called with the function to decorate.
+    max_iterations : int | None
+        The maximum number of iterations to attempt before raising an error.
+
+    Returns
+    -------
+    Callable[[int, ...], ...] :
+        The decorated function or a partial function that can be called with the function to
+        decorate.
+
+    Raises
+    ------
+    StopIteration :
+        If the maximum number of iterations is reached.
+
+    ```
+    """
+    if fn is None:
+        return functools.partial(find_executable_batch_size, max_iter=max_iter)  # type: ignore
+
+    assert max_iter is None or max_iter >= 1, f"{max_iter=} <= 1"
+
+    n = 1
+
+    @functools.wraps(fn)
+    def _fn_wrap(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        nonlocal n
+        release_memory()
+        while True:
+            if n > max_iter:
+                raise StopIteration("Max iterations reached.")
+            try:
+                return fn(n, *args, **kwargs)
+            except Exception as e:
+                if check_oom_exception(e):
+                    n += 1
+                    release_memory()
+                    continue
+                else:
+                    raise
+
+    return _fn_wrap  # type: ignore        return x

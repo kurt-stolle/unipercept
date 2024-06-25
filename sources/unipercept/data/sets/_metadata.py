@@ -8,6 +8,8 @@ import dataclasses as D
 import enum as E
 import functools
 import typing as T
+from pathlib import Path
+from typing import Any, TypeAlias
 
 import typing_extensions as TX
 
@@ -21,13 +23,26 @@ __all__ = [
     "Metadata",
     "SClass",
     "SType",
-    "StuffMode",
-    "create_metadata",
+    "StuffOffsetMode",
+    "HW",
+    "BatchType",
+    "ImageSize",
 ]
 
-# ---------------- #
-# CANONICAL COLORS #
-# ---------------- #
+BatchType: TypeAlias = list[frozendict[str, Any]]
+HW: TypeAlias = tuple[int, int]
+PathType: TypeAlias = Path | str
+OptionalPath: TypeAlias = PathType | None
+
+
+class ImageSize(T.NamedTuple):
+    height: int
+    width: int
+
+
+class SampleInfo(T.TypedDict, total=False):
+    num_instances: frozendict[int, int]  # Mapping: (Dataset ID) -> (Num. instances)
+    num_pixels: frozendict[int, int]  # Mapping: (Dataset ID) -> (Num. pixels)
 
 
 @D.dataclass(slots=True, frozen=True, weakref_slot=False, unsafe_hash=True, eq=True)
@@ -109,7 +124,7 @@ EmbeddedID = T.NewType(
 )  # The ID as it is represented internally, not unique for things and stuff
 
 
-class StuffMode(E.Enum):
+class StuffOffsetMode(E.StrEnum):
     """
     Defines segmentation modes.
 
@@ -138,26 +153,95 @@ class Metadata:
     various developers who built on top of them.
     """
 
-    label_divisor: int
-    ignore_label: int
-
-    fps: float
-    depth_max: float
-    depth_min: float = 1.0
-
-    # Sem. ID -> Sem. Class
+    fps: float = 0.0  # default no video
+    depth_range: tuple[float, float] = (1, 100)  # meters
     semantic_classes: T.Mapping[int, SClass]
+    stuff_offset_mode: StuffOffsetMode
 
-    # Sem. ID --> Embedded ID
-    thing_offsets: T.Mapping[int, int]
-    stuff_offsets: T.Mapping[int, int]
-    stuff_mode: StuffMode
+    @classmethod
+    def from_parameters(
+        cls,
+        sem_seq: T.Sequence[SClass],
+        *,
+        depth_max: float = 100.0,
+        depth_min: float = 1.0,
+        fps: float = 0.0,
+        stuff_offset_mode: StuffOffsetMode = StuffOffsetMode.ALL_CLASSES,
+    ) -> T.Self:
+        """Generate dataset metadata object."""
 
-    # Dataset ID -> Sem. ID
-    translations_dataset: frozendict[int, int]
+        # Sort the list of classes such that stuff classes come first, then things
+        sem_seq = sorted(
+            sem_seq,
+            key=lambda c: (int(1e6) if c.get("is_thing") else 0) + c["unified_id"],
+        )
 
-    # Sem. ID -> Dataset ID
-    translations_semantic: frozendict[int, int]
+        # Automatically resolves any many-to-one mappings for semantic IDs (only one semantic ID per metadata will remain)
+        sem_map = {c["unified_id"]: c for c in sem_seq}
+
+        return cls(
+            fps=fps,
+            depth_range=(depth_min, depth_max),
+            stuff_offset_mode=stuff_offset_mode,
+            semantic_classes=frozendict(sem_map),
+        )
+
+    @property
+    def depth_min(self) -> float:
+        return self.depth_range[0]
+
+    @property
+    def depth_max(self) -> float:
+        return self.depth_range[1]
+
+    @property
+    def translations_dataset(self) -> T.Mapping[int, int]:
+        return {
+            c["dataset_id"]: c["unified_id"] for c in self.semantic_classes.values()
+        }
+
+    @property
+    def translations_semantic(self) -> T.Mapping[int, int]:
+        return {
+            c["unified_id"]: c["dataset_id"] for c in self.semantic_classes.values()
+        }
+
+    @property
+    def stuff_offsets(self) -> T.Mapping[int, int]:
+        stuff_offsets: dict[int, int] = {}
+        for sem_id, sem_cls in self.semantic_classes.items():
+            if not sem_cls.is_stuff:
+                continue
+            stuff_offsets[sem_id] = len(stuff_offsets)
+
+        # Add a special thing class to the segmentation, which is used to mask out thing classes while detecting stuff
+        # classes
+        match self.stuff_offset_mode:
+            case StuffOffsetMode.STUFF_ONLY:
+                pass
+            case StuffOffsetMode.ALL_CLASSES:
+                stuff_offsets.update(
+                    {
+                        id: offset + len(stuff_offsets)
+                        for id, offset in self.thing_offsets.items()
+                    }
+                )
+            case StuffOffsetMode.WITH_THING:
+                for sem_id in tuple(stuff_offsets.keys()):
+                    stuff_offsets[sem_id] += 1
+            case _:
+                msg = f"Invalid stuff offset mode: {self.stuff_offset_mode}"
+                raise ValueError(msg)
+        return stuff_offsets
+
+    @property
+    def thing_offsets(self) -> T.Mapping[int, int]:
+        thing_offsets: dict[int, int] = {}
+        for sem_id, sem_cls in self.semantic_classes.items():
+            if not sem_cls.is_thing:
+                continue
+            thing_offsets[sem_id] = len(thing_offsets)
+        return thing_offsets
 
     @property
     def thing_o2e(self) -> T.Mapping[int, int]:
@@ -305,13 +389,13 @@ class Metadata:
     @TX.deprecated("Use `stuff_mode` instead.")
     def stuff_all_classes(self) -> bool:
         """Deprecated."""
-        return StuffMode.ALL_CLASSES == self.stuff_mode
+        return StuffOffsetMode.ALL_CLASSES == self.stuff_offset_mode
 
     @property
     @TX.deprecated("Use `stuff_mode` instead.")
     def stuff_with_things(self) -> bool:
         """Deprecated."""
-        return StuffMode.WITH_THING == self.stuff_mode
+        return StuffOffsetMode.WITH_THING == self.stuff_offset_mode
 
     @property
     @TX.deprecated("Use `thing_amount` instead.")
@@ -383,7 +467,7 @@ class Metadata:
 # --------------------------- #
 
 
-class SType(E.Flag):
+class SType(E.IntFlag):
     VOID = 0
     STUFF = E.auto()
     THING = E.auto()
@@ -401,19 +485,19 @@ class SClass:
     kind: SType
     unified_id: int
     dataset_id: int
-    depth_fixed: T.Optional[float] = None
+    depth_fixed: float | None = None
 
     @property
     def is_thing(self) -> bool:
-        return self.kind == SType.THING
+        return SType.THING in self.kind
 
     @property
     def is_void(self) -> bool:
-        return not self.is_thing and not self.is_stuff
+        return self.kind == SType.VOID
 
     @property
     def is_stuff(self) -> bool:
-        return self.kind == SType.STUFF
+        return SType.STUFF in self.kind
 
     def __getitem__(self, key: str) -> T.Any:
         return getattr(self, key)
@@ -455,67 +539,3 @@ class SClass:
             "trainId": unified_id,
         }
         return ccat
-
-
-def create_metadata(
-    sem_seq: T.Sequence[SClass],
-    *,
-    depth_max: float,
-    label_divisor: int = 1000,
-    ignore_depth: float = 0.0,
-    ignore_label: int = 255,
-    fps: float = 17.0,
-    stuff_mode: StuffMode = StuffMode.ALL_CLASSES,
-) -> Metadata:
-    """Generate dataset metadata object."""
-
-    # Sort the list of classes such that stuff classes come first, then things
-    sem_seq = sorted(
-        sem_seq,
-        key=lambda c: (int(1e6) if c.get("is_thing") else 0) + c["unified_id"],
-    )
-
-    # Automatically resolves any many-to-one mappings for semantic IDs (only one semantic ID per metadata will remain)
-    sem_map = {c["unified_id"]: c for c in sem_seq}
-
-    # Offsets are the embedded channel index for either stuff or things
-    stuff_offsets: dict[int, int] = {}
-    for sem_id, sem_cls in sem_map.items():
-        if not sem_cls.is_stuff:
-            continue
-        else:
-            stuff_offsets[sem_id] = len(stuff_offsets)
-
-    # Add a special thing class to the segmentation, which is used to mask out thing classes while detecting stuff
-    # classes
-    if stuff_mode == StuffMode.WITH_THING:
-        for sem_id in tuple(stuff_offsets.keys()):
-            stuff_offsets[sem_id] += 1
-
-    thing_offsets: dict[int, int] = {}
-    for sem_id, sem_cls in sem_map.items():
-        if not sem_cls.is_thing:
-            continue
-        thing_offsets[sem_id] = len(thing_offsets)
-
-        if stuff_mode == StuffMode.ALL_CLASSES:
-            stuff_offsets[sem_id] = len(stuff_offsets)
-        elif stuff_mode == StuffMode.WITH_THING:
-            stuff_offsets[sem_id] = 0
-
-    return Metadata(
-        fps=fps,
-        depth_max=depth_max,
-        ignore_label=ignore_label,
-        label_divisor=label_divisor,
-        stuff_mode=stuff_mode,
-        translations_dataset=frozendict(
-            {c["dataset_id"]: c["unified_id"] for c in sem_seq}
-        ),
-        translations_semantic=frozendict(
-            {c["unified_id"]: c["dataset_id"] for c in sem_seq}
-        ),
-        stuff_offsets=frozendict(stuff_offsets),
-        thing_offsets=frozendict(thing_offsets),
-        semantic_classes=frozendict(sem_map),
-    )

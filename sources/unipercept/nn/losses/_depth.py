@@ -205,7 +205,7 @@ def compute_silog_loss(
     tgt: Tensor,
     mask: Tensor,
     dim: T.Tuple[int, ...],
-    alpha: float = 0.15,
+    alpha: float = 0.5,
     eps: float = 1e-5,
     margin_scale: float = _DEFAULT_MARGIN_SCALE,
 ):
@@ -646,7 +646,674 @@ class DCELoss(nn.Module):
         loss = torch.sum(loss_pixeles) / (valid_pixels + self.eps)
         if torch.isnan(loss).item() | torch.isinf(loss).item():
             raise RuntimeError(f"WCEL error, {loss}")
-        return loss * self.loss_weight
+        return loss * self.scale
+
+
+class HDSNRandomLoss(nn.Module):
+    """
+    Hieratical depth spatial normalization loss.
+    Replace the original grid masks with the random created masks.
+    loss = MAE((d-median(d)/s - (d'-median(d'))/s'), s = mean(d- median(d))
+
+    Paper: https://arxiv.org/pdf/2404.15506
+    """
+
+    def __init__(self, scale=1.0, random_num=32, sky_id=142, batch_limit=8, **kwargs):
+        super().__init__(**kwargs)
+        self.scale = scale
+        self.random_num = random_num
+        self.sky_id = sky_id
+        self.batch_limit = batch_limit
+        self.eps = 1e-6
+
+    def get_random_masks_for_batch(self, image_size: list) -> torch.Tensor:
+        height, width = image_size
+        crop_h_min = int(0.125 * height)
+        crop_h_max = int(0.5 * height)
+        crop_w_min = int(0.125 * width)
+        crop_w_max = int(0.5 * width)
+        h_max = height - crop_h_min
+        w_max = width - crop_w_min
+        crop_height = np.random.choice(
+            np.arange(crop_h_min, crop_h_max), self.random_num, replace=False
+        )
+        crop_width = np.random.choice(
+            np.arange(crop_w_min, crop_w_max), self.random_num, replace=False
+        )
+        crop_y = np.random.choice(h_max, self.random_num, replace=False)
+        crop_x = np.random.choice(w_max, self.random_num, replace=False)
+        crop_y_end = crop_height + crop_y
+        crop_y_end[crop_y_end >= height] = height
+        crop_x_end = crop_width + crop_x
+        crop_x_end[crop_x_end >= width] = width
+
+        mask_new = torch.zeros(
+            (self.random_num, height, width), dtype=torch.bool, device="cuda"
+        )  # .cuda() #[N, H, W]
+        for i in range(self.random_num):
+            mask_new[i, crop_y[i] : crop_y_end[i], crop_x[i] : crop_x_end[i]] = True
+
+        return mask_new
+        # return crop_y, crop_y_end, crop_x, crop_x_end
+
+    def reorder_sem_masks(self, sem_label):
+        # reorder the semantic mask of a batch
+        assert sem_label.ndim == 3
+        semantic_ids = torch.unique(
+            sem_label[(sem_label > 0) & (sem_label != self.sky_id)]
+        )
+        sem_masks = [sem_label == id for id in semantic_ids]
+        if len(sem_masks) == 0:
+            # no valid semantic labels
+            out = sem_label > 0
+            return out
+
+        sem_masks = torch.cat(sem_masks, dim=0)
+        mask_batch = torch.sum(sem_masks.reshape(sem_masks.shape[0], -1), dim=1) > 500
+        sem_masks = sem_masks[mask_batch]
+        if sem_masks.shape[0] > self.random_num:
+            balance_samples = np.random.choice(
+                sem_masks.shape[0], self.random_num, replace=False
+            )
+            sem_masks = sem_masks[balance_samples, ...]
+
+        if sem_masks.shape[0] == 0:
+            # no valid semantic labels
+            out = sem_label > 0
+            return out
+
+        if sem_masks.ndim == 2:
+            sem_masks = sem_masks[None, :, :]
+        return sem_masks
+
+    def ssi_mae(self, prediction, target, mask_valid):
+        B, C, H, W = target.shape
+        prediction_nan = prediction.clone().detach()
+        target_nan = target.clone()
+        prediction_nan[~mask_valid] = float("nan")
+        target_nan[~mask_valid] = float("nan")
+
+        valid_pixs = mask_valid.reshape((B, C, -1)).sum(dim=2, keepdims=True) + 1e-10
+        valid_pixs = valid_pixs[:, :, :, None]
+
+        gt_median = (
+            target_nan.reshape((B, C, -1)).nanmedian(2, keepdims=True)[0].unsqueeze(-1)
+        )  # [b,c,h,w]
+        gt_median[torch.isnan(gt_median)] = 0
+        gt_diff = (torch.abs(target - gt_median)).reshape((B, C, -1))
+        gt_s = gt_diff.sum(dim=2)[:, :, None, None] / valid_pixs
+        gt_trans = (target - gt_median) / (gt_s + self.eps)
+
+        pred_median = (
+            prediction_nan.reshape((B, C, -1))
+            .nanmedian(2, keepdims=True)[0]
+            .unsqueeze(-1)
+        )  # [b,c,h,w]
+        pred_median[pred_median.isnan()] = 0
+        pred_diff = (torch.abs(prediction - pred_median)).reshape((B, C, -1))
+        pred_s = pred_diff.sum(dim=2)[:, :, None, None] / valid_pixs
+        pred_trans = (prediction - pred_median) / (pred_s + self.eps)
+
+        loss_sum = torch.sum(torch.abs(gt_trans - pred_trans) * mask_valid)
+        return loss_sum
+
+    def conditional_ssi_mae(self, prediction, target, mask_valid):
+        B, C, H, W = target.shape
+        conditional_rank_ids = np.random.choice(B, B, replace=False)
+
+        prediction_nan = prediction.clone()
+        target_nan = target.clone()
+        prediction_nan[~mask_valid] = float("nan")
+        target_nan[~mask_valid] = float("nan")
+
+        valid_pixs = mask_valid.reshape((B, C, -1)).sum(dim=2, keepdims=True) + self.eps
+        valid_pixs = valid_pixs[:, :, :, None].contiguous()
+
+        gt_median = (
+            target_nan.reshape((B, C, -1)).nanmedian(2, keepdims=True)[0].unsqueeze(-1)
+        )  # [b,c,h,w]
+        gt_median[torch.isnan(gt_median)] = 0
+        gt_diff = (torch.abs(target - gt_median) * mask_valid).reshape((B, C, -1))
+        gt_s = gt_diff.sum(dim=2)[:, :, None, None].contiguous() / valid_pixs
+
+        # in case some batches have no valid pixels
+        gt_s_small_mask = gt_s < (torch.mean(gt_s) * 0.1)
+        gt_s[gt_s_small_mask] = torch.mean(gt_s)
+        gt_trans = (target - gt_median[conditional_rank_ids]) / (
+            gt_s[conditional_rank_ids] + self.eps
+        )
+
+        pred_median = (
+            prediction_nan.reshape((B, C, -1))
+            .nanmedian(2, keepdims=True)[0]
+            .unsqueeze(-1)
+        )  # [b,c,h,w]
+        pred_median[torch.isnan(pred_median)] = 0
+        pred_diff = (torch.abs(prediction - pred_median) * mask_valid).reshape(
+            (B, C, -1)
+        )
+        pred_s = pred_diff.sum(dim=2)[:, :, None, None].contiguous() / valid_pixs
+        pred_s[gt_s_small_mask] = torch.mean(pred_s)
+        pred_trans = (prediction - pred_median[conditional_rank_ids]) / (
+            pred_s[conditional_rank_ids] + self.eps
+        )
+
+        loss_sum = torch.sum(torch.abs(gt_trans - pred_trans) * mask_valid)
+        # print(torch.abs(gt_trans - pred_trans)[mask_valid])
+        return loss_sum
+
+    def forward(self, prediction, target, mask=None, sem_mask=None, **kwargs):
+        """
+        Calculate loss.
+        """
+        B, C, H, W = target.shape
+
+        loss = 0.0
+        valid_pix = 0.0
+
+        device = target.device
+
+        batches_dataset = kwargs["dataset"]
+        self.batch_valid = torch.tensor(
+            [
+                1 if batch_dataset not in self.disable_dataset else 0
+                for batch_dataset in batches_dataset
+            ],
+            device=device,
+        )[:, None, None, None]
+
+        batch_limit = self.batch_limit
+
+        random_sample_masks = self.get_random_masks_for_batch((H, W))  # [N, H, W]
+        for i in range(B):
+            # each batch
+            mask_i = mask[i, ...]  # [1, H, W]
+            if self.batch_valid[i, ...] < 0.5:
+                loss += 0 * torch.sum(prediction[i, ...])
+                valid_pix += 0 * torch.sum(mask_i)
+                continue
+
+            pred_i = prediction[i, ...].unsqueeze(0).repeat(batch_limit, 1, 1, 1)
+            target_i = target[i, ...].unsqueeze(0).repeat(batch_limit, 1, 1, 1)
+
+            # get semantic masks
+            sem_label_i = sem_mask[i, ...] if sem_mask is not None else None
+            if sem_label_i is not None:
+                sem_masks = self.reorder_sem_masks(sem_label_i)  # [N, H, W]
+                random_sem_masks = torch.cat([random_sample_masks, sem_masks], dim=0)
+            else:
+                random_sem_masks = random_sample_masks
+            # random_sem_masks = random_sample_masks
+
+            sampled_masks_num = random_sem_masks.shape[0]
+            loops = int(np.ceil(sampled_masks_num / batch_limit))
+            conditional_rank_ids = np.random.choice(
+                sampled_masks_num, sampled_masks_num, replace=False
+            )
+
+            for j in range(loops):
+                mask_random_sem_loopi = random_sem_masks[
+                    j * batch_limit : (j + 1) * batch_limit, ...
+                ]
+                mask_sample = (mask_i & mask_random_sem_loopi).unsqueeze(
+                    1
+                )  # [N, 1, H, W]
+                loss += self.ssi_mae(
+                    prediction=pred_i[: mask_sample.shape[0], ...],
+                    target=target_i[: mask_sample.shape[0], ...],
+                    mask_valid=mask_sample,
+                )
+                valid_pix += torch.sum(mask_sample)
+
+                # conditional ssi loss
+                # rerank_mask_random_sem_loopi = random_sem_masks[conditional_rank_ids, ...][j*batch_limit:(j+1)*batch_limit, ...]
+                # rerank_mask_sample = (mask_i & rerank_mask_random_sem_loopi).unsqueeze(1) # [N, 1, H, W]
+                # loss_cond = self.conditional_ssi_mae(
+                #     prediction=pred_i[:rerank_mask_sample.shape[0], ...],
+                #     target=target_i[:rerank_mask_sample.shape[0], ...],
+                #     mask_valid=rerank_mask_sample)
+                # print(loss_cond / (torch.sum(rerank_mask_sample) + 1e-10), loss_cond, torch.sum(rerank_mask_sample))
+                # loss += loss_cond
+                # valid_pix += torch.sum(rerank_mask_sample)
+
+        # crop_y, crop_y_end, crop_x, crop_x_end = self.get_random_masks_for_batch((H, W)) # [N,]
+        # for j in range(B):
+        #     for i in range(self.random_num):
+        #         mask_crop = mask[j, :, crop_y[i]:crop_y_end[i], crop_x[i]:crop_x_end[i]][None, ...] #[1, 1, crop_h, crop_w]
+        #         target_crop = target[j, :, crop_y[i]:crop_y_end[i], crop_x[i]:crop_x_end[i]][None, ...]
+        #         pred_crop = prediction[j, :, crop_y[i]:crop_y_end[i], crop_x[i]:crop_x_end[i]][None, ...]
+        #         loss += self.ssi_mae(prediction=pred_crop, target=target_crop, mask_valid=mask_crop)
+        #         valid_pix += torch.sum(mask_crop)
+
+        # the whole image
+        mask = mask * self.batch_valid.bool()
+        loss += self.ssi_mae(prediction=prediction, target=target, mask_valid=mask)
+        valid_pix += torch.sum(mask)
+        loss = loss / (valid_pix + self.eps)
+        if torch.isnan(loss).item() | torch.isinf(loss).item():
+            loss = 0 * torch.sum(prediction)
+            print(f"HDSNL NAN error, {loss}, valid pix: {valid_pix}")
+        return loss * self.scale
+
+
+class HDNRandomLoss(nn.Module):
+    """
+    Hieratical depth normalization loss. Replace the original hieratical depth ranges with randomly sampled ranges.
+    loss = MAE((d-median(d)/s - (d'-median(d'))/s'), s = mean(d- median(d))
+
+    Paper: https://arxiv.org/pdf/2404.15506
+    """
+
+    def __init__(self, scale=1, random_num=32, **kwargs):
+        super(HDNRandomLoss, self).__init__()
+        self.scale = scale
+        self.random_num = random_num
+        self.eps = 1e-6
+
+    def get_random_masks_for_batch(
+        self, depth_gt: torch.Tensor, mask_valid: torch.Tensor
+    ) -> torch.Tensor:
+        valid_values = depth_gt[mask_valid]
+        max_d = valid_values.max().item() if valid_values.numel() > 0 else 0.0
+        min_d = valid_values.min().item() if valid_values.numel() > 0 else 0.0
+
+        sample_min_d = (
+            np.random.uniform(0, 0.75, self.random_num) * (max_d - min_d) + min_d
+        )
+        sample_max_d = (
+            np.random.uniform(sample_min_d + 0.1, 1 - self.eps, self.random_num)
+            * (max_d - min_d)
+            + min_d
+        )
+
+        mask_new = [
+            (depth_gt >= sample_min_d[i])
+            & (depth_gt < sample_max_d[i] + 1e-30)
+            & mask_valid
+            for i in range(self.random_num)
+        ]
+        mask_new = torch.stack(mask_new, dim=0).cuda()  # [N, 1, H, W]
+        return mask_new
+
+    def ssi_mae(self, prediction, target, mask_valid):
+        B, C, H, W = target.shape
+        prediction_nan = prediction.clone().detach()
+        target_nan = target.clone()
+        prediction_nan[~mask_valid] = float("nan")
+        target_nan[~mask_valid] = float("nan")
+
+        valid_pixs = mask_valid.reshape((B, C, -1)).sum(dim=2, keepdims=True) + self.eps
+        valid_pixs = valid_pixs[:, :, :, None]
+
+        gt_median = (
+            target_nan.reshape((B, C, -1)).nanmedian(2, keepdims=True)[0].unsqueeze(-1)
+        )  # [b,c,h,w]
+        gt_median[torch.isnan(gt_median)] = 0
+        gt_diff = (torch.abs(target - gt_median) * mask_valid).reshape((B, C, -1))
+        gt_s = gt_diff.sum(dim=2)[:, :, None, None] / valid_pixs
+        gt_trans = (target - gt_median) / (gt_s + self.eps)
+
+        pred_median = (
+            prediction_nan.reshape((B, C, -1))
+            .nanmedian(2, keepdims=True)[0]
+            .unsqueeze(-1)
+        )  # [b,c,h,w]
+        pred_median[torch.isnan(pred_median)] = 0
+        pred_diff = (torch.abs(prediction - pred_median) * mask_valid).reshape(
+            (B, C, -1)
+        )
+        pred_s = pred_diff.sum(dim=2)[:, :, None, None] / valid_pixs
+        pred_trans = (prediction - pred_median) / (pred_s + self.eps)
+
+        loss_sum = torch.sum(torch.abs(gt_trans - pred_trans) * mask_valid)
+        return loss_sum
+
+    def forward(self, prediction, target, mask=None, **kwargs):
+        """
+        Calculate loss.
+        """
+        B, C, H, W = target.shape
+
+        loss = 0.0
+        valid_pix = 0.0
+
+        device = target.device
+
+        batches_dataset = kwargs["dataset"]
+        self.batch_valid = torch.tensor(
+            [
+                1 if batch_dataset not in self.disable_dataset else 0
+                for batch_dataset in batches_dataset
+            ],
+            device=device,
+        )[:, None, None, None]
+
+        batch_limit = 4
+        loops = int(np.ceil(self.random_num / batch_limit))
+        for i in range(B):
+            mask_i = mask[i, ...]  # [1, H, W]
+
+            if self.batch_valid[i, ...] < 0.5:
+                loss += 0 * torch.sum(prediction[i, ...])
+                valid_pix += 0 * torch.sum(mask_i)
+                continue
+
+            pred_i = prediction[i, ...].unsqueeze(0).repeat(batch_limit, 1, 1, 1)
+            target_i = target[i, ...].unsqueeze(0).repeat(batch_limit, 1, 1, 1)
+            mask_random_drange = self.get_random_masks_for_batch(
+                target[i, ...], mask_i
+            )  # [N, 1, H, W]
+            for j in range(loops):
+                mask_random_loopi = mask_random_drange[
+                    j * batch_limit : (j + 1) * batch_limit, ...
+                ]
+                loss += self.ssi_mae(
+                    prediction=pred_i[: mask_random_loopi.shape[0], ...],
+                    target=target_i[: mask_random_loopi.shape[0], ...],
+                    mask_valid=mask_random_loopi,
+                )
+                valid_pix += torch.sum(mask_random_loopi)
+
+        loss = loss / (valid_pix + self.eps)
+        if torch.isnan(loss).item() | torch.isinf(loss).item():
+            loss = 0 * torch.sum(prediction)
+            print(f"HDNL NAN error, {loss}, valid pix: {valid_pix}")
+        return loss * self.scale
+
+
+class VNLoss(ScaledLossMixin, nn.Module):
+    """
+    Virtual Normal Loss.
+
+    Paper: https://arxiv.org/pdf/2103.04216
+    """
+
+    def __init__(
+        self,
+        delta_cos=0.867,
+        delta_diff_x=0.01,
+        delta_diff_y=0.01,
+        delta_diff_z=0.01,
+        delta_z=1e-5,
+        sample_ratio=0.2,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.delta_cos = delta_cos
+        self.delta_diff_x = delta_diff_x
+        self.delta_diff_y = delta_diff_y
+        self.delta_diff_z = delta_diff_z
+        self.delta_z = delta_z
+        self.sample_ratio = sample_ratio
+        self.eps = 1e-6
+
+    def init_image_coor(self, intrinsic, height, width):
+        # x_row = torch.arange(0, W, device="cuda")
+        # x = torch.tile(x_row, (H, 1))
+        # x = x.to(torch.float32)
+        # u_m_u0 = x[None, None, :, :] - u0
+        # self.register_buffer('u_m_u0', u_m_u0, persistent=False)
+
+        # y_col = torch.arange(0, H, device="cuda")  # y_col = np.arange(0, height)
+        # y = torch.transpose(torch.tile(y_col, (W, 1)), 1, 0)
+        # y = y.to(torch.float32)
+        # v_m_v0 = y[None, None, :, :] - v0
+        # self.register_buffer('v_m_v0', v_m_v0, persistent=False)
+
+        # pix_idx_mat = torch.arange(H*W, device="cuda").reshape((H, W))
+        # self.register_buffer('pix_idx_mat', pix_idx_mat, persistent=False)
+        # self.pix_idx_mat = torch.arange(height*width, device="cuda").reshape((height, width))
+
+        u0 = intrinsic[:, 0, 2][:, None, None, None]
+        v0 = intrinsic[:, 1, 2][:, None, None, None]
+        y, x = torch.meshgrid(
+            [
+                torch.arange(0, height, dtype=torch.float32, device="cuda"),
+                torch.arange(0, width, dtype=torch.float32, device="cuda"),
+            ],
+            indexing="ij",
+        )
+        u_m_u0 = x[None, None, :, :] - u0
+        v_m_v0 = y[None, None, :, :] - v0
+        # return u_m_u0, v_m_v0
+        self.register_buffer("v_m_v0", v_m_v0, persistent=False)
+        self.register_buffer("u_m_u0", u_m_u0, persistent=False)
+
+    def transfer_xyz(self, depth, focal_length, u_m_u0, v_m_v0):
+        x = u_m_u0 * depth / focal_length
+        y = v_m_v0 * depth / focal_length
+        z = depth
+        pw = torch.cat([x, y, z], 1).permute(0, 2, 3, 1).contiguous()  # [b, h, w, c]
+        return pw
+
+    def select_index(self, B, H, W, mask):
+        """ """
+        p1 = []
+        p2 = []
+        p3 = []
+        pix_idx_mat = torch.arange(H * W, device="cuda").reshape((H, W))
+        for i in range(B):
+            inputs_index = torch.masked_select(pix_idx_mat, mask[i, ...].gt(self.eps))
+            num_effect_pixels = len(inputs_index)
+
+            intend_sample_num = int(H * W * self.sample_ratio)
+            sample_num = (
+                intend_sample_num
+                if num_effect_pixels >= intend_sample_num
+                else num_effect_pixels
+            )
+
+            shuffle_effect_pixels = torch.randperm(num_effect_pixels, device="cuda")
+            p1i = inputs_index[shuffle_effect_pixels[:sample_num]]
+            shuffle_effect_pixels = torch.randperm(num_effect_pixels, device="cuda")
+            p2i = inputs_index[shuffle_effect_pixels[:sample_num]]
+            shuffle_effect_pixels = torch.randperm(num_effect_pixels, device="cuda")
+            p3i = inputs_index[shuffle_effect_pixels[:sample_num]]
+
+            cat_null = torch.tensor(
+                (
+                    [
+                        0,
+                    ]
+                    * (intend_sample_num - sample_num)
+                ),
+                dtype=torch.long,
+                device="cuda",
+            )
+            p1i = torch.cat([p1i, cat_null])
+            p2i = torch.cat([p2i, cat_null])
+            p3i = torch.cat([p3i, cat_null])
+
+            p1.append(p1i)
+            p2.append(p2i)
+            p3.append(p3i)
+
+        p1 = torch.stack(p1, dim=0)
+        p2 = torch.stack(p2, dim=0)
+        p3 = torch.stack(p3, dim=0)
+
+        p1_x = p1 % W
+        p1_y = torch.div(p1, W, rounding_mode="trunc").long()  # p1 // W
+
+        p2_x = p2 % W
+        p2_y = torch.div(p2, W, rounding_mode="trunc").long()  # p2 // W
+
+        p3_x = p3 % W
+        p3_y = torch.div(p3, W, rounding_mode="trunc").long()  # p3 // W
+        p123 = {
+            "p1_x": p1_x,
+            "p1_y": p1_y,
+            "p2_x": p2_x,
+            "p2_y": p2_y,
+            "p3_x": p3_x,
+            "p3_y": p3_y,
+        }
+        return p123
+
+    def form_pw_groups(self, p123, pw):
+        """
+        Form 3D points groups, with 3 points in each grouup.
+        :param p123: points index
+        :param pw: 3D points
+        :return:
+        """
+        B, _, _, _ = pw.shape
+        p1_x = p123["p1_x"]
+        p1_y = p123["p1_y"]
+        p2_x = p123["p2_x"]
+        p2_y = p123["p2_y"]
+        p3_x = p123["p3_x"]
+        p3_y = p123["p3_y"]
+
+        pw_groups = []
+        for i in range(B):
+            pw1 = pw[i, p1_y[i], p1_x[i], :]
+            pw2 = pw[i, p2_y[i], p2_x[i], :]
+            pw3 = pw[i, p3_y[i], p3_x[i], :]
+            pw_bi = torch.stack([pw1, pw2, pw3], dim=2)
+            pw_groups.append(pw_bi)
+        # [B, N, 3(x,y,z), 3(p1,p2,p3)]
+        pw_groups = torch.stack(pw_groups, dim=0)
+        return pw_groups
+
+    def filter_mask(
+        self,
+        p123,
+        gt_xyz,
+        delta_cos=0.867,
+        delta_diff_x=0.005,
+        delta_diff_y=0.005,
+        delta_diff_z=0.005,
+    ):
+        pw = self.form_pw_groups(p123, gt_xyz)
+        pw12 = pw[:, :, :, 1] - pw[:, :, :, 0]
+        pw13 = pw[:, :, :, 2] - pw[:, :, :, 0]
+        pw23 = pw[:, :, :, 2] - pw[:, :, :, 1]
+        ###ignore linear
+        pw_diff = torch.cat(
+            [
+                pw12[:, :, :, None],
+                pw13[:, :, :, None],
+                pw23[:, :, :, None],
+            ],
+            3,
+        )  # [b, n, 3, 3]
+        m_batchsize, groups, coords, index = pw_diff.shape
+        proj_query = (
+            pw_diff.view(m_batchsize * groups, -1, index).permute(0, 2, 1).contiguous()
+        )  # (B* X CX(3)) [bn, 3(p123), 3(xyz)]
+        proj_key = pw_diff.contiguous().view(
+            m_batchsize * groups, -1, index
+        )  # B X  (3)*C [bn, 3(xyz), 3(p123)]
+        q_norm = proj_query.norm(2, dim=2)
+        nm = torch.bmm(
+            q_norm.contiguous().view(m_batchsize * groups, index, 1),
+            q_norm.view(m_batchsize * groups, 1, index),
+        )  # []
+        energy = torch.bmm(
+            proj_query, proj_key
+        )  # transpose check [bn, 3(p123), 3(p123)]
+        norm_energy = energy / (nm + self.eps)
+        norm_energy = norm_energy.contiguous().view(m_batchsize * groups, -1)
+        mask_cos = (
+            torch.sum((norm_energy > delta_cos) + (norm_energy < -delta_cos), 1) > 3
+        )  # igonre
+        mask_cos = mask_cos.contiguous().view(m_batchsize, groups)
+        ##ignore padding and invilid depth
+        mask_pad = torch.sum(pw[:, :, 2, :] > self.delta_z, 2) == 3
+
+        ###ignore near
+        mask_x = torch.sum(torch.abs(pw_diff[:, :, 0, :]) < delta_diff_x, 2) > 0
+        mask_y = torch.sum(torch.abs(pw_diff[:, :, 1, :]) < delta_diff_y, 2) > 0
+        mask_z = torch.sum(torch.abs(pw_diff[:, :, 2, :]) < delta_diff_z, 2) > 0
+
+        mask_ignore = (mask_x & mask_y & mask_z) | mask_cos
+        mask_near = ~mask_ignore
+        mask = mask_pad & mask_near
+
+        return mask, pw
+
+    def select_points_groups(self, gt_depth, pred_depth, intrinsic, mask):
+        B, C, H, W = gt_depth.shape
+        focal_length = intrinsic[:, 0, 0][:, None, None, None]
+        u_m_u0, v_m_v0 = (
+            self.u_m_u0,
+            self.v_m_v0,
+        )  # self.init_image_coor(intrinsic, height=H, width=W)
+
+        pw_gt = self.transfer_xyz(gt_depth, focal_length, u_m_u0, v_m_v0)
+        pw_pred = self.transfer_xyz(pred_depth, focal_length, u_m_u0, v_m_v0)
+
+        p123 = self.select_index(B, H, W, mask)
+        # mask:[b, n], pw_groups_gt: [b, n, 3(x,y,z), 3(p1,p2,p3)]
+        mask, pw_groups_gt = self.filter_mask(
+            p123,
+            pw_gt,
+            delta_cos=0.867,
+            delta_diff_x=0.005,
+            delta_diff_y=0.005,
+            delta_diff_z=0.005,
+        )
+
+        # [b, n, 3, 3]
+        pw_groups_pred = self.form_pw_groups(p123, pw_pred)
+        pw_groups_pred[pw_groups_pred[:, :, 2, :] == 0] = 0.0001
+        mask_broadcast = (
+            mask.repeat(1, 9).reshape(B, 3, 3, -1).permute(0, 3, 1, 2).contiguous()
+        )
+        pw_groups_pred_not_ignore = pw_groups_pred[mask_broadcast].reshape(1, -1, 3, 3)
+        pw_groups_gt_not_ignore = pw_groups_gt[mask_broadcast].reshape(1, -1, 3, 3)
+
+        return pw_groups_gt_not_ignore, pw_groups_pred_not_ignore
+
+    @TX.override
+    def forward(self, prediction, target, mask, intrinsic, select=True, **kwargs):
+        # configs for the cameras
+        # focal_length = intrinsic[:, 0, 0][:, None, None, None]
+        # u0 = intrinsic[:, 0, 2][:, None, None, None]
+        # v0 = intrinsic[:, 1, 2][:, None, None, None]
+        B, _, H, W = target.shape
+        if (
+            "u_m_u0" not in self._buffers
+            or "v_m_v0" not in self._buffers
+            or self.u_m_u0.shape != torch.Size([B, 1, H, W])
+            or self.v_m_v0.shape != torch.Size([B, 1, H, W])
+        ):
+            self.init_image_coor(intrinsic, H, W)
+
+        gt_points, pred_points = self.select_points_groups(
+            target, prediction, intrinsic, mask
+        )
+
+        gt_p12 = gt_points[:, :, :, 1] - gt_points[:, :, :, 0]
+        gt_p13 = gt_points[:, :, :, 2] - gt_points[:, :, :, 0]
+        pred_p12 = pred_points[:, :, :, 1] - pred_points[:, :, :, 0]
+        pred_p13 = pred_points[:, :, :, 2] - pred_points[:, :, :, 0]
+
+        gt_normal = torch.cross(gt_p12, gt_p13, dim=2)
+        pred_normal = torch.cross(pred_p12, pred_p13, dim=2)
+        pred_norm = torch.norm(pred_normal, 2, dim=2, keepdim=True)
+        gt_norm = torch.norm(gt_normal, 2, dim=2, keepdim=True)
+        pred_mask = pred_norm == 0.0
+        gt_mask = gt_norm == 0.0
+        pred_mask = pred_mask.to(torch.float32)
+        gt_mask = gt_mask.to(torch.float32)
+        pred_mask *= self.eps
+        gt_mask *= self.eps
+        gt_norm = gt_norm + gt_mask
+        pred_norm = pred_norm + pred_mask
+        gt_normal = gt_normal / gt_norm
+        pred_normal = pred_normal / pred_norm
+        loss = torch.abs(gt_normal - pred_normal)
+        loss = torch.sum(torch.sum(loss, dim=2), dim=0)
+        if select:
+            loss, indices = torch.sort(loss, dim=0, descending=False)
+            loss = loss[int(loss.size(0) * 0.25) :]
+        loss = torch.sum(loss) / (loss.numel() + self.eps)
+        if torch.isnan(loss).item() | torch.isinf(loss).item():
+            loss = 0 * torch.sum(prediction)
+            print(f"VNL NAN error, {loss}")
+        return loss * self.scale
 
 
 class PEDLoss(nn.Module):

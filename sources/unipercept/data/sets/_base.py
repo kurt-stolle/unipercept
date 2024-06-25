@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses as D
-import enum as E
-import functools
 import itertools
 import typing as T
 import warnings
@@ -17,21 +15,20 @@ import torch
 import torch.utils.data
 import typing_extensions as TX
 
-from unipercept.data.tensors import PanopticMap, PinholeCamera
-from unipercept.data.types import (
+from unipercept.model import CaptureData, InputData, MotionData
+from unipercept.utils.catalog import DataManagerWithMetadataGroup
+from unipercept.utils.dataset import Dataset as _BaseDataset
+from unipercept.utils.dataset import _Datapipe, _Dataqueue
+from unipercept.utils.tensorclass import Tensorclass
+
+from ._manifest import (
     CaptureSources,
     Manifest,
     ManifestSequence,
     MotionSources,
     QueueItem,
 )
-from unipercept.model import CaptureData, InputData, MotionData
-from unipercept.utils.catalog import DataManager
-from unipercept.utils.dataset import Dataset as _BaseDataset
-from unipercept.utils.dataset import _Datapipe, _Dataqueue
-from unipercept.utils.tensorclass import Tensorclass
-
-from . import Metadata
+from ._metadata import Metadata
 
 __all__ = [
     "PerceptionDataset",
@@ -47,7 +44,9 @@ PerceptionDataqueue: T.TypeAlias = _Dataqueue["QueueItem"]
 PerceptionDatapipe: T.TypeAlias = _Datapipe["InputData", "Metadata"]
 PerceptionGatherer: T.TypeAlias = T.Callable[[Manifest], tuple[str, QueueItem]]
 
-catalog: DataManager["PerceptionDataset", Metadata] = DataManager()
+catalog: DataManagerWithMetadataGroup["PerceptionDataset", Metadata] = (
+    DataManagerWithMetadataGroup(group="unipercept.datasets")
+)
 
 
 class PerceptionDataset(
@@ -136,6 +135,7 @@ class PerceptionDataset(
         cls, sources: T.Sequence[CaptureSources], info: Metadata
     ) -> CaptureData:
         from unipercept.data.io import read_depth_map, read_image, read_segmentation
+        from unipercept.data.tensors import PanopticMap, PinholeCamera
         from unipercept.data.tensors.helpers import multi_read
         from unipercept.model import CaptureData
 
@@ -186,6 +186,8 @@ class PerceptionDataset(
     @classmethod
     @TX.override
     def _load_data(cls, key: str, item: QueueItem, info: Metadata) -> InputData:
+        from unipercept.data.tensors import PinholeCamera
+
         # Check for cache hit, should be a memmaped tensor
         # if key in cls._data_cache:
         #     return cls._data_cache[key].clone().contiguous()

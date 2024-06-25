@@ -1,20 +1,22 @@
 """
-Semantic KITTI and variants.
+Semantic KITTI-DVPS dataset.
 
 Expects the dataset to be installed and in the following format:
-``
-$UNICORE_DATA
-    |── semkitti-dvps
-    │   ├── video_sequence
-    │   │   ├── train
-    │   │   │   ├── 000000_000000_leftImg8bit.png
-    │   │   │   ├── 000000_000000_gtFine_class.png
-    │   │   │   ├── 000000_000000_gtFine_instance.png
-    │   │   │   ├── 000000_000000_depth_718.8560180664062.png
-    │   │   │   ├── ...
-    │   │   ├── val
-    │   │   │   ├── ...
-``
+
+.. code-block:: none
+    $UNICORE_DATA
+        |── semkitti-dvps
+        │   ├── video_sequence
+        │   │   ├── train
+        │   │   │   ├── 000000_000000_leftImg8bit.png
+        │   │   │   ├── 000000_000000_gtFine_class.png
+        │   │   │   ├── 000000_000000_gtFine_instance.png
+        │   │   │   ├── 000000_000000_depth_718.8560180664062.png
+        │   │   │   ├── ...
+        │   │   ├── val
+        │   │   │   ├── ...
+
+The number before the ``.png`` extension for the depth label is the focal length of the camera.
 """
 
 from __future__ import annotations
@@ -28,18 +30,22 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.data.types import (
-    CameraModelParameters,
-    CaptureRecord,
+from unipercept.utils.time import get_timestamp
+
+from . import (
+    RGB,
     CaptureSources,
     Manifest,
     ManifestSequence,
+    Metadata,
+    MotionSources,
+    PerceptionDataset,
+    QueueItem,
+    SClass,
+    SType,
 )
-from unipercept.utils.time import get_timestamp
 
-from . import RGB, Metadata, PerceptionDataset, SClass, SType, create_metadata
-
-__all__ = ["SemKITTIDataset"]
+__all__ = ["KITTISemDataset"]
 
 DOWNLOAD_URL: T.Final = (
     "https://huggingface.co/HarborYuan/PolyphonicFormer/resolve/main/semkitti-dvps.zip"
@@ -185,16 +191,16 @@ def get_info() -> Metadata:
         ),
     ]
 
-    return create_metadata(
+    return Metadata.from_parameters(
         sem_list,
         depth_max=80.0,
         fps=17.0,
     )
 
 
-class SemKITTIDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
+class KITTIDVPSDataset(PerceptionDataset, info=get_info, id="kitti-dvps"):
     """
-    Implements the SemKITTI-DVPS dataset introduced by *ViP-DeepLab: [...]* (Qiao et al, 2021).
+    Implements the KITTISemanticDVPS dataset introduced by *ViP-DeepLab: [...]* (Qiao et al, 2021).
 
     Paper: https://arxiv.org/abs/2106.10867
     """

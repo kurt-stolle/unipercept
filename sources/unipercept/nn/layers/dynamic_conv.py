@@ -107,7 +107,6 @@ class DynamicConv2d(nn.Module):
         # Kernel projection
         if k_layers > 0:
             assert k_exp is not None
-            assert k_gain is not None
             self.proj_k = MLP(
                 d_k,
                 d_h,
@@ -133,7 +132,6 @@ class DynamicConv2d(nn.Module):
         # Feature projection
         if f_layers > 0:
             assert f_exp is not None
-            assert f_gain is not None
             self.proj_f = MLP(
                 d_f,
                 d_h,

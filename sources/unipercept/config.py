@@ -864,9 +864,18 @@ def wrap_on_result(func_wrap, func_next, **kwargs_next):
 
 
 def _call_partial(
-    *, _func_: T.Callable[..., T.Any] | str, **kwargs
+    *, _callable_: T.Callable[..., T.Any] | str = None, **kwargs  # type: ignore
 ) -> T.Callable[..., T.Any]:
-    return functools.partial(_func_, **kwargs)
+    if _callable_ is None:
+        cb = kwargs.pop("_func_", None)  # legacy support
+    else:
+        cb = _callable_
+    if isinstance(cb, str):
+        cb = locate_object(cb)
+    if not callable(cb):
+        msg = f"Expected a callable object or location (str), got {_callable_} (type {type(_callable_)}"
+        raise TypeError(msg)
+    return functools.partial(cb, **kwargs)
 
 
 def partial(func: T.Callable[..., T.Any], /) -> T.Callable[..., T.Any]:
@@ -883,4 +892,4 @@ def partial(func: T.Callable[..., T.Any], /) -> T.Callable[..., T.Any]:
     callable
         A lazy callable object that is forwarded to ``functools.partial``.
     """
-    return lambda **kwargs: call(_call_partial)(_func_=func, **kwargs)
+    return lambda **kwargs: call(_call_partial)(_callable_=func, **kwargs)

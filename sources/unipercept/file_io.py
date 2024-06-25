@@ -16,7 +16,11 @@ from iopath.common.file_io import (
     PathManagerFactory,
 )
 
-from unipercept.utils.iopath_handlers import EnvironPathHandler, WandBArtifactHandler, MetadataPathHandler
+from unipercept.utils.iopath_handlers import (
+    EnvironPathHandler,
+    MetadataPathHandler,
+    WandBArtifactHandler,
+)
 from unipercept.utils.iopath_path import IoPath
 from unipercept.utils.typings import Pathable
 

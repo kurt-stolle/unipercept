@@ -15,7 +15,6 @@ import warnings
 
 import torch
 import torch.distributed as dist
-from tabulate import tabulate
 from torch.utils.data import (
     DataLoader,
     Dataset,
@@ -27,8 +26,8 @@ from torch.utils.data.sampler import Sampler
 from typing_extensions import override
 
 from unipercept.config import get_env
-from unipercept.data.collect import ExtractIndividualFrames, QueueGeneratorType
 from unipercept.data.ops import Op, apply_dataset
+from unipercept.data.sets import QueueGenerator
 from unipercept.log import create_table, get_logger
 from unipercept.state import cpus_available, get_process_count, get_process_index
 
@@ -109,7 +108,7 @@ class DataLoaderFactory:
     dataset: PerceptionDataset
     sampler: SamplerFactory
     actions: T.Sequence[Op] = D.field(default_factory=list)
-    gatherer: QueueGeneratorType | None = D.field(
+    gatherer: QueueGenerator | None = D.field(
         default=None,
         metadata={
             "help": "The gatherer to use to collect items from the dataset into a queue. Defaults to extracting individual frames."

@@ -4,16 +4,17 @@ Implements IOPath handlers for working with environment variables.
 
 from __future__ import annotations
 
-import shutil
-from importlib.abc import Traversable
-import os
-import importlib.resources
-import os.path
 import importlib.metadata
+import importlib.resources
+import os
+import os.path
+import shutil
 import tempfile
 import typing as T
 import warnings
-from pathlib import Path as _PathlibPath, PurePath as _PathlibPurePath
+from importlib.abc import Traversable
+from pathlib import Path as _PathlibPath
+from pathlib import PurePath as _PathlibPurePath
 from urllib.parse import urlparse
 
 import typing_extensions as TX

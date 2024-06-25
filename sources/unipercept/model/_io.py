@@ -3,12 +3,15 @@ Definitions of the input and outputs of a model in the UniPercept framework.
 """
 
 from __future__ import annotations
-import typing as T
+
 import pprint
-from unipercept.utils.tensorclass import Tensorclass
-from tensordict import TensorDict, LazyStackedTensorDict
-from torch import Tensor
+import typing as T
 from dataclasses import field
+
+import torch
+from tensordict import LazyStackedTensorDict, TensorDict
+from torch import Tensor
+
 from unipercept.data.tensors import (
     DepthMap,
     Image,
@@ -16,6 +19,9 @@ from unipercept.data.tensors import (
     PanopticMap,
     PinholeCamera,
 )
+from unipercept.utils.tensorclass import Tensorclass
+
+__all__ = ["CaptureData", "MotionData", "InputData"]
 
 #########################
 # STRUCTURED INPUT DATA #
@@ -190,7 +196,7 @@ class InputData(Tensorclass):
 
     def __post_init__(self):
         if self.cameras is None:
-            cam = PinholeCamera.with_defaults_as(self.captures.images)
+            self.cameras = PinholeCamera.with_defaults_as(self.captures.images)
 
     @property
     def group_id(self) -> Tensor:
@@ -250,8 +256,8 @@ class InputData(Tensorclass):
         ), f"Batch size must be 0 for all inputs! Got: {[b.batch_size for b in batch]}"
 
         try:
-            return LazyStackedTensorDict(*batch)
-            # return torch.stack(batch)  # type: ignore
+            # return LazyStackedTensorDict(*batch)
+            return torch.stack(batch)  # type: ignore
         except RuntimeError as e:
             msg = (
                 f"Failed to collate batch of input data: {e}. "

@@ -4,18 +4,18 @@ Implements a simple BPE tokenizer from the GPT-2 model.
 
 from __future__ import annotations
 
-from importlib.abc import Traversable
-from importlib.resources import files
 import functools as F
 import gzip
 import html
+from importlib.abc import Traversable
+from importlib.resources import files
 
 import ftfy
 import regex as re
 import torch
 
-from unipercept.utils.typings import Pathable
 from unipercept.file_io import Path
+from unipercept.utils.typings import Pathable
 
 DEFAULT_BPE = (files(__package__) if __package__ else Path(__file__).parent).joinpath(
     "tokenizer_bpe_16e6.txt.gz"

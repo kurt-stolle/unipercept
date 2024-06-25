@@ -17,10 +17,20 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.log import get_logger
 from unipercept.render import colormap
 
-from . import RGB, PerceptionDataset, SClass, SType, create_metadata
+from . import (
+    RGB,
+    CaptureSources,
+    Manifest,
+    ManifestSequence,
+    Metadata,
+    MotionSources,
+    PerceptionDataset,
+    QueueItem,
+    SClass,
+    SType,
+)
 
 if T.TYPE_CHECKING:
     import unipercept as up
@@ -72,7 +82,7 @@ def get_info() -> up.data.sets.Metadata:
             )
         )
 
-    return create_metadata(
+    return Metadata.from_parameters(
         sem_list,
         depth_max=80.0,
         fps=15.0,

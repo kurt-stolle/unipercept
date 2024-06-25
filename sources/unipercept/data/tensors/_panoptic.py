@@ -78,8 +78,8 @@ class PanopticMap(_Mask):
                 labels.translate_semantic_(translation=info["translations_dataset"])
             case LabelsFormat.CITYSCAPES:
                 assert info is not None
-                divisor = info["label_divisor"]
-                ignore_label = info["ignore_label"]
+                divisor = 1000
+                ignore_label = 255
                 img = read_pixels(path, color=True)
                 assert img.ndim == 3, f"Expected 3D tensor, got {img.ndim}D tensor"
 
@@ -93,12 +93,12 @@ class PanopticMap(_Mask):
 
                 labels = cls.from_combined(map_, divisor)
                 labels.translate_semantic_(
-                    translation=info["translations_dataset"],
+                    translation=info.translations_dataset,
                 )
             case LabelsFormat.CITYSCAPES_VPS:
                 assert info is not None
-                divisor = info["label_divisor"]
-                ignore_label = info["ignore_label"]
+                divisor = 1000
+                ignore_label = 255
 
                 img = read_pixels(path, color=False)
                 assert img.ndim == 2, f"Expected 2D tensor, got {img.ndim}D tensor"
@@ -142,7 +142,7 @@ class PanopticMap(_Mask):
                     img = img[:, :, 0]
 
                 labels = cls.from_combined(img, divisor)
-                labels.translate_semantic_(translation=info["translations_dataset"])
+                labels.translate_semantic_(info.translations_dataset)
             case LabelsFormat.WILD_DASH:
                 annotations = get_kwd(meta_kwds, "annotations", list[dict[str, Any]])
 

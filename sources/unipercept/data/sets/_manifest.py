@@ -1,14 +1,10 @@
-"""Types used to create a dataset manifest."""
+r"""
+Types used to create a dataset manifest.
+"""
 
 from __future__ import annotations
 
 import typing as T
-
-if T.TYPE_CHECKING:
-    from ..tensors import DepthFormat, LabelsFormat
-else:
-    DepthFormat = T.Any
-    LabelsFormat = T.Any
 
 __all__ = [
     "Manifest",
@@ -16,8 +12,10 @@ __all__ = [
     "Manifest",
     "ManifestSequence",
     "QueueItem",
+    "QueueGenerator",
     "CaptureRecord",
     "CaptureSources",
+    "CaptureSourceKey",
     "MotionRecord",
     "MotionSources",
     "PinholeModelParameters",
@@ -54,7 +52,7 @@ class FormatMeta(T.TypedDict, T.Generic[_FormatType]):
     format: _FormatType | str
 
 
-class DepthMeta(FormatMeta[DepthFormat]):
+class DepthMeta(FormatMeta[str]):
     focal_length: T.NotRequired[float]
 
 
@@ -62,8 +60,8 @@ class DepthMeta(FormatMeta[DepthFormat]):
 # Capture sources and formats #
 # --------------------------- #
 
-PanopticResource: T.TypeAlias = FileResourceWithMeta[FormatMeta[LabelsFormat]]
-DepthResource: T.TypeAlias = FileResourceWithMeta[FormatMeta[DepthFormat]]
+PanopticResource: T.TypeAlias = FileResourceWithMeta[FormatMeta[str]]
+DepthResource: T.TypeAlias = FileResourceWithMeta[FormatMeta[str]]
 
 
 @T.final
@@ -75,6 +73,9 @@ class CaptureSources(T.TypedDict):
     instance: T.NotRequired[FileResourceWithMeta[FormatMeta[LabelsFormat]]]
     semantic: T.NotRequired[FileResourceWithMeta[FormatMeta[LabelsFormat]]]
     depth: T.NotRequired[FileResourceWithMeta[DepthMeta]]
+
+
+CaptureSourceKey: T.TypeAlias = T.Literal["image", "depth", "panoptic", "semantic"]
 
 
 @T.final
@@ -264,3 +265,6 @@ class QueueItem(T.TypedDict):
     camera: CameraModelParameters
     captures: list[CaptureSources]
     motions: T.NotRequired[list[MotionSources]]
+
+
+QueueGenerator: T.TypeAlias = T.Iterable[tuple[str, QueueItem]]

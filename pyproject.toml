@@ -1,5 +1,5 @@
-
-
+[build-system]
+requires = ["setuptools>=61.0", "torch>=2.3.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -52,6 +52,20 @@ dynamic = ["version"]
 
 [project.scripts]
 unipercept = "unipercept.cli:__main__"
+unipercept-train = "unipercept.cli.train:__main__"
+unipercept-evaluate = "unipercept.cli.evaluate:__main__"
+unipercept-datasets = "unipercept.cli.datasets:__main__"
+unipercept-surgeon = "unipercept.cli.surgeon:__main__"
+
+[project.entry-points.'unipercept.datasets']
+cityscapes = "unipercept.data.sets.cityscapes:CityscapesDataset"
+cityscapes-vps = "unipercept.data.sets.cityscapes:CityscapesVPSDataset"
+kitti-360 = "unipercept.data.sets.kitti_360:KITTI360Dataset"
+kitti-semantic = "unipercept.data.sets.kitti_sem:KITTISemanticDataset"
+kitti-dvps = "unipercept.data.sets.kitti_step:KITTIDVPSDataset"
+pascal-voc = "unipercept.data.sets.pascal_voc:PascalVOCDataset"
+mapillary-vistas = "unipercept.data.sets.vistas:MapillaryVistasDataset"
+wilddash = "unipercept.data.sets.wilddash:WildDashDataset"
 
 [tool.setuptools]
 include-package-data = false

@@ -16,14 +16,19 @@ from tqdm import tqdm
 
 from unipercept import file_io
 from unipercept.data.pseudolabeler import PseudoGenerator
-from unipercept.data.sets import Metadata, PerceptionDataset, create_metadata
 from unipercept.data.sets.cityscapes import CLASSES
-from unipercept.data.types import (
-    CaptureRecord,
+
+from . import (
+    RGB,
     CaptureSources,
     Manifest,
     ManifestSequence,
-    PinholeModelParameters,
+    Metadata,
+    MotionSources,
+    PerceptionDataset,
+    QueueItem,
+    SClass,
+    SType,
 )
 
 
@@ -71,7 +76,7 @@ class FileID:
 
 
 def get_info() -> Metadata:
-    return create_metadata(CLASSES, depth_max=80, fps=15)
+    return Metadata.from_parameters(CLASSES, depth_max=80, fps=15)
 
 
 class KITTI360Dataset(PerceptionDataset, info=get_info, id="kitti-360"):

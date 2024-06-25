@@ -18,14 +18,20 @@ from typing_extensions import override
 
 from unipercept import file_io
 from unipercept.data.pipes import UniCoreFileLister
-from unipercept.data.sets import RGB, PerceptionDataset, SClass, SType, create_metadata
 from unipercept.utils.formatter import formatter
 
-if T.TYPE_CHECKING:
-    import unipercept.data.types as datatypes
-
-__all__ = ["CityscapesDataset", "CityscapesVPSDataset"]
-
+from . import (
+    RGB,
+    CaptureSources,
+    Manifest,
+    ManifestSequence,
+    Metadata,
+    MotionSources,
+    PerceptionDataset,
+    QueueItem,
+    SClass,
+    SType,
+)
 
 # ---------------- #
 # File ID matching #
@@ -125,7 +131,7 @@ class CameraCalibration:
     intrinsic: CameraIntrinsic
     size: tuple[int, int]
 
-    def to_canonical(self) -> datatypes.PinholeModelParameters:
+    def to_canonical(self) -> PinholeModelParameters:
         """
         Transforms the calibration to the canonical format.
         """
@@ -304,7 +310,7 @@ CLASSES: T.Final[T.Sequence[SClass]] = [
 
 @functools.lru_cache()
 def get_info():
-    return create_metadata(
+    return Metadata.from_parameters(
         CLASSES,
         depth_max=88.0,
         fps=17.0,
@@ -356,15 +362,15 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         """
         return frame + 1
 
-    def _get_id2sources(self) -> Mapping[FileID, datatypes.CaptureSources]:
-        sources_map: dict[FileID, datatypes.CaptureSources] = {}
+    def _get_id2sources(self) -> Mapping[FileID, CaptureSources]:
+        sources_map: dict[FileID, CaptureSources] = {}
 
         # Create mapping of ID -> dt.CaptureSources
         for id, file_path in map(
             FileID.attach_id,
             UniCoreFileLister(self.path_image, masks="*.png", recursive=True),
         ):
-            partial_sources: datatypes.CaptureSources = {
+            partial_sources: CaptureSources = {
                 "image": {
                     "path": file_path,
                 },
@@ -392,7 +398,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
                         + ", ".join([str(k) for k in sources_map.keys()])
                     )
 
-                resource: datatypes.FileResourceWithMeta = {
+                resource: FileResourceWithMeta = {
                     "path": file_path,
                     "meta": {},
                 }
@@ -450,15 +456,15 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
         return sequence_map
 
     @override
-    def _build_manifest(self) -> datatypes.Manifest:
+    def _build_manifest(self) -> Manifest:
         sources_map = self._get_id2sources()
         sequence_map = self._get_seq2ids(sorted(sources_map.keys()))
 
         # Convert to mapping of string -> dt.CaptureRecord
-        sequences: Mapping[str, datatypes.ManifestSequence] = {}
+        sequences: Mapping[str, ManifestSequence] = {}
         for seq_key, ids in sequence_map.items():
             camera = CAMERA.to_canonical()  # TODO: read from json
-            captures: list[datatypes.CaptureRecord] = [
+            captures: list[CaptureRecord] = [
                 {
                     "primary_key": id.primary_key,  # get_primary_key(seq_key, i),
                     "sources": sources_map[id],
@@ -467,7 +473,7 @@ class CityscapesDataset(PerceptionDataset, info=get_info, id="cityscapes"):
             ]
 
             # Create sequence item
-            seq_item: datatypes.ManifestSequence = {
+            seq_item: ManifestSequence = {
                 "camera": camera,
                 "fps": 17 / self._get_next_frame(0),
                 "captures": captures,

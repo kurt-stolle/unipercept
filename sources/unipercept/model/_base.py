@@ -83,7 +83,8 @@ class ModelBase(nn.Module):
 
     if T.TYPE_CHECKING:
 
-        def __call__(self, *args: Tensor) -> ModelOutput: ...
+        def __call__(self, *args: Tensor) -> ModelOutput:
+            ...
 
 
 class ModelFactory:

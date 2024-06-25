@@ -44,9 +44,9 @@ PerceptionDataqueue: T.TypeAlias = _Dataqueue["QueueItem"]
 PerceptionDatapipe: T.TypeAlias = _Datapipe["InputData", "Metadata"]
 PerceptionGatherer: T.TypeAlias = T.Callable[[Manifest], tuple[str, QueueItem]]
 
-catalog: DataManagerWithMetadataGroup["PerceptionDataset", Metadata] = (
-    DataManagerWithMetadataGroup(group="unipercept.datasets")
-)
+catalog: DataManagerWithMetadataGroup[
+    "PerceptionDataset", Metadata
+] = DataManagerWithMetadataGroup(group="unipercept.datasets")
 
 
 class PerceptionDataset(

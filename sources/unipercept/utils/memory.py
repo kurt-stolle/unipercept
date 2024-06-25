@@ -10,12 +10,9 @@ from __future__ import annotations
 
 import contextlib
 import functools
-import typing as T
-
-
-import functools
 import gc
 import inspect
+import typing as T
 
 import torch
 
@@ -102,6 +99,8 @@ def _maybe_to_cpu(x):
     if like_gpu_tensor:
         return x.to(device="cpu")
     else:
+        pass
+
 
 def release_memory():
     """
@@ -175,14 +174,14 @@ def find_executable(
 
     assert max_iter is None or max_iter >= 1, f"{max_iter=} <= 1"
 
-    n = 1
+    n = 0
 
     @functools.wraps(fn)
     def _fn_wrap(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         nonlocal n
         release_memory()
         while True:
-            if n > max_iter:
+            if n >= max_iter:
                 raise StopIteration("Max iterations reached.")
             try:
                 return fn(n, *args, **kwargs)

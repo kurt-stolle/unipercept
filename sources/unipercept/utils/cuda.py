@@ -5,6 +5,7 @@ Implements utility functions that assert whether the current system supports cer
 from __future__ import annotations
 
 import typing as T
+
 import torch.cuda
 
 __all__ = []
@@ -70,4 +71,3 @@ def get_shm_size():
         )
         raise KeyError(msg)
     return SHARED_MEMORY_SIZE_MAP[cap]
-

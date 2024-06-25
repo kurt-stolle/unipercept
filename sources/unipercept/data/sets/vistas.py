@@ -971,7 +971,7 @@ def get_info(variant: str = ""):
     )
 
 
-class MapillaryVistasDataset(PerceptionDataset, info=get_info, id="vistas"):
+class MapillaryVistasDataset(PerceptionDataset, info=get_info, id="mapillary-vistas"):
     """
     Vistas dataset using the provided labeling scheme.
 
@@ -1015,8 +1015,8 @@ class MapillaryVistasDataset(PerceptionDataset, info=get_info, id="vistas"):
                         "meta": {"format": "vistas"},
                     },
                     "depth": {
-                        "path": str(split_dir / "v2.0" / "depth" / f"{cap_key}.png"),
-                        "meta": {"format": "safetensors"},
+                        "path": str(split_dir / "v2.0" / "depth" / f"{cap_key}.tiff"),
+                        "meta": {"format": "tiff"},
                     },
                 }
 

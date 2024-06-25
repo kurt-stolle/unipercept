@@ -476,7 +476,8 @@ class DeformConv2dFunction(Function):
 
         @classmethod
         @TX.override
-        def apply(cls, *_: T.Any) -> Tensor: ...
+        def apply(cls, *_: T.Any) -> Tensor:
+            ...
 
 
 class CenterScale(nn.Module):

@@ -553,7 +553,8 @@ if T.TYPE_CHECKING:
 
     def pad_across_processes(
         tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0
-    ) -> _N: ...
+    ) -> _N:
+        ...
 
 else:
     pad_across_processes = accelerate.utils.pad_across_processes

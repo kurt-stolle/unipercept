@@ -12,6 +12,8 @@ from __future__ import annotations
 import dataclasses as D
 import typing as T
 
+import typing_extensions as TX
+
 try:
     import datasets as hfds
     import huggingface_hub as hfhub
@@ -54,7 +56,8 @@ class HuggingfaceDataset(PerceptionDataset, id="huggingface"):
 
     @TX.override
     def _build_manifest(self) -> Manifest:
-
+        # TODO
+        raise NotImplementedError()
 
 
 if __name__ == "__main__":

@@ -12,7 +12,6 @@ from torch import Tensor, nn
 
 
 class Attention(nn.Module):
-
     def __init__(
         self,
         q_dim: int,

@@ -17,7 +17,7 @@ from tqdm import tqdm
 from unipercept import file_io
 from unipercept.data.pipes import PILImageLoaderDataset
 from unipercept.log import logger
-from unipercept.utils.memory import find_executable_batch_size
+from unipercept.utils.memory import find_executable
 
 from ..utils.typings import Pathable
 
@@ -28,8 +28,7 @@ if T.TYPE_CHECKING:
         ImageSegmentationPipeline,
     )
 
-    from unipercept.data.tensors import DepthMap, LabelsFormat, PanopticMap
-
+from unipercept.data.tensors import DepthFormat, DepthMap, LabelsFormat, PanopticMap
 
 
 class PseudoGenerator:
@@ -48,11 +47,13 @@ class PseudoGenerator:
     def __init__(
         self,
         depth_model="facebook/dpt-dinov2-large-kitti",  # "sayakpaul/glpn-kitti-finetuned-diode-221214-123047",
+        depth_format: DepthFormat | str | None = None,
         panoptic_model="facebook/mask2former-swin-large-cityscapes-panoptic",
         panoptic_format: LabelsFormat | str | None = None,
     ):
         self._depth_model: T.Final[str] = depth_model
         self._depth_generate_queue: list[tuple[Pathable, Pathable]] = []
+        self._depth_format = depth_format
 
         self._panoptic_model: T.Final[str] = panoptic_model
         self._panoptic_generate_queue: list[tuple[Pathable, Pathable]] = []
@@ -183,9 +184,13 @@ class PseudoGenerator:
 
     def run_depth_generator_queue(self):
         """Run the depth generator on the queue."""
+        from torchvision.transforms.v2.functional import (
+            resize_image,
+            to_pil_image,
+            to_tensor,
+        )
 
         from unipercept.data.tensors import DepthMap
-        from accelerate.utils import 
 
         if len(self._depth_generate_queue) == 0:
             return
@@ -196,27 +201,43 @@ class PseudoGenerator:
         )
         to = [file_io.Path(p) for _, p in self._depth_generate_queue]
 
-        # Run the Huggingface Transformers pipeline on the dataset
-        for pred, depth_path in zip(
-            self._depth_pipeline(ds),  # type: ignore
-            tqdm(to, desc="Depth generation", total=len(to)),
-            strict=True,
-        ):
-            # NOTE: we have to resize the depth map ("predicted_depth") **tensor**
-            # to the original size, and then save it. It is not possible to directly
-            # save the output PIL image ("depth"), because this has been quantized to
-            # 8-bit for visualization purposes.
-            width, height = pred["depth"].size
-            depth = (
-                nn.functional.interpolate(
-                    pred["predicted_depth"].unsqueeze(0),
-                    size=(height, width),
-                    mode="nearest-exact",
-                )
-                .squeeze(0)
-                .as_subclass(DepthMap)
-            )
-            depth.save(depth_path)
+        @find_executable
+        def closure(n: int):
+            scale_factor = 1 / (2**n)
+            logger.info("Resizing images by %f", scale_factor)
+
+            # Run the Huggingface Transformers pipeline on the dataset
+            with tqdm(desc="Depth generation", total=len(to)) as pbar:
+                for image, depth_path in zip(
+                    ds,
+                    to,
+                    strict=True,
+                ):
+                    # NOTE: we have to resize the depth map ("predicted_depth") **tensor**
+                    # to the original size, and then save it. It is not possible to directly
+                    # save the output PIL image ("depth"), because this has been quantized to
+                    # 8-bit for visualization purposes.
+                    image = to_tensor(image)
+                    *_, height, width = image.shape
+                    image_min_size = min(height, width, 1024)
+                    image = resize_image(image, [int(image_min_size * scale_factor)])
+                    image = to_pil_image(image)
+
+                    pred = self._depth_pipeline(image)
+                    depth = (
+                        nn.functional.interpolate(
+                            pred["predicted_depth"].unsqueeze(0),
+                            size=tuple(map(int, (height, width))),
+                            mode="nearest-exact",
+                        )
+                        .squeeze(0)
+                        .as_subclass(DepthMap)
+                    )
+                    depth.save(depth_path, format=self._depth_format)
+
+                    pbar.update(1)
+
+        closure()
 
         # Queue was handled, clear it
         self._depth_generate_queue.clear()

@@ -142,7 +142,8 @@ class Op(torch.nn.Module):
     if T.TYPE_CHECKING:
 
         @override
-        def __call__(self, inputs: InputData) -> InputData: ...
+        def __call__(self, inputs: InputData) -> InputData:
+            ...
 
 
 class CloneOp(Op):

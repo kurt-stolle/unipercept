@@ -34,7 +34,8 @@ class objectmagic(Generic[_T, _P, _R]):
     """
 
     @property
-    def __func__(self) -> Callable[Concatenate[_T, _P], _R]: ...
+    def __func__(self) -> Callable[Concatenate[_T, _P], _R]:
+        ...
 
     def __init__(self, fn: Callable[Concatenate[_T, _P], _R]) -> None:
         self.fn = fn
@@ -48,12 +49,12 @@ class objectmagic(Generic[_T, _P, _R]):
         self.owner = owner
 
     @overload
-    def __get__(self, obj: None, *args, **kwargs) -> Callable[_P, _R]: ...
+    def __get__(self, obj: None, *args, **kwargs) -> Callable[_P, _R]:
+        ...
 
     @overload
-    def __get__(
-        self, obj: _T, *args, **kwargs
-    ) -> Callable[Concatenate[_T, _P], _R]: ...
+    def __get__(self, obj: _T, *args, **kwargs) -> Callable[Concatenate[_T, _P], _R]:
+        ...
 
     def __get__(
         self, obj: _T | None, *args, **kwargs

@@ -105,8 +105,10 @@ class DepthMap(Mask):
                 if depth_image.mode != "F":
                     msg = f"Expected image format 'F'; Got {depth_image.mode!r}"
                     raise ValueError(msg)
+                assert path.suffix.lower() == ".tiff", path
                 depth_image.save(path, format="TIFF")
             case DepthFormat.SAFETENSORS:
+                assert path.suffix.lower() == ".safetensors", path
                 safetensors.save_file({"data": torch.as_tensor(self)}, path)
             case DepthFormat.TORCH:
                 torch.save(torch.as_tensor(self), path)
@@ -114,6 +116,7 @@ class DepthMap(Mask):
                 # depth_image = (self * float(2**8)).numpy().astype(np.uint16)
                 # image = pil_image.fromarray(depth_image, mode="I;16")
                 # image.save(path)
+                assert path.suffix.lower() == ".png", path
                 write_png_l16(path, self * float(2**8))
 
             case _:

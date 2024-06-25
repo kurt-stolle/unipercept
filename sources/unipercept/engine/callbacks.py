@@ -488,7 +488,8 @@ class CallbackProtocol(T.Protocol):
         state: State,
         control: Signal,
         **kwargs,
-    ) -> Signal | None: ...
+    ) -> Signal | None:
+        ...
 
 
 CallbackType: T.TypeAlias = CallbackProtocol | type[CallbackProtocol]
@@ -1122,7 +1123,6 @@ class UncertaintyLossWeightingCallback(_GroupedLossWeightingCallback):
         lr: float = 1e-2,
         **kwargs,
     ):
-
         super().__init__(**kwargs)
 
         self.gamma = gamma
@@ -1250,7 +1250,6 @@ class TaskRebalanceCallback(_GroupedLossWeightingCallback):
         window: int = 2,
         **kwargs,
     ):
-
         super().__init__(**kwargs)
 
         assert window >= 2, window

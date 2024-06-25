@@ -304,7 +304,6 @@ class SemanticSegmentationEvaluator(SegmentationWriter):
     def compute(
         self, storage: TensorDictBase, *, device: torch.types.Device, **kwargs
     ) -> dict[str, T.Any]:
-
         #  device = torch.device("cpu")  # TODO: GPU?
 
         num_cats = self.info.semantic_amount

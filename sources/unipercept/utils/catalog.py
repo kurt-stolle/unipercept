@@ -246,11 +246,15 @@ class DataManagerWithMetadataGroup(DataManager[_D_co, _I_co], T.Generic[_D_co, _
         """
         return frozenset(importlib.metadata.entry_points(group=self.group).names)
 
-    def get_entrypoint(self, query: str) -> type[_D_co]:
+    def get_entrypoint(self, key: str) -> type[_D_co]:
         """
         Return the entrypoint for the given dataset ID.
         """
-        return importlib.metadata.entry_points(group=self.group)[query].load()
+        try:
+            return importlib.metadata.entry_points(group=self.group)[key].load()
+        except KeyError:
+            msg = f"Could not find entrypoint for dataset ID {key=}. Choose from: {self.list_entrypoints()}"
+            raise KeyError(msg)
 
     @TX.override
     def get_dataset(self, query: str) -> type[_D_co]:

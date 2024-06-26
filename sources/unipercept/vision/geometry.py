@@ -20,11 +20,11 @@ class AxesConvention(E.StrEnum):
     r"""
     Enum for conventions on how to orient the world coordinate system:
 
-        - ``ISO8855``: ``(+x, +y, +z) = (forwards, left, up)`` (right-handed)
-        - ``OPENCV``: ``(+x, +y, +z) = (right, down, forwads)`` (right-handed)
-        - ``OPENGL``: ``(+x, +y, +z) = (right, up, backwards)`` (right-handed)
-        - ``DIRECTX``: ``(+x, +y, +z) = (right, up, forwards)`` (left-handed)
-
+        - ``OPENCV`` : ``(+x, +y, +z) = (right   , down  , fwd    )`` (right-handed)
+        - ``ISO8855``: ``(+x, +y, +z) = (fwd     , left  , up     )`` (right-handed)
+        - ``OPENGL`` : ``(+x, +y, +z) = (right   , up    , bwd    )`` (right-handed)
+        - ``OPEN3D`` : ``(+x, +y, +z) = (right   , up    , bwd    )`` (right-handed)
+        - ``DIRECTX``: ``(+x, +y, +z) = (right   , up    , fwd    )`` (left-handed)
     Notes
     -----
     The camera coordinate system is always oriented as ``OPENCV``, and pixels are oriented
@@ -40,13 +40,45 @@ class AxesConvention(E.StrEnum):
     ISO8855 = E.auto()
     OPENCV = E.auto()
     OPENGL = E.auto()
+    OPEN3D = E.auto()
+    DIRECTX = E.auto()
 
 
-def change_convention(
+def _transform_to_opencv(convention: AxesConvention | str) -> Tensor:
+    match convention:
+        case AxesConvention.OPENCV:
+            # (X, Y, Z) = [right, down, fwd]
+            return torch.eye(4)
+        case AxesConvention.ISO8855:
+            # (X, Y, Z) = [fwd, left, up]
+            return torch.tensor(
+                [
+                    [0.0, 0.0, 1.0, 0.0],  # X -> Z
+                    [-1.0, 0.0, 0.0, 0.0],  # Y -> -X
+                    [0.0, -1.0, 0.0, 0.0],  # Z -> -Y
+                    [0.0, 0.0, 0.0, 1.0],  # 1 -> 1 (homogeneous)
+                ]
+            )
+        case AxesConvention.OPENGL | AxesConvention.OPEN3D:
+            # (X, Y, Z) = [right, up, bw]
+            return torch.tensor(
+                [
+                    [1.0, 0.0, 0.0, 0.0],  # X -> X
+                    [0.0, -1.0, 0.0, 0.0],  # Y -> -Y
+                    [0.0, 0.0, -1.0, 0.0],  # Z -> -Z
+                    [0.0, 0.0, 0.0, 1.0],  # 1 -> 1 (homogeneous)
+                ]
+            )
+        case _:
+            msg = f"Unknown convention {convention}."
+            raise ValueError(msg)
+
+
+def convert_extrinsics(
     extrinsics: Tensor,
     *,
-    src: AxesConvention | str,
-    tgt: AxesConvention | str,
+    src: AxesConvention | str = AxesConvention.OPENCV,
+    tgt: AxesConvention | str = AxesConvention.OPENCV,
 ) -> Tensor:
     r"""
     Changes an extrinsic transformation to a different world axes convention.
@@ -66,49 +98,22 @@ def change_convention(
         Output matrix.
     """
 
-    def _get_transform_opencv(convention: AxesConvention | str) -> Tensor:
-        match convention:
-            case AxesConvention.OPENCV:
-                # (X, Y, Z) = [right, up, backwards] <-> [right, down, forwards]
-                return torch.eye(4)
-            case AxesConvention.ISO8855:
-                # (X, Y, Z) = [forwards, left, up] <-> [right, down, forwards]
-                return torch.tensor(
-                    [
-                        [0.0, 0.0, 1.0, 0.0],  # X -> Z
-                        [-1.0, 0.0, 0.0, 0.0],  # Y -> -X
-                        [0.0, -1.0, 0.0, 0.0],  # Z -> -Y
-                        [0.0, 0.0, 0.0, 1.0],  # 1 -> 1 (homogeneous)
-                    ]
-                )
-            case AxesConvention.OPENGL:
-                # (X, Y, Z) = [right, up, backwards] <-> [right, down, forwards]
-                return torch.tensor(
-                    [
-                        [1.0, 0.0, 0.0, 0.0],  # X -> X
-                        [0.0, -1.0, 0.0, 0.0],  # Y -> -Y
-                        [0.0, 0.0, -1.0, 0.0],  # Z -> -Z
-                        [0.0, 0.0, 0.0, 1.0],  # 1 -> 1 (homogeneous)
-                    ]
-                )
-            case _:
-                msg = f"Unknown convention {convention}."
-                raise ValueError(msg)
-
     if src == tgt:
         return extrinsics
 
     with extrinsics.device:
-        extrinsics = extrinsics @ _get_transform_opencv(src)  # `src` to OPENCV
-        extrinsics = extrinsics @ _get_transform_opencv(tgt)  # OPENCV to `tgt`
+        T_src = _transform_to_opencv(src)
+        T_tgt = _transform_to_opencv(tgt).T  # transpose to invert for ortho matrices
 
-    return extrinsics
+    T = T_tgt @ T_src
+
+    return T @ extrinsics
 
 
 def extrinsics_from_parameters(
     angles: T.List[T.Tuple[float, float, float]] | Tensor,
     translation: T.List[T.Tuple[float, float, float]] | Tensor,
-    convention: AxesConvention | str = AxesConvention.OPENCV,
+    convention: AxesConvention | str = AxesConvention.ISO8855,
 ) -> Tensor:
     r"""
     Build the extrinsic matrix (R|t) using an angles vector and translations.
@@ -132,7 +137,7 @@ def extrinsics_from_parameters(
 
     # Create extrinsic matrix [R|t] + [0 0 0 1]
     extrinsic_matrix = torch.zeros(N, 4, 4, device=rotation[0].device)
-    extrinsic_matrix[:, :3, :3] = axis_angle_to_rotation_matrix(rotation)
+    extrinsic_matrix[:, :3, :3] = axis_angle_to_rotation(rotation)
     for i in range(N):
         extrinsic_matrix[i, :3, 3] = translation[i]
         extrinsic_matrix[i, 3, 3] = 1.0
@@ -140,7 +145,7 @@ def extrinsics_from_parameters(
     if ndim == 1:
         extrinsic_matrix = extrinsic_matrix.squeeze(0)
 
-    return change_convention(
+    return convert_extrinsics(
         extrinsic_matrix, src=convention, tgt=AxesConvention.OPENCV
     )
 
@@ -376,7 +381,7 @@ def convert_affinematrix_to_homography(A: Tensor) -> Tensor:
     return H
 
 
-def axis_angle_to_rotation_matrix(axis_angle: Tensor) -> Tensor:
+def axis_angle_to_rotation(axis_angle: Tensor) -> Tensor:
     r"""
     Convert 3d vector of axis-angle rotation to 3x3 rotation matrix.
 
@@ -393,19 +398,19 @@ def axis_angle_to_rotation_matrix(axis_angle: Tensor) -> Tensor:
     Example
     -------
     >>> input = tensor([[0., 0., 0.]])
-    >>> axis_angle_to_rotation_matrix(input)
+    >>> axis_angle_to_rotation(input)
     tensor([[[1., 0., 0.],
                 [0., 1., 0.],
                 [0., 0., 1.]]])
 
     >>> input = tensor([[1.5708, 0., 0.]])
-    >>> axis_angle_to_rotation_matrix(input)
+    >>> axis_angle_to_rotation(input)
     tensor([[[ 1.0000e+00,  0.0000e+00,  0.0000e+00],
                 [ 0.0000e+00, -3.6200e-06, -1.0000e+00],
                 [ 0.0000e+00,  1.0000e+00, -3.6200e-06]]])
     """
 
-    def _compute_rotation_matrix(
+    def _compute_rotation(
         axis_angle: Tensor, theta2: Tensor, eps: float = 1e-6
     ) -> Tensor:
         k_one = 1.0
@@ -424,26 +429,22 @@ def axis_angle_to_rotation_matrix(axis_angle: Tensor) -> Tensor:
         r02 = wy * sin_theta + wx * wz * (k_one - cos_theta)
         r12 = -wx * sin_theta + wy * wz * (k_one - cos_theta)
         r22 = cos_theta + wz * wz * (k_one - cos_theta)
-        rotation_matrix = torch.cat(
-            [r00, r01, r02, r10, r11, r12, r20, r21, r22], dim=1
-        )
-        return rotation_matrix.view(-1, 3, 3)
+        rotation = torch.cat([r00, r01, r02, r10, r11, r12, r20, r21, r22], dim=1)
+        return rotation.view(-1, 3, 3)
 
-    def _compute_rotation_matrix_taylor(axis_angle: Tensor) -> Tensor:
+    def _compute_rotation_taylor(axis_angle: Tensor) -> Tensor:
         rx, ry, rz = torch.chunk(axis_angle, 3, dim=1)
         k_one = torch.ones_like(rx)
-        rotation_matrix = torch.cat(
-            [k_one, -rz, ry, rz, k_one, -rx, -ry, rx, k_one], dim=1
-        )
-        return rotation_matrix.view(-1, 3, 3)
+        rotation = torch.cat([k_one, -rz, ry, rz, k_one, -rx, -ry, rx, k_one], dim=1)
+        return rotation.view(-1, 3, 3)
 
     _axis_angle = torch.unsqueeze(axis_angle, dim=1)
     theta2 = torch.matmul(_axis_angle, _axis_angle.transpose(1, 2))
     theta2 = torch.squeeze(theta2, dim=1)
 
     # Compute rotation matrices
-    rotation_matrix_normal = _compute_rotation_matrix(axis_angle, theta2)
-    rotation_matrix_taylor = _compute_rotation_matrix_taylor(axis_angle)
+    rotation_normal = _compute_rotation(axis_angle, theta2)
+    rotation_taylor = _compute_rotation_taylor(axis_angle)
 
     # Create mask to handle both cases
     eps = 1e-6
@@ -452,19 +453,17 @@ def axis_angle_to_rotation_matrix(axis_angle: Tensor) -> Tensor:
     mask_neg = (~mask).type_as(theta2)
 
     # Create output pose matrix with masked values
-    rotation_matrix = (
-        mask_pos * rotation_matrix_normal + mask_neg * rotation_matrix_taylor
-    )
-    return rotation_matrix  # Nx3x3
+    rotation = mask_pos * rotation_normal + mask_neg * rotation_taylor
+    return rotation  # Nx3x3
 
 
-def rotation_matrix_to_axis_angle(rotation_matrix: Tensor) -> Tensor:
+def rotation_to_axis_angle(rotation: Tensor) -> Tensor:
     r"""
     Convert 3x3 rotation matrix to Rodrigues vector in radians.
 
     Parameters
     ----------
-    rotation_matrix:
+    rotation:
         rotation matrix of shape :math:`(N, 3, 3)`.
 
     Returns
@@ -476,20 +475,20 @@ def rotation_matrix_to_axis_angle(rotation_matrix: Tensor) -> Tensor:
         >>> input = tensor([[1., 0., 0.],
         ...                       [0., 1., 0.],
         ...                       [0., 0., 1.]])
-        >>> rotation_matrix_to_axis_angle(input)
+        >>> rotation_to_axis_angle(input)
         tensor([0., 0., 0.])
 
         >>> input = tensor([[1., 0., 0.],
         ...                       [0., 0., -1.],
         ...                       [0., 1., 0.]])
-        >>> rotation_matrix_to_axis_angle(input)
+        >>> rotation_to_axis_angle(input)
         tensor([1.5708, 0.0000, 0.0000])
     """
-    quaternion: Tensor = rotation_matrix_to_quaternion(rotation_matrix)
+    quaternion: Tensor = rotation_to_quaternion(rotation)
     return quaternion_to_axis_angle(quaternion)
 
 
-def rotation_matrix_to_quaternion(rotation_matrix: Tensor, eps: float = 1e-8) -> Tensor:
+def rotation_to_quaternion(rotation: Tensor, eps: float = 1e-8) -> Tensor:
     r"""
         Convert 3x3 rotation matrix to 4d quaternion vector.
 
@@ -497,7 +496,7 @@ def rotation_matrix_to_quaternion(rotation_matrix: Tensor, eps: float = 1e-8) ->
 
     Parameters
     ----------
-    rotation_matrix:
+    rotation:
         the rotation matrix to convert with shape :math:`(*, 3, 3)`.
     eps:
         small value to avoid zero division.
@@ -512,12 +511,10 @@ def rotation_matrix_to_quaternion(rotation_matrix: Tensor, eps: float = 1e-8) ->
         eps: float = torch.finfo(numerator.dtype).tiny
         return numerator / torch.clamp(denominator, min=eps)
 
-    rotation_matrix_vec: Tensor = rotation_matrix.reshape(
-        *rotation_matrix.shape[:-2], 9
-    )
+    rotation_vec: Tensor = rotation.reshape(*rotation.shape[:-2], 9)
 
     m00, m01, m02, m10, m11, m12, m20, m21, m22 = torch.chunk(
-        rotation_matrix_vec, chunks=9, dim=-1
+        rotation_vec, chunks=9, dim=-1
     )
 
     trace: Tensor = m00 + m11 + m22
@@ -588,7 +585,7 @@ def normalize_quaternion(quaternion: Tensor, eps: float = 1e-12) -> Tensor:
     return nn.functional.normalize(quaternion, p=2.0, dim=-1, eps=eps)
 
 
-def quaternion_to_rotation_matrix(quaternion: Tensor) -> Tensor:
+def quaternion_to_rotation(quaternion: Tensor) -> Tensor:
     r"""
         Convert a quaternion to a rotation matrix.
 
@@ -1080,7 +1077,7 @@ def denormalize_pixel_coordinates3d(
     return torch.tensor(1.0) / factor * (pixel_coordinates + 1)
 
 
-def angle_to_rotation_matrix(angle: Tensor) -> Tensor:
+def angle_to_rotation(angle: Tensor) -> Tensor:
     r"""
         Create a rotation matrix out of angles in degrees.
 
@@ -1096,7 +1093,7 @@ def angle_to_rotation_matrix(angle: Tensor) -> Tensor:
     Example
     -------
         >>> input = torch.rand(1, 3)  # Nx3
-        >>> output = angle_to_rotation_matrix(input)  # Nx3x2x2
+        >>> output = angle_to_rotation(input)  # Nx3x2x2
     """
     ang_rad = deg2rad(angle)
     cos_a: Tensor = torch.cos(ang_rad)
@@ -1469,16 +1466,16 @@ def extrinsics_to_motion(extrinsics: Tensor) -> tuple[Tensor, Tensor]:
     Parameters
     ----------
     extrinsics:
-        pose matrix :math:`(B, 4, 4)`.
+        pose matrix :math:`(*, 4, 4)`.
 
     Returns
     -------
     Tensor[*, 3, 3]
-        Rotation matrix, :math:`(B, 3, 3).`
+        Rotation matrix, :math:`(*, 3, 3).`
     Tensor[*, 3, 1]
-        Translation matrix :math:`(B, 3, 1)`.
+        Translation matrix :math:`(*, 3, 1)`.
     """
-    return extrinsics[:, :3, :3], extrinsics[:, :3, 3:]
+    return extrinsics[..., :3, :3], extrinsics[..., :3, 3:]
 
 
 def reverse_motion(R: Tensor, t: Tensor) -> tuple[Tensor, Tensor]:
@@ -1557,3 +1554,233 @@ def vector_to_skew_symmetric_matrix(vec: Tensor) -> Tensor:
         ],
         dim=-2,
     )
+
+
+####################################################
+# Various helper methods for geometric projections #
+####################################################
+
+
+def apply_points(transform: Tensor, points: Tensor) -> Tensor:
+    r"""
+    Apply a transformation on a set of points.
+
+    Parameters
+    ----------
+    transform: Tensor[*, D+1, D+1]
+        Transformation matrix.
+    points: Tensor[*, N, D]
+        Points to transform.
+
+    Returns
+    -------
+    Tensor[*, N, D]
+        Transformed points.
+    """
+
+    *shape, _, _ = points.shape
+
+    points = points.reshape(-1, points.shape[-2], points.shape[-1])
+
+    transform = transform.reshape(-1, transform.shape[-2], transform.shape[-1])
+    transform = torch.repeat_interleave(
+        transform, repeats=points.shape[0] // transform.shape[0], dim=0
+    )
+
+    points_homo = euclidean_to_homogeneous_points(points)
+
+    result_homo = torch.bmm(points_homo, transform.permute(0, 2, 1))
+    result_homo = torch.squeeze(result_homo, dim=-1)
+    result = homogeneous_to_euclidean_points(result_homo)
+
+    shape.extend(result.shape[-2:])
+    return result.reshape(shape)
+
+
+#######################
+# Rendering utilities #
+#######################
+
+
+def generate_rays(K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False):
+    batch_size, device, dtype = (
+        K.shape[0],
+        K.device,
+        K.dtype,
+    )
+    height, width = image_shape
+    # Generate grid of pixel coordinates
+    pixel_coords_x = torch.linspace(0, width - 1, width, device=device, dtype=dtype)
+    pixel_coords_y = torch.linspace(0, height - 1, height, device=device, dtype=dtype)
+    if noisy:
+        pixel_coords_x += torch.rand_like(pixel_coords_x) - 0.5
+        pixel_coords_y += torch.rand_like(pixel_coords_y) - 0.5
+    pixel_coords = torch.stack(
+        [pixel_coords_x.repeat(height, 1), pixel_coords_y.repeat(width, 1).t()], dim=2
+    )  # (H, W, 2)
+    pixel_coords = pixel_coords + 0.5
+
+    # Calculate ray directions
+    intrinsics_inv = torch.eye(3, device=device).unsqueeze(0).repeat(batch_size, 1, 1)
+    intrinsics_inv[:, 0, 0] = 1.0 / K[:, 0, 0]
+    intrinsics_inv[:, 1, 1] = 1.0 / K[:, 1, 1]
+    intrinsics_inv[:, 0, 2] = -K[:, 0, 2] / K[:, 0, 0]
+    intrinsics_inv[:, 1, 2] = -K[:, 1, 2] / K[:, 1, 1]
+    homogeneous_coords = torch.cat(
+        [pixel_coords, torch.ones_like(pixel_coords[:, :, :1])], dim=2
+    )  # (H, W, 3)
+    ray_directions = torch.matmul(
+        intrinsics_inv, homogeneous_coords.permute(2, 0, 1).flatten(1)
+    )  # (3, H*W)
+    ray_directions = nn.functional.normalize(ray_directions, dim=1)  # (B, 3, H*W)
+    ray_directions = ray_directions.permute(0, 2, 1)  # (B, H*W, 3)
+
+    theta = torch.atan2(ray_directions[..., 0], ray_directions[..., -1])
+    phi = torch.acos(ray_directions[..., 1])
+    angles = torch.stack([theta, phi], dim=-1)
+    return ray_directions, angles
+
+
+def spherical_zbuffer_to_euclidean(spherical_tensor: Tensor) -> Tensor:
+    theta = spherical_tensor[..., 0]  # Extract polar angle
+    phi = spherical_tensor[..., 1]  # Extract azimuthal angle
+    z = spherical_tensor[..., 2]  # Extract zbuffer depth
+
+    # y = r * cos(phi)
+    # x = r * sin(phi) * sin(theta)
+    # z = r * sin(phi) * cos(theta)
+    # =>
+    # r = z / sin(phi) / cos(theta)
+    # y = z / (sin(phi) / cos(phi)) / cos(theta)
+    # x = z * sin(theta) / cos(theta)
+    x = z * torch.tan(theta)
+    y = z / torch.tan(phi) / torch.cos(theta)
+
+    euclidean_tensor = torch.stack((x, y, z), dim=-1)
+    return euclidean_tensor
+
+
+def spherical_to_euclidean(spherical_tensor: Tensor) -> Tensor:
+    theta = spherical_tensor[..., 0]  # Extract polar angle
+    phi = spherical_tensor[..., 1]  # Extract azimuthal angle
+    r = spherical_tensor[..., 2]  # Extract radius
+    # y = r * cos(phi)
+    # x = r * sin(phi) * sin(theta)
+    # z = r * sin(phi) * cos(theta)
+    x = r * torch.sin(phi) * torch.sin(theta)
+    y = r * torch.cos(phi)
+    z = r * torch.cos(theta) * torch.sin(phi)
+
+    euclidean_tensor = torch.stack((x, y, z), dim=-1)
+    return euclidean_tensor
+
+
+def euclidean_to_spherical(spherical_tensor: Tensor) -> Tensor:
+    x = spherical_tensor[..., 0]  # Extract polar angle
+    y = spherical_tensor[..., 1]  # Extract azimuthal angle
+    z = spherical_tensor[..., 2]  # Extract radius
+    # y = r * cos(phi)
+    # x = r * sin(phi) * sin(theta)
+    # z = r * sin(phi) * cos(theta)
+    r = torch.sqrt(x**2 + y**2 + z**2)
+    theta = torch.atan2(x / r, z / r)
+    phi = torch.acos(y / r)
+
+    euclidean_tensor = torch.stack((theta, phi, r), dim=-1)
+    return euclidean_tensor
+
+
+def euclidean_to_spherical_zbuffer(euclidean_tensor: Tensor) -> Tensor:
+    pitch = torch.asin(euclidean_tensor[..., 1])
+    yaw = torch.atan2(euclidean_tensor[..., 0], euclidean_tensor[..., -1])
+    z = euclidean_tensor[..., 2]  # Extract zbuffer depth
+    euclidean_tensor = torch.stack((pitch, yaw, z), dim=-1)
+    return euclidean_tensor
+
+
+def downsample(data: Tensor, factor: int):
+    """
+    Downsample the input data tensor by taking the minimum value of each
+    factor x factor block.
+
+    Parameters
+    ----------
+    data: Tensor[B, C, H, W]
+        Input data tensor.
+    factor: int
+        Downsampling factor.
+
+    Returns
+    -------
+    Tensor[B, C, H // factor, W // factor]
+        Downsampled data tensor.
+    """
+    N, _, H, W = data.shape
+    data = data.view(
+        N,
+        H // factor,
+        factor,
+        W // factor,
+        factor,
+        1,
+    )
+    data = data.permute(0, 1, 3, 5, 2, 4).contiguous()
+    data = data.view(-1, factor * factor)
+    data_tmp = torch.where(data <= 0, torch.inf, data)
+    data = torch.min(data_tmp, dim=-1).values
+    data = data.view(N, 1, H // factor, W // factor)
+    data = torch.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return data
+
+
+def flat_interpolate(
+    flat_tensor: Tensor,
+    shape_cur: T.Tuple[int, int],
+    shape_new: T.Tuple[int, int],
+    antialias: bool = True,
+    mode: str = "bilinear",
+) -> Tensor:
+    """
+    Interpolates a flat tensor of shape (B, C, H * W) to a new shape (B, C, H * W).
+
+    Parameters
+    ----------
+    flat_tensor: Tensor[B, C, H * W]
+        Input flat tensor.
+    shape_cur: Tuple[int, int]
+        Current shape of the tensor.
+    shape_new: Tuple[int, int]
+        New shape of the tensor.
+    antialias: bool
+        Whether to use antialiasing.
+    mode: str
+        Interpolation mode.
+
+    Returns
+    -------
+    Tensor[B, C, H * W]
+        Interpolated flat tensor.
+    """
+
+    if shape_cur == shape_new:
+        return flat_tensor
+
+    tensor = flat_tensor.view(
+        flat_tensor.shape[0], shape_cur[0], shape_cur[1], -1
+    ).permute(
+        0, 3, 1, 2
+    )  # b c h w
+    tensor_interp = nn.functional.interpolate(
+        tensor,
+        size=(shape_new[0], shape_new[1]),
+        mode=mode,
+        align_corners=False,
+        antialias=antialias,
+    )
+    flat_tensor_interp = tensor_interp.view(
+        flat_tensor.shape[0], -1, shape_new[0] * shape_new[1]
+    ).permute(
+        0, 2, 1
+    )  # b (h w) c
+    return flat_tensor_interp.contiguous()

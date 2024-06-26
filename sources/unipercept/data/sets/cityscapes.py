@@ -139,7 +139,7 @@ class CameraCalibration:
         return {
             "focal_length": (self.intrinsic.fx, self.intrinsic.fy),
             "principal_point": (self.intrinsic.u0, self.intrinsic.v0),
-            "rotation": (self.extrinsic.yaw, self.extrinsic.pitch, self.extrinsic.roll),
+            "rotation": (self.extrinsic.pitch, self.extrinsic.yaw, self.extrinsic.roll),
             "translation": (self.extrinsic.x, self.extrinsic.y, self.extrinsic.z),
             "image_size": self.size,
             "convention": "iso8855",

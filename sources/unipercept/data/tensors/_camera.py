@@ -20,6 +20,7 @@ from unipercept.vision.geometry import (
     homogeneous_to_euclidean_points,
     intrinsics_from_parameters,
     unsafe_inverse,
+    apply_points,
 )
 
 __all__ = ["PinholeCamera"]
@@ -77,7 +78,7 @@ class PinholeCamera(TVTensor):
         principal_point: Tensor | T.Iterable[int | float],
         angles: Tensor | T.Iterable[int | float] | None = None,  # pitch, yaw, roll
         translation: Tensor | T.Iterable[int | float] | None = None,  # x, y, z
-        convention: AxesConvention | str = AxesConvention.OPENCV,
+        convention: AxesConvention | str = AxesConvention.ISO8855,
         canvas: Tensor | T.Iterable[int] | None = None,
     ) -> T.Self:
         """
@@ -498,7 +499,7 @@ class PinholeCamera(TVTensor):
         # if depths is not None:
         #    points = points * depths
         points = euclidean_to_homogeneous_points(coords)
-        points = _apply_points(self.I_inv, points) * depths
+        points = apply_points(self.I_inv, points) * depths
         return points
 
     def camera_to_world(
@@ -518,7 +519,7 @@ class PinholeCamera(TVTensor):
         Tensor[B, N, 3]
             Projected coordinates (XYZ) for each pixel in the depth map.
         """
-        points = _apply_points(self.E_inv, points)
+        points = apply_points(self.E_inv, points)
         return points
 
     def image_to_world(
@@ -603,7 +604,7 @@ class PinholeCamera(TVTensor):
         Tensor[B, N, 2]
             2D points projected by the camera.
         """
-        result_homo = _apply_points(self.P, points)
+        result_homo = apply_points(self.P, points)
         return homogeneous_to_euclidean_points(result_homo)
 
     #####################
@@ -762,233 +763,3 @@ def crop_camera(
     crop = torch.tensor([left, top, left + width, top + height])
     camera = camera.crop(crop)
     return camera.as_subclass(PinholeCamera)
-
-
-####################################################
-# Various helper methods for geometric projections #
-####################################################
-
-
-def _apply_points(transform: Tensor, points: Tensor) -> Tensor:
-    r"""
-    Apply a transformation on a set of points.
-
-    Parameters
-    ----------
-    transform: Tensor[*, D+1, D+1]
-        Transformation matrix.
-    points: Tensor[*, N, D]
-        Points to transform.
-
-    Returns
-    -------
-    Tensor[*, N, D]
-        Transformed points.
-    """
-
-    *shape, _, _ = points.shape
-
-    points = points.reshape(-1, points.shape[-2], points.shape[-1])
-
-    transform = transform.reshape(-1, transform.shape[-2], transform.shape[-1])
-    transform = torch.repeat_interleave(
-        transform, repeats=points.shape[0] // transform.shape[0], dim=0
-    )
-
-    points_homo = euclidean_to_homogeneous_points(points)
-
-    result_homo = torch.bmm(points_homo, transform.permute(0, 2, 1))
-    result_homo = torch.squeeze(result_homo, dim=-1)
-    result = homogeneous_to_euclidean_points(result_homo)
-
-    shape.extend(result.shape[-2:])
-    return result.reshape(shape)
-
-
-#######################
-# Rendering utilities #
-#######################
-
-
-def generate_rays(K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False):
-    batch_size, device, dtype = (
-        K.shape[0],
-        K.device,
-        K.dtype,
-    )
-    height, width = image_shape
-    # Generate grid of pixel coordinates
-    pixel_coords_x = torch.linspace(0, width - 1, width, device=device, dtype=dtype)
-    pixel_coords_y = torch.linspace(0, height - 1, height, device=device, dtype=dtype)
-    if noisy:
-        pixel_coords_x += torch.rand_like(pixel_coords_x) - 0.5
-        pixel_coords_y += torch.rand_like(pixel_coords_y) - 0.5
-    pixel_coords = torch.stack(
-        [pixel_coords_x.repeat(height, 1), pixel_coords_y.repeat(width, 1).t()], dim=2
-    )  # (H, W, 2)
-    pixel_coords = pixel_coords + 0.5
-
-    # Calculate ray directions
-    intrinsics_inv = torch.eye(3, device=device).unsqueeze(0).repeat(batch_size, 1, 1)
-    intrinsics_inv[:, 0, 0] = 1.0 / K[:, 0, 0]
-    intrinsics_inv[:, 1, 1] = 1.0 / K[:, 1, 1]
-    intrinsics_inv[:, 0, 2] = -K[:, 0, 2] / K[:, 0, 0]
-    intrinsics_inv[:, 1, 2] = -K[:, 1, 2] / K[:, 1, 1]
-    homogeneous_coords = torch.cat(
-        [pixel_coords, torch.ones_like(pixel_coords[:, :, :1])], dim=2
-    )  # (H, W, 3)
-    ray_directions = torch.matmul(
-        intrinsics_inv, homogeneous_coords.permute(2, 0, 1).flatten(1)
-    )  # (3, H*W)
-    ray_directions = nn.functional.normalize(ray_directions, dim=1)  # (B, 3, H*W)
-    ray_directions = ray_directions.permute(0, 2, 1)  # (B, H*W, 3)
-
-    theta = torch.atan2(ray_directions[..., 0], ray_directions[..., -1])
-    phi = torch.acos(ray_directions[..., 1])
-    angles = torch.stack([theta, phi], dim=-1)
-    return ray_directions, angles
-
-
-def spherical_zbuffer_to_euclidean(spherical_tensor: Tensor) -> Tensor:
-    theta = spherical_tensor[..., 0]  # Extract polar angle
-    phi = spherical_tensor[..., 1]  # Extract azimuthal angle
-    z = spherical_tensor[..., 2]  # Extract zbuffer depth
-
-    # y = r * cos(phi)
-    # x = r * sin(phi) * sin(theta)
-    # z = r * sin(phi) * cos(theta)
-    # =>
-    # r = z / sin(phi) / cos(theta)
-    # y = z / (sin(phi) / cos(phi)) / cos(theta)
-    # x = z * sin(theta) / cos(theta)
-    x = z * torch.tan(theta)
-    y = z / torch.tan(phi) / torch.cos(theta)
-
-    euclidean_tensor = torch.stack((x, y, z), dim=-1)
-    return euclidean_tensor
-
-
-def spherical_to_euclidean(spherical_tensor: Tensor) -> Tensor:
-    theta = spherical_tensor[..., 0]  # Extract polar angle
-    phi = spherical_tensor[..., 1]  # Extract azimuthal angle
-    r = spherical_tensor[..., 2]  # Extract radius
-    # y = r * cos(phi)
-    # x = r * sin(phi) * sin(theta)
-    # z = r * sin(phi) * cos(theta)
-    x = r * torch.sin(phi) * torch.sin(theta)
-    y = r * torch.cos(phi)
-    z = r * torch.cos(theta) * torch.sin(phi)
-
-    euclidean_tensor = torch.stack((x, y, z), dim=-1)
-    return euclidean_tensor
-
-
-def euclidean_to_spherical(spherical_tensor: Tensor) -> Tensor:
-    x = spherical_tensor[..., 0]  # Extract polar angle
-    y = spherical_tensor[..., 1]  # Extract azimuthal angle
-    z = spherical_tensor[..., 2]  # Extract radius
-    # y = r * cos(phi)
-    # x = r * sin(phi) * sin(theta)
-    # z = r * sin(phi) * cos(theta)
-    r = torch.sqrt(x**2 + y**2 + z**2)
-    theta = torch.atan2(x / r, z / r)
-    phi = torch.acos(y / r)
-
-    euclidean_tensor = torch.stack((theta, phi, r), dim=-1)
-    return euclidean_tensor
-
-
-def euclidean_to_spherical_zbuffer(euclidean_tensor: Tensor) -> Tensor:
-    pitch = torch.asin(euclidean_tensor[..., 1])
-    yaw = torch.atan2(euclidean_tensor[..., 0], euclidean_tensor[..., -1])
-    z = euclidean_tensor[..., 2]  # Extract zbuffer depth
-    euclidean_tensor = torch.stack((pitch, yaw, z), dim=-1)
-    return euclidean_tensor
-
-
-def downsample(data: Tensor, factor: int):
-    """
-    Downsample the input data tensor by taking the minimum value of each
-    factor x factor block.
-
-    Parameters
-    ----------
-    data: Tensor[B, C, H, W]
-        Input data tensor.
-    factor: int
-        Downsampling factor.
-
-    Returns
-    -------
-    Tensor[B, C, H // factor, W // factor]
-        Downsampled data tensor.
-    """
-    N, _, H, W = data.shape
-    data = data.view(
-        N,
-        H // factor,
-        factor,
-        W // factor,
-        factor,
-        1,
-    )
-    data = data.permute(0, 1, 3, 5, 2, 4).contiguous()
-    data = data.view(-1, factor * factor)
-    data_tmp = torch.where(data <= 0, torch.inf, data)
-    data = torch.min(data_tmp, dim=-1).values
-    data = data.view(N, 1, H // factor, W // factor)
-    data = torch.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return data
-
-
-def flat_interpolate(
-    flat_tensor: Tensor,
-    shape_cur: T.Tuple[int, int],
-    shape_new: T.Tuple[int, int],
-    antialias: bool = True,
-    mode: str = "bilinear",
-) -> Tensor:
-    """
-    Interpolates a flat tensor of shape (B, C, H * W) to a new shape (B, C, H * W).
-
-    Parameters
-    ----------
-    flat_tensor: Tensor[B, C, H * W]
-        Input flat tensor.
-    shape_cur: Tuple[int, int]
-        Current shape of the tensor.
-    shape_new: Tuple[int, int]
-        New shape of the tensor.
-    antialias: bool
-        Whether to use antialiasing.
-    mode: str
-        Interpolation mode.
-
-    Returns
-    -------
-    Tensor[B, C, H * W]
-        Interpolated flat tensor.
-    """
-
-    if shape_cur == shape_new:
-        return flat_tensor
-
-    tensor = flat_tensor.view(
-        flat_tensor.shape[0], shape_cur[0], shape_cur[1], -1
-    ).permute(
-        0, 3, 1, 2
-    )  # b c h w
-    tensor_interp = nn.functional.interpolate(
-        tensor,
-        size=(shape_new[0], shape_new[1]),
-        mode=mode,
-        align_corners=False,
-        antialias=antialias,
-    )
-    flat_tensor_interp = tensor_interp.view(
-        flat_tensor.shape[0], -1, shape_new[0] * shape_new[1]
-    ).permute(
-        0, 2, 1
-    )  # b (h w) c
-    return flat_tensor_interp.contiguous()

@@ -512,10 +512,10 @@ class Engine:
                     stage.batch_size,
                 )
 
-            # gradient_accumulation = stage.gradient_accumulation * (
-            #    stage.batch_size // batch_size
-            # )
-            gradient_accumulation = 1  # PyTorch 2.2: broken
+            gradient_accumulation = stage.gradient_accumulation * (
+               stage.batch_size // batch_size
+            )
+            #gradient_accumulation = 1  # PyTorch 2.2: broken
             assert (
                 gradient_accumulation > 0
             ), "Expected gradient accumulation to be greater than 0"

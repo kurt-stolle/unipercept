@@ -512,10 +512,10 @@ class Engine:
                     stage.batch_size,
                 )
 
-            gradient_accumulation = stage.gradient_accumulation * (
-               stage.batch_size // batch_size
-            )
-            #gradient_accumulation = 1  # PyTorch 2.2: broken
+            # gradient_accumulation = stage.gradient_accumulation * (
+            #   stage.batch_size // batch_size
+            # )
+            gradient_accumulation = 1  # PyTorch 2.2: broken
             assert (
                 gradient_accumulation > 0
             ), "Expected gradient accumulation to be greater than 0"
@@ -688,8 +688,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: None = None,
-    ) -> tuple[torch.utils.data.DataLoader, int, None]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, None]: ...
 
     @T.overload
     def build_training_dataloader(
@@ -697,8 +696,7 @@ class Engine:
         dataloader: DataLoaderFactory,
         batch_size: int,
         gradient_accumulation: int,
-    ) -> tuple[torch.utils.data.DataLoader, int, int]:
-        ...
+    ) -> tuple[torch.utils.data.DataLoader, int, int]: ...
 
     def build_training_dataloader(
         self,
@@ -816,7 +814,7 @@ class Engine:
 
         # Sync backnorm
         if self._params.convert_sync_batchnorm:
-            _logger.info("Train loop: converting BatchNorm to SyncBatchNorm")
+            _logger.debug("Train loop: converting BatchNorm to SyncBatchNorm")
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         self._edge(Event.ON_MODEL_SETUP, model=model, training=True)
         model = self.xlr.prepare_model(model).to(self.xlr.device)
@@ -832,15 +830,15 @@ class Engine:
         try:
             self._load_state(None)  # type: ignore
         except FileNotFoundError:
-            _logger.info("Train loop: no previous state found")
+            _logger.debug("Train loop: no previous state found")
 
         # Debugging
         # debug_overflow = DebugUnderflowOverflow(model)  # noqa
         if DebugMode.UNDERFLOW_OVERFLOW & self._params.debug:
-            _logger.info("Train loop: underflow/overflow debugging is enabled")
+            _logger.debug("Train loop: underflow/overflow debugging is enabled")
             DebugUnderflowOverflow(model)
         else:
-            _logger.info("Train loop: underflow/overflow debugging is disabled")
+            _logger.debug("Train loop: underflow/overflow debugging is disabled")
 
         # Variables that track the progress of the training
         time_start = time.time()
@@ -976,7 +974,8 @@ class Engine:
                             if scheduler is not None:
                                 scheduler.step_update(self._state.step, metric=None)
                         else:
-                            _logger.debug("Step was skipped")
+                            pass
+                            # _logger.debug("Step was skipped")
                         optimizer.zero_grad()
                         self._state.register_step(
                             epoch=epoch,

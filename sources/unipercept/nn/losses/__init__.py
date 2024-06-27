@@ -3,15 +3,18 @@ This module hosts various losses for perception tasks.
 """
 
 from __future__ import annotations
+from unipercept.utils.module import lazy_module_factory
 
-import typing as T
+__all__ = [
+    "contrastive",
+    "depth",
+    "focal",
+    "functional",
+    "guided",
+    "image",
+    "mixins",
+    "panoptic",
+]
+__getattr__, __dir__ = lazy_module_factory(__name__, __all__)
 
-import typing_extensions as TX
-
-from . import functional, mixins
-from ._contrastive import *
-from ._depth import *
-from ._focal import *
-from ._guided import *
-from ._image import *
-from ._panoptic import *
+del lazy_module_factory

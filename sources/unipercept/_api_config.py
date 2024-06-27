@@ -20,6 +20,7 @@ from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
 from unipercept.integrations.wandb_integration import read_run as _wandb_read_run
 from unipercept.log import get_logger
 from unipercept.utils.typings import Pathable
+from unipercept.types import StateDict
 
 if T.TYPE_CHECKING:
     import torch.types
@@ -32,7 +33,6 @@ if T.TYPE_CHECKING:
     StateParam: T.TypeAlias = (
         str | os.PathLike | dict[str, torch.Tensor] | unipercept.engine.Engine
     )
-    StateDict: T.TypeAlias = dict[str, torch.Tensor]
     ConfigParam: T.TypeAlias = str | os.PathLike | DictConfig
     ImageParam: T.TypeAlias = (
         str | os.PathLike | pil_image.Image | np.ndarray | torch.Tensor

@@ -42,6 +42,7 @@ up.render.terminal.show(render)
 up.log.logger.info("Projecting image...")
 dmap_3d = cam.reproject_map(dmap)
 points = dmap_3d[dmap > 0]
+points = up.vision.geometry.convert_points(points, tgt="open3d")
 colors = tvfn.pil_to_tensor(render).permute(1, 2, 0).unsqueeze(0)[dmap > 0] / 255
 
 if MAX_POINTS:
@@ -115,11 +116,11 @@ def camera_to_o3d(cam):
 
 
 ctr = vis.get_view_control()
-# ctr.convert_from_pinhole_camera_parameters(camera_to_o3d(cam))
-ctr.set_front([1, 0, 0])
-ctr.set_up([0, 0, 1])
-ctr.set_lookat((0, 0, 0))
+# ctr.set_front([1, 0, 0])
+# ctr.set_up([0, 0, 1])
+ctr.set_lookat((0, 0, 1))
 # ctr.set_lookat(pcd.get_center())
+
 # Start the visualization
 t_render: float | None = time.time()
 visualize = True

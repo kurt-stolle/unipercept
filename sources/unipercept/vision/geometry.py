@@ -88,9 +88,9 @@ def convert_extrinsics(
     extrinsics: Tensor[*, 4, 4]
         Input matrix.
     src: AxesConvention or str
-        See :class:`AxesConvention` for possible values.
+        Current convention. See :class:`AxesConvention` for possible values.
     tgt: AxesConvention or str
-        See :class:`AxesConvention` for possible values.
+        Target convention. See :class:`AxesConvention` for possible values.
 
     Returns
     -------
@@ -103,11 +103,47 @@ def convert_extrinsics(
 
     with extrinsics.device:
         T_src = _transform_to_opencv(src)
-        T_tgt = _transform_to_opencv(tgt).T  # transpose to invert for ortho matrices
-
+        T_tgt = _transform_to_opencv(tgt).T
     T = T_tgt @ T_src
 
     return T @ extrinsics
+
+
+def _mapping_to_opencv(convention: AxesConvention | str) -> Tensor:
+    return _transform_to_opencv(convention)[:3, :3]
+
+
+def convert_points(
+    points: torch.Tensor,
+    *,
+    src: AxesConvention | str = AxesConvention.OPENCV,
+    tgt: AxesConvention | str = AxesConvention.OPENCV,
+) -> torch.Tensor:
+    r"""
+    Converts points from one world axes convention to another.
+
+    Parameters
+    ----------
+    points: Tensor[*, 3]
+        Input points.
+    src: AxesConvention or str
+        Current convention. See :class:`AxesConvention` for possible values.
+    tgt: AxesConvention or str
+        Target convention. See :class:`AxesConvention` for possible values.
+
+    Returns
+    -------
+    Tensor[*, 3]
+        Output points.
+    """
+    if src == tgt:
+        return points
+
+    with points.device:
+        R_src = _mapping_to_opencv(src).T
+        R_tgt = _mapping_to_opencv(tgt)
+
+    return points @ R_src.T @ R_tgt
 
 
 def extrinsics_from_parameters(
@@ -658,11 +694,10 @@ def quaternion_to_rotation(quaternion: Tensor) -> Tensor:
 
 
 def quaternion_to_axis_angle(quaternion: Tensor) -> Tensor:
-    """Convert quaternion vector to axis angle of rotation in radians.
+    r"""
+    Convert quaternion vector to axis angle of rotation in radians.
 
     The quaternion should be in (w, x, y, z) format.
-
-    Adapted from ceres C++ library: ceres-solver/include/ceres/rotation.h
 
     Parameters
     ----------
@@ -709,21 +744,22 @@ def quaternion_to_axis_angle(quaternion: Tensor) -> Tensor:
 
 def quaternion_log_to_exp(quaternion: Tensor, eps: float = 1e-8) -> Tensor:
     r"""
-        Apply exponential map to log quaternion.
+    Apply exponential map to log quaternion.
 
     The quaternion should be in (w, x, y, z) format.
 
     Parameters
     ----------
     quaternion:
-        a tensor containing a quaternion to be converted.
+        A tensor containing a quaternion to be converted.
           The tensor can be of shape :math:`(*, 3)`.
     eps:
-        a small number for clamping.
+        A small number for clamping.
 
     Returns
     -------
-        the quaternion exponential map of shape :math:`(*, 4)`.
+    Tensor
+        The quaternion exponential map of shape :math:`(*, 4)`.
 
     """
     # compute quaternion norm
@@ -1027,12 +1063,12 @@ def normalize_pixel_coordinates3d(
         )
     # compute normalization factor
     dhw: Tensor = (
-        stack([tensor(depth), tensor(width), tensor(height)])
+        torch.stack([torch.tensor(depth), torch.tensor(width), torch.tensor(height)])
         .to(pixel_coordinates.device)
         .to(pixel_coordinates.dtype)
     )
 
-    factor: Tensor = tensor(2.0) / (dhw - 1).clamp(eps)
+    factor: Tensor = 2.0 / (dhw - 1).clamp(eps)
 
     return factor * pixel_coordinates - 1
 
@@ -1079,7 +1115,7 @@ def denormalize_pixel_coordinates3d(
 
 def angle_to_rotation(angle: Tensor) -> Tensor:
     r"""
-        Create a rotation matrix out of angles in degrees.
+    Create a rotation matrix out of angles in degrees.
 
     Parameters
     ----------
@@ -1603,6 +1639,9 @@ def apply_points(transform: Tensor, points: Tensor) -> Tensor:
 
 
 def generate_rays(K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False):
+    ndim = K.ndim
+    if ndim == 2:
+        K = K.unsqueeze(0)
     batch_size, device, dtype = (
         K.shape[0],
         K.device,
@@ -1613,8 +1652,8 @@ def generate_rays(K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False
     pixel_coords_x = torch.linspace(0, width - 1, width, device=device, dtype=dtype)
     pixel_coords_y = torch.linspace(0, height - 1, height, device=device, dtype=dtype)
     if noisy:
-        pixel_coords_x += torch.rand_like(pixel_coords_x) - 0.5
-        pixel_coords_y += torch.rand_like(pixel_coords_y) - 0.5
+        pixel_coords_x += torch.randn_like(pixel_coords_x)
+        pixel_coords_y += torch.randn_like(pixel_coords_y)
     pixel_coords = torch.stack(
         [pixel_coords_x.repeat(height, 1), pixel_coords_y.repeat(width, 1).t()], dim=2
     )  # (H, W, 2)
@@ -1638,13 +1677,16 @@ def generate_rays(K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False
     theta = torch.atan2(ray_directions[..., 0], ray_directions[..., -1])
     phi = torch.acos(ray_directions[..., 1])
     angles = torch.stack([theta, phi], dim=-1)
+
+    if ndim == 2:
+        ray_directions = ray_directions.squeeze(0)
+        angles = angles.squeeze(0)
+
     return ray_directions, angles
 
 
 def spherical_zbuffer_to_euclidean(spherical_tensor: Tensor) -> Tensor:
-    theta = spherical_tensor[..., 0]  # Extract polar angle
-    phi = spherical_tensor[..., 1]  # Extract azimuthal angle
-    z = spherical_tensor[..., 2]  # Extract zbuffer depth
+    theta, phi, z = spherical_tensor.unbind(-1)  # polar, azim, depth
 
     # y = r * cos(phi)
     # x = r * sin(phi) * sin(theta)
@@ -1734,53 +1776,3 @@ def downsample(data: Tensor, factor: int):
     return data
 
 
-def flat_interpolate(
-    flat_tensor: Tensor,
-    shape_cur: T.Tuple[int, int],
-    shape_new: T.Tuple[int, int],
-    antialias: bool = True,
-    mode: str = "bilinear",
-) -> Tensor:
-    """
-    Interpolates a flat tensor of shape (B, C, H * W) to a new shape (B, C, H * W).
-
-    Parameters
-    ----------
-    flat_tensor: Tensor[B, C, H * W]
-        Input flat tensor.
-    shape_cur: Tuple[int, int]
-        Current shape of the tensor.
-    shape_new: Tuple[int, int]
-        New shape of the tensor.
-    antialias: bool
-        Whether to use antialiasing.
-    mode: str
-        Interpolation mode.
-
-    Returns
-    -------
-    Tensor[B, C, H * W]
-        Interpolated flat tensor.
-    """
-
-    if shape_cur == shape_new:
-        return flat_tensor
-
-    tensor = flat_tensor.view(
-        flat_tensor.shape[0], shape_cur[0], shape_cur[1], -1
-    ).permute(
-        0, 3, 1, 2
-    )  # b c h w
-    tensor_interp = nn.functional.interpolate(
-        tensor,
-        size=(shape_new[0], shape_new[1]),
-        mode=mode,
-        align_corners=False,
-        antialias=antialias,
-    )
-    flat_tensor_interp = tensor_interp.view(
-        flat_tensor.shape[0], -1, shape_new[0] * shape_new[1]
-    ).permute(
-        0, 2, 1
-    )  # b (h w) c
-    return flat_tensor_interp.contiguous()

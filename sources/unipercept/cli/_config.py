@@ -13,14 +13,15 @@ from bullet import Bullet
 from omegaconf import DictConfig
 from typing_extensions import override
 
-import unipercept.file_io as file_io
+
+from unipercept.log import logger
+from unipercept import file_io
 from unipercept.log import create_table, get_logger
 
 __all__ = ["add_config_args", "ConfigFileContentType"]
 
-_NONINTERACTIVE_MODE = False
-_BULLET_STYLES = {"bullet": " >", "margin": 2, "pad_right": 2}
-_logger = get_logger(__name__)
+NONINTERACTIVE = False
+BULLET_STYLES = {"bullet": " >", "margin": 2, "pad_right": 2}
 
 if T.TYPE_CHECKING:
 
@@ -57,7 +58,7 @@ class ConfigLoad(argparse.Action):
         from unipercept import read_config
 
         if values is None or len(values) == 0:
-            if _NONINTERACTIVE_MODE:
+            if NONINTERACTIVE:
                 parser.exit(message="No configuration file specified!\n", status=1)
                 return
             values = self.interactive()
@@ -79,14 +80,14 @@ class ConfigLoad(argparse.Action):
         return values
 
     @staticmethod
-    def interactive_select(configs_root="//configs/") -> str:
+    def interactive_select(configs_root="configs://") -> str:
         print(
             "No configuration file specified (--config <path> [config.key=value ...])."
         )
 
         # Prompt 1: Where to look for configurations?
         try:
-            action = Bullet(prompt="Select a configuration source:", choices=[v.value for v in ConfigSource], **_BULLET_STYLES)  # type: ignore
+            action = Bullet(prompt="Select a configuration source:", choices=[v.value for v in ConfigSource], **BULLET_STYLES)  # type: ignore
         except KeyboardInterrupt:
             print("Received interrupt singal. Exiting.")
             exit(1)
@@ -96,7 +97,7 @@ class ConfigLoad(argparse.Action):
 
         match choice:
             case ConfigSource.TEMPLATES:
-                configs_root = file_io.Path("//configs/")
+                configs_root = file_io.Path("configs://")
             case ConfigSource.CHECKPOINTS:
                 configs_root = file_io.Path("//output/")
             case _:
@@ -127,7 +128,7 @@ class ConfigLoad(argparse.Action):
         # Prompt 2: Which configuration file to use?
         choices = [str(p.relative_to(configs_root)) for p in config_candidates]
         try:
-            action = Bullet(prompt="Select a configuration file:", choices=choices, **_BULLET_STYLES)  # type: ignore
+            action = Bullet(prompt="Select a configuration file:", choices=choices, **BULLET_STYLES)  # type: ignore
         except KeyboardInterrupt:
             print("Received interrupt singal. Exiting.")
             exit(1)
@@ -185,7 +186,7 @@ class ConfigLoad(argparse.Action):
                 {"Key": key, "Value": value, "Type": type(value).__name__}
             )
         if len(overrides_applied) > 0:
-            _logger.info(
+            logger.info(
                 "Configuration overrides applied from CLI:\n%s",
                 create_table(
                     pd.DataFrame.from_records(overrides_applied), format="wide"
@@ -239,15 +240,39 @@ class ConfigDebugMode(
     @override
     def apply_patch(self, cfg):
         from unipercept.engine.debug import DebugMode
+        from logging import DEBUG
 
-        os.environ["WANDB_OFFLINE"] = "true"
+        logger.info("Applying debug mode to the configuration.")
+
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
         os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        os.environ["UP_LOGS_LEVEL"] = "DEBUG"
 
+        torch._logging.set_logs(dynamo=DEBUG)
+        torch._dynamo.reset()
+        torch._dynamo.config.verbose = True
+
+        cfg.ENGINE.params.debug = DebugMode.UNDERFLOW_OVERFLOW
+
+
+class ConfigDetectionAnomaliesMode(
+    ConfigPatch,
+    flags="--detect-anamolies",
+    help="Enable anamoly detection. Note that using this in FP16 mode will likely result in false positives due to grad scaler warmup.",
+):
+    @override
+    def apply_patch(self, cfg):
         torch.autograd.set_detect_anomaly(True)
 
+
+class ConfigDeterministicMode(
+    ConfigPatch,
+    flags="--deterministic",
+    help="patches the configuration to enable deterministic mode",
+):
+    @override
+    def apply_patch(self, cfg):
         cfg.ENGINE.params.full_determinism = True
-        cfg.ENGINE.params.debug = DebugMode.UNDERFLOW_OVERFLOW
 
 
 class ConfigDisableTrackers(

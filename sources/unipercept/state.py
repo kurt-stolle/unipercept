@@ -5,13 +5,11 @@ The ccelerate library is adopted to handle distributed training and inference.
 
 from __future__ import annotations
 
-import abc
 import enum as E
 import functools as F
 import os
 import sys
 import threading
-import types
 import typing as T
 
 import accelerate.state
@@ -553,8 +551,7 @@ if T.TYPE_CHECKING:
 
     def pad_across_processes(
         tensor: _N, dim: int = 0, pad_index: int = 0, pad_first: int = 0
-    ) -> _N:
-        ...
+    ) -> _N: ...
 
 else:
     pad_across_processes = accelerate.utils.pad_across_processes

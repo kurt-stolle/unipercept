@@ -4,6 +4,7 @@ import dataclasses as D
 import enum as E
 import logging
 import typing as T
+import torch.compiler
 
 from unipercept.config import get_env
 from unipercept.data import DataLoaderFactory
@@ -303,20 +304,44 @@ class EngineParams:
         metadata={"help": "Whether or not to use PyTorch jit trace for inference"},
     )
     compiler_backend: str | None = D.field(
-        default="inductor",
+        default=None,
         metadata={
-            "help": "The backend to use for the compiler. If None/'no', the compiler is not used."
+            "help": f"The backend to use for the compiler. Available are: {torch.compiler.list_backends()}",
         },
     )
-    compiler_reset: bool = D.field(
+    compiler_mode: str = D.field(
+        default="default",
+        metadata={
+            "help": "The mode to use for the compiler. See the PyTorch documentation for more information."
+        },
+    )
+    compiler_fullgraph: bool = D.field(
         default=False,
         metadata={
-            "help": "Whether or not to reset the compiler before compiling the model."
+            "help": "Whether or not to use the full graph for the compiler. See the PyTorch documentation for more information."
         },
     )
-    compiler_config: T.Dict[str, T.Any] = D.field(
+    compiler_dynamic: bool = D.field(
+        default=False,
+        metadata={
+            "help": "Whether or not to use the dynamic compiler. See the PyTorch documentation for more information."
+        },
+    )
+    compiler_options: T.Dict[str, T.Any] = D.field(
         default_factory=dict,
-        metadata={"help": "Compiler configuration overrides, dict of keys and values."},
+        metadata={"help": "Additional options to pass to the compiler."},
+    )
+    compiler_optimize_ddp: bool = D.field(
+        default=True,
+        metadata={
+            "help": "Whether or not to optimize the DDP model for the compiler. See the PyTorch documentation for more information."
+        },
+    )
+    compiler_suppress_errors: bool = D.field(
+        default=False,
+        metadata={
+            "help": "Whether or not to suppress errors during compilation. See the PyTorch documentation for more information."
+        },
     )
 
     ##############################

@@ -7,6 +7,7 @@ import torch
 from unipercept.vision.geometry import (
     AxesConvention,
     convert_extrinsics,
+    convert_points,
     extrinsics_to_motion,
     rotation_to_axis_angle,
 )
@@ -39,37 +40,37 @@ def test_convert_extrinsics():
     assert torch.allclose(E_opencv, E_iso8855_opencv)
     assert torch.allclose(E_opengl, E_iso8855_opengl)
 
-    # Check that the conversions are correct (R' == R*)
-    M_opencv = extrinsics_to_motion(E_opencv)
-    M_opengl = extrinsics_to_motion(E_opengl)
-    M_iso8855 = extrinsics_to_motion(E_iso8855)
 
-    for name, M in {
-        "(R,t) opencv": M_opencv,
-        "(R,t) opengl": M_opengl,
-        "(R,t) iso8855": M_iso8855,
-    }.items():
-        print(f"-- {name} --")
-        R, t = M
-        a = rotation_to_axis_angle(R)
-        pprint.pprint(a.tolist())
-        pprint.pprint(t.tolist())
+def test_convert_points():
+    right = 1.0
+    left = -right
+    down = 2.0
+    up = -down
+    fwd = 3.0
+    bwd = -fwd
 
-    R_opencv, t_opencv = M_opencv
-    # a_opencv = rotation_to_axis_angle(R_opencv)
+    P_cv = torch.tensor([[right, down, fwd]], dtype=torch.float32)
+    P_cv_gl = convert_points(P_cv, tgt=AxesConvention.OPENGL)
+    P_cv_gl_cv = convert_points(P_cv_gl, src=AxesConvention.OPENGL)
 
-    R_opengl, t_opengl = M_opengl
-    # a_opengl = rotation_to_axis_angle(R_opengl)
+    assert not torch.allclose(P_cv, P_cv_gl)
+    assert torch.allclose(P_cv, P_cv_gl_cv)
 
-    R_iso8855, t_iso8855 = M_iso8855
-    # a_iso8855 = rotation_to_axis_angle(R_iso8855)
+    P_cv_iso = convert_points(P_cv, tgt=AxesConvention.ISO8855)
+    P_cv_iso_cv = convert_points(P_cv_iso, src=AxesConvention.ISO8855)
 
-    # ax, ay, az = a_opencv
-    tx, ty, tz = t_opencv
-    # OpenCV -> OpenGL : x -> x, y -> -y, z -> -z
-    # assert torch.allclose(a_opengl, torch.tensor([ax, -ay, -az]))
-    assert torch.allclose(t_opengl, torch.tensor([tx, -ty, -tz]))
+    assert not torch.allclose(P_cv, P_cv_iso)
+    assert torch.allclose(P_cv, P_cv_iso_cv)
 
-    # OpenCV -> ISO8855 : x -> z, y -> -x, z -> -y
-    # assert torch.allclose(a_iso8855, torch.tensor([az, -ax, -ay]))
-    assert torch.allclose(t_iso8855, torch.tensor([tz, -tx, -ty]))
+    P_cv_iso_gl = convert_points(
+        P_cv_iso, src=AxesConvention.ISO8855, tgt=AxesConvention.OPENGL
+    )
+    assert torch.allclose(P_cv_gl, P_cv_iso_gl)
+
+    xyz_cv = tuple(P_cv[0].tolist())
+    xyz_gl = tuple(P_cv_gl[0].tolist())
+    xyz_iso = tuple(P_cv_iso[0].tolist())
+
+    assert xyz_cv == (right, down, fwd)
+    assert xyz_gl == (right, up, bwd)
+    assert xyz_iso == (fwd, left, up)

@@ -46,11 +46,15 @@ class AxesConvention(E.StrEnum):
     DIRECTX = E.auto()
 
 
-def _transform_to_opencv(convention: AxesConvention | str) -> Tensor:
+def _transform_to_opencv(
+    convention: AxesConvention | str,
+    device: Device | None = None,
+    dtype: DType = torch.float32,
+) -> Tensor:
     match convention:
         case AxesConvention.OPENCV:
             # (X, Y, Z) = [right, down, fwd]
-            return torch.eye(4)
+            return torch.eye(4, device=device, dtype=dtype)
         case AxesConvention.ISO8855:
             # (X, Y, Z) = [fwd, left, up]
             return torch.tensor(
@@ -59,7 +63,9 @@ def _transform_to_opencv(convention: AxesConvention | str) -> Tensor:
                     [-1.0, 0.0, 0.0, 0.0],  # Y -> -X
                     [0.0, -1.0, 0.0, 0.0],  # Z -> -Y
                     [0.0, 0.0, 0.0, 1.0],  # 1 -> 1 (homogeneous)
-                ]
+                ],
+                device=device,
+                dtype=dtype,
             )
         case AxesConvention.OPENGL | AxesConvention.OPEN3D:
             # (X, Y, Z) = [right, up, bw]
@@ -69,11 +75,21 @@ def _transform_to_opencv(convention: AxesConvention | str) -> Tensor:
                     [0.0, -1.0, 0.0, 0.0],  # Y -> -Y
                     [0.0, 0.0, -1.0, 0.0],  # Z -> -Z
                     [0.0, 0.0, 0.0, 1.0],  # 1 -> 1 (homogeneous)
-                ]
+                ],
+                device=device,
+                dtype=dtype,
             )
         case _:
-            msg = f"Unknown convention {convention}."
+            msg = f"Unknown convention {convention!r}!"
             raise ValueError(msg)
+
+
+def _mapping_to_opencv(
+    convention: AxesConvention | str,
+    device: Device | None = None,
+    dtype: DType = torch.float32,
+) -> Tensor:
+    return _transform_to_opencv(convention, device=device, dtype=dtype)[:3, :3]
 
 
 def convert_extrinsics(
@@ -84,6 +100,12 @@ def convert_extrinsics(
 ) -> Tensor:
     r"""
     Changes an extrinsic transformation to a different world axes convention.
+
+    This is useful in cases where a camera/dataset provides the extrinsic parameters
+    in a different world convention than ours. For example, the Cityscapes dataset
+    provides their extrinsics in ISO8855 contention, while we use OpenCV. This function
+    allows using the direct parameters from the dataset to build the extrinsics matrix,
+    which can subsequently be converted to OpenCV for use in our system.
 
     Parameters
     ----------
@@ -103,16 +125,12 @@ def convert_extrinsics(
     if src == tgt:
         return extrinsics
 
-    with extrinsics.device:
-        T_src = _transform_to_opencv(src)
-        T_tgt = _transform_to_opencv(tgt).T
-    T = T_tgt @ T_src
+    device = extrinsics.device
+    dtype = extrinsics.dtype
+    T_src = _transform_to_opencv(src, device=device, dtype=dtype)
+    T_tgt = _transform_to_opencv(tgt, device=device, dtype=dtype).T
 
-    return T @ extrinsics
-
-
-def _mapping_to_opencv(convention: AxesConvention | str) -> Tensor:
-    return _transform_to_opencv(convention)[:3, :3]
+    return extrinsics @ T_src @ T_tgt
 
 
 def convert_points(
@@ -123,6 +141,12 @@ def convert_points(
 ) -> torch.Tensor:
     r"""
     Converts points from one world axes convention to another.
+
+    This is useful in cases where we want to display points in a different world
+    convention than the one they were projected into. For example, if we have a projection
+    onto OpenCV coordinates (the default) and we want to display a point cloud in
+    Matplotlib (which uses Z-up coordinates), then we can convert the projected points
+    to ISO8855 to get the correct orientation.
 
     Parameters
     ----------
@@ -141,11 +165,11 @@ def convert_points(
     if src == tgt:
         return points
 
-    with points.device:
-        R_src = _mapping_to_opencv(src).T
-        R_tgt = _mapping_to_opencv(tgt)
-
-    return points @ R_src.T @ R_tgt
+    device = points.device
+    dtype = points.dtype
+    R_src = _mapping_to_opencv(src, device=device, dtype=dtype)
+    R_tgt = _mapping_to_opencv(tgt, device=device, dtype=dtype).T
+    return points @ R_src @ R_tgt
 
 
 def extrinsics_from_parameters(
@@ -363,12 +387,12 @@ def euclidean_to_homogeneous_points(points: Tensor) -> Tensor:
 
     Parameters
     ----------
-    points: Tensor[..., N, D]
+    points: Tensor[*, N, D]
         Input points to homogenize.
 
     Returns
     -------
-    Tensor[..., N, D+1]
+    Tensor[*, N, D+1]
         Homogeneous coordinates for each point.
     """
     return nn.functional.pad(points, (0, 1), "constant", value=1.0)
@@ -382,14 +406,14 @@ def homogeneous_to_euclidean_points(points: Tensor, eps: float = 1e-8) -> Tensor
 
     Parameters
     ----------
-    points: Tensor[..., N, D+1]
+    points: Tensor[*, N, D+1]
         Points to convert.
     eps: float, optional
         Small value to avoid division by zero.
 
     Returns
     -------
-    Tensor[..., N, D]
+    Tensor[*, N, D]
         Euclidean coordinates for each point.
     """
 

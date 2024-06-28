@@ -19,8 +19,8 @@ from PIL import Image as pil_image
 from unipercept.integrations.wandb_integration import WANDB_RUN_PREFIX
 from unipercept.integrations.wandb_integration import read_run as _wandb_read_run
 from unipercept.log import get_logger
-from unipercept.utils.typings import Pathable
 from unipercept.types import StateDict
+from unipercept.utils.typings import Pathable
 
 if T.TYPE_CHECKING:
     import torch.types
@@ -390,8 +390,7 @@ def create_dataset(
     variant: T.Optional[str | re.Pattern],
     batch_size: int,
     return_loader: bool = True,
-) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]:
-    ...
+) -> tuple[torch.utils.data.DataLoader[InputData], Metadata]: ...
 
 
 @T.overload
@@ -400,8 +399,7 @@ def create_dataset(
     variant: T.Optional[str | re.Pattern],
     batch_size: int,
     return_loader: bool = False,
-) -> tuple[T.Iterator[InputData], Metadata]:
-    ...
+) -> tuple[T.Iterator[InputData], Metadata]: ...
 
 
 def create_dataset(

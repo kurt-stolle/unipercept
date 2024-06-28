@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import typing as T
 
-
 import torch
-import torch.types
 import torch.nn
+import torch.types
 
 Tensor: T.TypeAlias = torch.Tensor
 Device: T.TypeAlias = torch.device | torch.types.Device

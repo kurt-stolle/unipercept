@@ -4,13 +4,17 @@
 These are some notes on how to render a 3D pointcloud with Open3d.
 """
 
-import open3d as o3d
+from __future__ import annotations
+
+import random
 import time
 import typing as T
-import torchvision.transforms.v2.functional as tvfn
+
+import open3d as o3d
 import torch
+import torchvision.transforms.v2.functional as tvfn
+
 import unipercept as up
-import random
 
 MAX_POINTS: int | None = None  # int(1e5)
 

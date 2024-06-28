@@ -334,12 +334,10 @@ class PanopticMap(_Mask):
         return PanopticMap.from_parts(sem_id, ins_id)
 
     @T.overload
-    def to_parts(self: Tensor) -> Tensor:
-        ...
+    def to_parts(self: Tensor) -> Tensor: ...
 
     @T.overload
-    def to_parts(self: Tensor, as_tuple=True) -> T.Tuple[Tensor, Tensor]:
-        ...
+    def to_parts(self: Tensor, as_tuple=True) -> T.Tuple[Tensor, Tensor]: ...
 
     def to_parts(
         self: Tensor, as_tuple: bool = False
@@ -377,13 +375,11 @@ class PanopticMap(_Mask):
 
     @classmethod
     @T.overload
-    def is_void(cls, label: int) -> bool:
-        ...
+    def is_void(cls, label: int) -> bool: ...
 
     @classmethod
     @T.overload
-    def is_void(cls, label: Tensor) -> Tensor:
-        ...
+    def is_void(cls, label: Tensor) -> Tensor: ...
 
     @classmethod
     def is_void(cls, label: Tensor | int) -> Tensor | bool:

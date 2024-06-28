@@ -149,8 +149,7 @@ class MultiScaleFlashAttnFunction(Function):
             loc_attn: Tensor,
             im2col_step: int,
             points: int,
-        ) -> Tensor:
-            ...
+        ) -> Tensor: ...
 
 
 class MultiScaleDeformAttnFunction(Function):
@@ -224,8 +223,7 @@ class MultiScaleDeformAttnFunction(Function):
             loc: Tensor,
             attn: Tensor,
             im2col_step: int,
-        ) -> Tensor:
-            ...
+        ) -> Tensor: ...
 
 
 class MultiScaleDeformAttn(nn.Module):

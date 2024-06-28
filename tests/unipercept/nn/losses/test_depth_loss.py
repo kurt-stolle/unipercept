@@ -7,9 +7,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import array_shapes, arrays
 
-
 from unipercept.nn.losses import depth as depth_losses
-
 
 torch.autograd.set_detect_anomaly(True)
 

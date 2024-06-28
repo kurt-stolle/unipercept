@@ -8,20 +8,20 @@ import typing as T
 
 import torch
 import typing_extensions as TX
-from unipercept.types import Size, Tensor
 from torchvision.transforms.v2.functional import register_kernel
 from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 from torchvision.tv_tensors import TVTensor
 
+from unipercept.types import Size, Tensor
 from unipercept.vision.geometry import (
     AxesConvention,
+    apply_points,
     euclidean_to_homogeneous_points,
     extrinsics_from_parameters,
+    generate_coord_grid,
     homogeneous_to_euclidean_points,
     intrinsics_from_parameters,
     unsafe_inverse,
-    apply_points,
-    generate_coord_grid,
 )
 
 __all__ = ["PinholeCamera"]

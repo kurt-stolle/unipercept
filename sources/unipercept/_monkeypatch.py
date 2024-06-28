@@ -3,6 +3,7 @@ Used to apply monkeypatching when the program is started.
 """
 
 from __future__ import annotations
+
 import pprint
 import typing as T
 

@@ -13,10 +13,8 @@ from bullet import Bullet
 from omegaconf import DictConfig
 from typing_extensions import override
 
-
-from unipercept.log import logger
 from unipercept import file_io
-from unipercept.log import create_table, get_logger
+from unipercept.log import create_table, get_logger, logger
 
 __all__ = ["add_config_args", "ConfigFileContentType"]
 
@@ -239,8 +237,9 @@ class ConfigDebugMode(
 ):
     @override
     def apply_patch(self, cfg):
-        from unipercept.engine.debug import DebugMode
         from logging import DEBUG
+
+        from unipercept.engine.debug import DebugMode
 
         logger.info("Applying debug mode to the configuration.")
 

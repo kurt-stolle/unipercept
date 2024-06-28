@@ -1,11 +1,15 @@
+from __future__ import annotations
+
+import pprint
+
+import torch
+
 from unipercept.vision.geometry import (
     AxesConvention,
     convert_extrinsics,
-    rotation_to_axis_angle,
     extrinsics_to_motion,
+    rotation_to_axis_angle,
 )
-import torch
-import pprint
 
 
 def test_convert_extrinsics():
@@ -52,20 +56,20 @@ def test_convert_extrinsics():
         pprint.pprint(t.tolist())
 
     R_opencv, t_opencv = M_opencv
-    #a_opencv = rotation_to_axis_angle(R_opencv)
+    # a_opencv = rotation_to_axis_angle(R_opencv)
 
     R_opengl, t_opengl = M_opengl
-    #a_opengl = rotation_to_axis_angle(R_opengl)
+    # a_opengl = rotation_to_axis_angle(R_opengl)
 
     R_iso8855, t_iso8855 = M_iso8855
-    #a_iso8855 = rotation_to_axis_angle(R_iso8855)
+    # a_iso8855 = rotation_to_axis_angle(R_iso8855)
 
-    #ax, ay, az = a_opencv
+    # ax, ay, az = a_opencv
     tx, ty, tz = t_opencv
     # OpenCV -> OpenGL : x -> x, y -> -y, z -> -z
-    #assert torch.allclose(a_opengl, torch.tensor([ax, -ay, -az]))
+    # assert torch.allclose(a_opengl, torch.tensor([ax, -ay, -az]))
     assert torch.allclose(t_opengl, torch.tensor([tx, -ty, -tz]))
 
     # OpenCV -> ISO8855 : x -> z, y -> -x, z -> -y
-    #assert torch.allclose(a_iso8855, torch.tensor([az, -ax, -ay]))
+    # assert torch.allclose(a_iso8855, torch.tensor([az, -ax, -ay]))
     assert torch.allclose(t_iso8855, torch.tensor([tz, -tx, -ty]))

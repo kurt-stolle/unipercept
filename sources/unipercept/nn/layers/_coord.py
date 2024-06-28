@@ -23,8 +23,7 @@ class CoordModuleProtocol(T.Protocol):
 
     cat_channels: T.Final[int]
 
-    def forward(self, t: Tensor) -> Tensor:
-        ...
+    def forward(self, t: Tensor) -> Tensor: ...
 
     if T.TYPE_CHECKING:
         __call__ = forward

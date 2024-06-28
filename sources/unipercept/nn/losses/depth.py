@@ -9,9 +9,8 @@ import torch
 import torch.nn as nn
 import typing_extensions as TX
 
-from unipercept.types import Tensor
 from unipercept.nn.losses.mixins import ScaledLossMixin
-
+from unipercept.types import Tensor
 
 #######################
 # Utilities for depth #

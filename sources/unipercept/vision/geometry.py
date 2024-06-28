@@ -13,7 +13,8 @@ import enum as E
 import typing as T
 
 import torch
-from torch import Tensor, nn
+import torch.nn as nn
+from unipercept.types import Device, DType, Size, Tensor
 
 
 class AxesConvention(E.StrEnum):
@@ -1638,49 +1639,24 @@ def apply_points(transform: Tensor, points: Tensor) -> Tensor:
 #######################
 
 
-def generate_rays(K: Tensor, image_shape: T.Tuple[int, int], noisy: bool = False):
-    ndim = K.ndim
-    if ndim == 2:
-        K = K.unsqueeze(0)
-    batch_size, device, dtype = (
-        K.shape[0],
-        K.device,
-        K.dtype,
-    )
-    height, width = image_shape
-    # Generate grid of pixel coordinates
-    pixel_coords_x = torch.linspace(0, width - 1, width, device=device, dtype=dtype)
-    pixel_coords_y = torch.linspace(0, height - 1, height, device=device, dtype=dtype)
-    if noisy:
-        pixel_coords_x += torch.randn_like(pixel_coords_x)
-        pixel_coords_y += torch.randn_like(pixel_coords_y)
-    pixel_coords = torch.stack(
-        [pixel_coords_x.repeat(height, 1), pixel_coords_y.repeat(width, 1).t()], dim=2
+def generate_rays(
+    intrinsics: Tensor,
+    canvas_size: T.Tuple[int, int],
+    noise: bool = False,
+):
+    coords = generate_coord_grid(
+        canvas_size, device=intrinsics.device, dtype=intrinsics.dtype, noise=noise
     )  # (H, W, 2)
-    pixel_coords = pixel_coords + 0.5
+    coords = coords.flatten(0, 1)  # (H*W, 2)
+    coords = euclidean_to_homogeneous_points(coords)  # (H*W, 3)
 
-    # Calculate ray directions
-    intrinsics_inv = torch.eye(3, device=device).unsqueeze(0).repeat(batch_size, 1, 1)
-    intrinsics_inv[:, 0, 0] = 1.0 / K[:, 0, 0]
-    intrinsics_inv[:, 1, 1] = 1.0 / K[:, 1, 1]
-    intrinsics_inv[:, 0, 2] = -K[:, 0, 2] / K[:, 0, 0]
-    intrinsics_inv[:, 1, 2] = -K[:, 1, 2] / K[:, 1, 1]
-    homogeneous_coords = torch.cat(
-        [pixel_coords, torch.ones_like(pixel_coords[:, :, :1])], dim=2
-    )  # (H, W, 3)
-    ray_directions = torch.matmul(
-        intrinsics_inv, homogeneous_coords.permute(2, 0, 1).flatten(1)
-    )  # (3, H*W)
-    ray_directions = nn.functional.normalize(ray_directions, dim=1)  # (B, 3, H*W)
-    ray_directions = ray_directions.permute(0, 2, 1)  # (B, H*W, 3)
+    intrinsics_inv = unsafe_inverse(intrinsics)  # (B, 4, 4)
+    ray_directions = apply_points(intrinsics_inv, coords)  # (B, H*W, 3)
+    ray_directions = nn.functional.normalize(ray_directions, dim=-1)
 
     theta = torch.atan2(ray_directions[..., 0], ray_directions[..., -1])
     phi = torch.acos(ray_directions[..., 1])
     angles = torch.stack([theta, phi], dim=-1)
-
-    if ndim == 2:
-        ray_directions = ray_directions.squeeze(0)
-        angles = angles.squeeze(0)
 
     return ray_directions, angles
 
@@ -1776,3 +1752,51 @@ def downsample(data: Tensor, factor: int):
     return data
 
 
+###########################
+# Working with coodinates #
+###########################
+
+
+def generate_coord_grid(
+    canvas_size: Size | T.Tuple[int, int],
+    device: Device | None = None,
+    dtype: DType | None = None,
+    noise: bool = False,
+) -> Tensor:
+    r"""
+    Generate pixel coordinates grid.
+
+    Parameters
+    ----------
+    canvas_size:
+        Size of the canvas.
+    device:
+        Device to use.
+    dtype:
+        Data type to use.
+    noise:
+        Whether to add uniform noise within the pixel boundaries, assuming square
+        pixels.
+
+    Returns
+    -------
+    Tensor[H, W, 2]
+        Pixel coordinates grid.
+    """
+    height, width = canvas_size
+    if dtype is None:
+        dtype = torch.float32
+    coords = torch.stack(
+        torch.meshgrid(
+            torch.arange(width, device=device, dtype=dtype),
+            torch.arange(height, device=device, dtype=dtype),
+            indexing="xy",
+        ),
+        dim=-1,
+    )  # (H, W, 2)
+    assert coords.shape[:2] == (height, width), coords.shape
+    if noise != 0.0:
+        coords += torch.rand_like(coords)
+    else:
+        coords = coords + 0.5  # compensate to pixel center
+    return coords

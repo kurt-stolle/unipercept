@@ -3,7 +3,7 @@ Used to apply monkeypatching when the program is started.
 """
 
 from __future__ import annotations
-
+import pprint
 import typing as T
 
 __all__ = []
@@ -46,7 +46,10 @@ def __patch_tensor_repr():
         elif self.ndim == 0:
             values = self.item()
         elif self.ndim == 1 or self.numel() <= 32:
-            values = repr(self.tolist())
+            values = "\n"
+            for line in pprint.pformat(self.tolist()).splitlines():
+                values += "    " + line + "\n"
+
         else:
             values = "..."
 

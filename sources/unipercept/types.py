@@ -18,3 +18,4 @@ Tensor: T.TypeAlias = torch.Tensor
 Device: T.TypeAlias = torch.device | torch.types.Device
 DType: T.TypeAlias = torch.dtype
 StateDict: T.TypeAlias = T.Dict[str, Tensor]
+Size: T.TypeAlias = torch.Size | T.Tuple[int, ...]

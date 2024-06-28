@@ -161,3 +161,67 @@ class TrigonometricEmbedTime(nn.Module):
             (pos_t[:, :, 0::2].sin(), pos_t[:, :, 1::2].cos()), dim=3
         ).flatten(2)
         return pos_t
+
+
+class FourierEmbedCameraDirections(nn.Module):
+    r"""
+    Use a Fourier basis to embed camera directions.
+    """
+
+    def __init__(
+        self,
+        dim: int = 512,
+        max_freq: int = 64,
+        use_cos: bool = False,
+        use_log: bool = False,
+        concatenate: bool = False,
+    ):
+        super().__init__()
+
+        self.dim = dim
+        self.max_freq = max_freq
+
+        self.use_cos = use_cos
+        self.use_log = use_log
+        self.concatenate = concatenate
+
+    @TX.override
+    def forward(self, x: Tensor):
+        x_orig = x
+        device, dtype, input_dim = x.device, x.dtype, x.shape[-1]
+        num_bands = (
+            self.dim // (2 * input_dim) if self.use_cos else self.dim // input_dim
+        )
+
+        if self.use_log:
+            scales = 2.0 ** torch.linspace(
+                0.0,
+                math.log2(self.max_freq),
+                steps=num_bands,
+                device=device,
+                dtype=dtype,
+            )
+        else:
+            scales = torch.linspace(
+                1.0, self.max_freq / 2, num_bands, device=device, dtype=dtype
+            )
+
+        x = x.unsqueeze(-1)
+        scales = scales[(*((None,) * (len(x.shape) - 1)), Ellipsis)]
+
+        x = x * scales * torch.pi
+        x = torch.cat(
+            (
+                [x.sin(), x.cos()]
+                if self.use_cos
+                else [
+                    x.sin(),
+                ]
+            ),
+            dim=-1,
+        )
+        x = x.flatten(-2)
+        if self.concatenate:
+            return torch.cat((x, x_orig), dim=-1)
+
+        return x

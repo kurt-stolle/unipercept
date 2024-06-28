@@ -8,7 +8,7 @@ import typing as T
 
 import torch
 import typing_extensions as TX
-from torch import Size, Tensor, nn
+from unipercept.types import Size, Tensor
 from torchvision.transforms.v2.functional import register_kernel
 from torchvision.transforms.v2.functional._geometry import _compute_resized_output_size
 from torchvision.tv_tensors import TVTensor
@@ -21,6 +21,7 @@ from unipercept.vision.geometry import (
     intrinsics_from_parameters,
     unsafe_inverse,
     apply_points,
+    generate_coord_grid,
 )
 
 __all__ = ["PinholeCamera"]
@@ -213,42 +214,42 @@ class PinholeCamera(TVTensor):
         return unsafe_inverse(self.E)
 
     @property
-    def image_bbox(self) -> Tensor:
+    def crop_bbox(self) -> Tensor:
         """
         Returns the image crop bounding box as a [B, (u1, v1, u2, v2)] tensor.
         """
         return self[..., 8]
 
     @property
-    def image_size(self) -> Tensor:
+    def crop_size(self) -> Tensor:
         """
         Returns the image size as a (batch_size, (V, U)) tensor.
         """
-        bbox = self.image_bbox
+        bbox = self.crop_bbox
         size = bbox[..., 2:] - bbox[..., :2]
         return size.flip(-1)
 
     @property
-    def image_height(self) -> Tensor:
+    def crop_height(self) -> Tensor:
         """
         Returns the image height as a (batch_size, V) tensor.
         """
-        return self.image_bbox[..., 3] - self.image_bbox[..., 1]
+        return self.crop_bbox[..., 3] - self.crop_bbox[..., 1]
 
     @property
-    def image_width(self) -> Tensor:
+    def crop_width(self) -> Tensor:
         """
         Returns the image width as a (batch_size, U) tensor.
         """
-        return self.image_bbox[..., 2] - self.image_bbox[..., 0]
+        return self.crop_bbox[..., 2] - self.crop_bbox[..., 0]
 
     @property
-    def image_center(self) -> Tensor:
+    def crop_center(self) -> Tensor:
         """
         Returns the image center as a (batch_size, (U, V)) tensor.
         """
-        bbox = self.image_bbox
-        size = self.image_size
+        bbox = self.crop_bbox
+        size = self.crop_size
         return bbox[..., :2] + size.flip(-1) / 2
 
     @property
@@ -440,7 +441,7 @@ class PinholeCamera(TVTensor):
         """
         return points_2d * self.focal_length + self.principal_point
 
-    def reproject_map(self, depth_map: Tensor) -> Tensor:
+    def reproject_map(self, depth_map: Tensor, noise: bool = False) -> Tensor:
         r"""
         reprojects each pixel to 3D coordinates.
 
@@ -448,6 +449,8 @@ class PinholeCamera(TVTensor):
         ----------
         depth_map: Tensor[..., H, W]
             Depth map containing depth values for every pixel.
+        noise:
+            Whether to add noise to the pixel coordinates, see :func:`unipercept.vision.geometry.generate_coord_grid`.
 
         Returns
         -------
@@ -459,16 +462,13 @@ class PinholeCamera(TVTensor):
         *batch_shape, height, width = depth_map.shape
 
         # Create pixel grid
-        with depth_map.device, torch.no_grad():
-            # Define a grid over the image plane
-            y_coords, x_coords = torch.meshgrid(
-                torch.arange(height),
-                torch.arange(width),
-                indexing="ij",
-            )
-            # Create the point coordinates as a stack of x, y coordinates
-            point_coords = torch.stack((x_coords, y_coords), dim=-1)  # (H, W, 2)
-            point_coords = point_coords.flatten(0, 1).float()  # (H*W, 2)
+        point_coords = generate_coord_grid(
+            (height, width),
+            device=depth_map.device,
+            dtype=depth_map.dtype,
+            noise=noise,
+        )  # (H, W, 2)
+        point_coords = point_coords.flatten(0, 1)  # (H*W, 2)
 
         # Reshape depth map to a depth value for every point
         point_depths = depth_map.flatten(0, -3)  # (B', H, W)
@@ -557,15 +557,15 @@ class PinholeCamera(TVTensor):
 
         # Normalize projected points: (u v w) -> (u / w, v / w, 1)
         points_2d = points_2d[..., :2] / points_2d[..., 2:]
-
         points_2d = points_2d.int()
 
         # Valid points inside the image plane
+        x_min, y_min, x_max, y_max = self.crop_bbox
         valid_mask = (
-            (points_2d[..., 0] >= 0)
-            & (points_2d[..., 0] < image_shape[1])
-            & (points_2d[..., 1] >= 0)
-            & (points_2d[..., 1] < image_shape[0])
+            (points_2d[..., 0] >= x_min)
+            & (points_2d[..., 0] < x_max)
+            & (points_2d[..., 1] >= y_min)
+            & (points_2d[..., 1] < y_max)
         )
 
         # Calculate the flat indices of the valid pixels
@@ -629,19 +629,19 @@ class PinholeCamera(TVTensor):
         self.focal_length[..., :] *= factor_hw
 
         # Modify the image size
-        image_center = self.image_center * factor_wh
-        image_size = (self.image_size * factor_hw).flip(-1)
+        crop_center = self.crop_center * factor_wh
+        crop_size = (self.crop_size * factor_hw).flip(-1)
 
-        self[..., 8] = torch.cat(
-            [image_center - image_size / 2, image_center + image_size / 2], dim=-1
+        self.crop_bbox[:] = torch.cat(
+            [crop_center - crop_size / 2, crop_center + crop_size / 2], dim=-1
         )
 
         # Modify the crop (and convert H, W -> V, U)
-        crop_center = self.canvas_center * factor_wh
-        crop_size = (self.canvas_size * factor_hw).flip(-1)
+        canvas_center = self.canvas_center * factor_wh
+        canvas_size = (self.canvas_size * factor_hw).flip(-1)
 
-        self[..., 9] = torch.cat(
-            [crop_center - crop_size / 2, crop_center + crop_size / 2], dim=-1
+        self.crop_bbox[:] = torch.cat(
+            [canvas_center - canvas_size / 2, canvas_center + canvas_size / 2], dim=-1
         )
 
         return self
@@ -673,7 +673,7 @@ class PinholeCamera(TVTensor):
             self.canvas_height >= crop_height
         ), f"Cannot crop outside bounds: {self.canvas_height=} < {crop_height=}"
 
-        self[..., 9] = crop.to(self)
+        self.crop_bbox[:] = crop.to(self)
         return self
 
     def crop(self, crop: Tensor, inplace: bool = False) -> T.Self:
@@ -690,7 +690,7 @@ class PinholeCamera(TVTensor):
         return self.crop_(crop)
 
     @TX.override
-    def __repr__(self):
+    def __repr__(self, *args, **kwargs):
         name = self.__class__.__name__
         if name == "Tensor":
             name = "PinholeCamera"
@@ -713,9 +713,58 @@ class PinholeCamera(TVTensor):
                 "translation": self.translation.tolist(),
                 "canvas_size": self.canvas_size.tolist(),
                 "canvas_center": self.canvas_center.tolist(),
+                "crop_size": self.crop_size.tolist(),
+                "crop_center": self.crop_center.tolist(),
             }.items()
         )
         return f"{self.__class__.__name__}({self.dtype}, {kwds}){{\n{TAB}{fields}\n}}"
+
+
+#################################################
+# Functions for extracting parameters           #
+# without calling `.as_subclass(PinholeCamera)` #
+#################################################
+
+
+def get_focal_length(cam: Tensor) -> Tensor:
+    return cam[..., :2, :2].diagonal(0, -2, -1)
+
+
+def get_principal_point(cam: Tensor) -> Tensor:
+    return cam[..., :2, 2]
+
+
+def get_translation(cam: Tensor) -> Tensor:
+    return cam[..., :3, 4:7]
+
+
+def get_camera_matrix(cam: Tensor) -> Tensor:
+    return cam[..., :3, :3]
+
+
+def get_rotation_matrix(cam: Tensor) -> Tensor:
+    return cam[..., :3, 4:7]
+
+
+def get_intrinsics(cam: Tensor) -> Tensor:
+    return cam[..., :4, :4]
+
+
+def get_extrinsics(cam: Tensor) -> Tensor:
+    return cam[..., :4, 4:8]
+
+
+def get_image_bbox(cam: Tensor) -> Tensor:
+    return cam[..., 9]
+
+
+def get_crop_bbox(cam: Tensor) -> Tensor:
+    return cam[..., 8]
+
+
+#################################
+# Register Torchvision handlers #
+#################################
 
 
 @register_kernel(functional="resize", tv_tensor_cls=PinholeCamera)

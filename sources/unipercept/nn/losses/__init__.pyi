@@ -1,3 +1,11 @@
-from __future__ import annotations
-
-from . import controller, depth, focal, functional, guided, image, mixins, panoptic
+from . import (
+    controller,
+    chamfer,
+    depth,
+    focal,
+    functional,
+    guided,
+    image,
+    mixins,
+    panoptic,
+)

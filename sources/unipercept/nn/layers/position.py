@@ -163,50 +163,46 @@ class TrigonometricEmbedTime(nn.Module):
         return pos_t
 
 
-class FourierEmbedCameraDirections(nn.Module):
+class FourierEmbed2d(nn.Module):
     r"""
-    Use a Fourier basis to embed camera directions.
+    Use a Fourier basis to embed 2D positions.
     """
 
     def __init__(
         self,
         dim: int = 512,
-        max_freq: int = 64,
         use_cos: bool = False,
         use_log: bool = False,
-        concatenate: bool = False,
     ):
         super().__init__()
 
         self.dim = dim
-        self.max_freq = max_freq
-
         self.use_cos = use_cos
         self.use_log = use_log
-        self.concatenate = concatenate
 
     @TX.override
     def forward(self, x: Tensor):
-        x_orig = x
-        device, dtype, input_dim = x.device, x.dtype, x.shape[-1]
-        num_bands = (
-            self.dim // (2 * input_dim) if self.use_cos else self.dim // input_dim
-        )
+        assert x.dim() == 4, "Input tensor must be 4-dimensional (B, C, H, W)"
+
+        _, C, H, W = x.shape
+        device, dtype = x.device, x.dtype
+        num_bands = self.dim // (2 * C) if self.use_cos else self.dim // C
+        max_freq = max(H, W) // 2
 
         if self.use_log:
             scales = 2.0 ** torch.linspace(
                 0.0,
-                math.log2(self.max_freq),
+                math.log2(max_freq),
                 steps=num_bands,
                 device=device,
                 dtype=dtype,
             )
         else:
             scales = torch.linspace(
-                1.0, self.max_freq / 2, num_bands, device=device, dtype=dtype
+                1.0, max_freq / 2, num_bands, device=device, dtype=dtype
             )
 
-        x = x.unsqueeze(-1)
+        x = x.flatten(2).permute(0, 2, 1).unsqueeze(-1)
         scales = scales[(*((None,) * (len(x.shape) - 1)), Ellipsis)]
 
         x = x * scales * torch.pi
@@ -221,7 +217,9 @@ class FourierEmbedCameraDirections(nn.Module):
             dim=-1,
         )
         x = x.flatten(-2)
-        if self.concatenate:
-            return torch.cat((x, x_orig), dim=-1)
-
+        x = torch.nn.functional.pad(
+            x, (0, self.dim - x.shape[-1]), mode="circular", value=0
+        )
+        x = x.permute(0, 2, 1)  # B, C, H * W
+        x = x.unflatten(2, (H, W))
         return x

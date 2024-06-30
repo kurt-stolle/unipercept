@@ -24,7 +24,7 @@ from unipercept.vision.geometry import (
     unsafe_inverse,
 )
 
-__all__ = ["PinholeCamera"]
+__all__ = ["PinholeCamera", "get_intrinsics", "get_extrinsics"]
 
 
 class PinholeCamera(TVTensor):

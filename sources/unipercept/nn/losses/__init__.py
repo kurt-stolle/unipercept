@@ -6,6 +6,7 @@ from __future__ import annotations
 from unipercept.utils.module import lazy_module_factory
 
 __all__ = [
+    "chamfer",
     "contrastive",
     "depth",
     "focal",

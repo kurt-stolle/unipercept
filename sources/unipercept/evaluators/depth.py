@@ -104,6 +104,8 @@ class DepthWriter(Evaluator):
                 device=input_images.device,
             )
         assert pred.dtype == torch.float32, pred.dtype
+        if pred.ndim == 4 and pred.size(1) == 1:
+            pred = pred.squeeze(1)
         assert pred.ndim == 3, pred.shape
         assert pred.shape[-2:] == input_shape, (pred.shape, input_shape)
         assert pred.shape[0] == input_batch, (pred.shape, input_batch)
@@ -118,6 +120,8 @@ class DepthWriter(Evaluator):
             assert isinstance(true, torch.Tensor), type(true)
             assert true.dtype == torch.float32
             true = true[:, self.pair_index, ...]
+        if true.ndim == 4 and true.size(1) == 1:
+            true = true.squeeze(1)
         assert true.ndim == 3, true.shape
         assert true.shape[-2:] == input_shape, (true.shape, input_shape)
         assert true.shape[0] == input_batch, (true.shape, input_batch)

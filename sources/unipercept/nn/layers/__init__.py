@@ -12,6 +12,7 @@ from . import (
     conv,
     deform_attn,
     deform_conv,
+    upsample,
     dropout,
     dynamic_conv,
     mlp,

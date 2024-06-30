@@ -1664,7 +1664,7 @@ def apply_points(transform: Tensor, points: Tensor) -> Tensor:
 #######################
 
 
-def generate_rays(
+def get_directions(
     intrinsics: Tensor,
     canvas_size: T.Tuple[int, int],
     noise: bool = False,
@@ -1674,16 +1674,18 @@ def generate_rays(
     )  # (H, W, 2)
     coords = coords.flatten(0, 1)  # (H*W, 2)
     coords = euclidean_to_homogeneous_points(coords)  # (H*W, 3)
+    coords = coords.repeat(*intrinsics.shape[:-2], 1, 1)  # (B, H*W, 3)
 
-    intrinsics_inv = unsafe_inverse(intrinsics)  # (B, 4, 4)
-    ray_directions = apply_points(intrinsics_inv, coords)  # (B, H*W, 3)
-    ray_directions = nn.functional.normalize(ray_directions, dim=-1)
+    proj = unsafe_inverse(intrinsics)  # (B, 4, 4)
+    dirs = apply_points(proj, coords)  # (B, H*W, 3)
+    dirs = nn.functional.normalize(dirs, dim=-1)
+    return dirs
 
-    theta = torch.atan2(ray_directions[..., 0], ray_directions[..., -1])
-    phi = torch.acos(ray_directions[..., 1])
-    angles = torch.stack([theta, phi], dim=-1)
 
-    return ray_directions, angles
+def directions_to_angles(rays: Tensor) -> Tensor:
+    theta = torch.atan2(rays[..., 0], rays[..., -1])
+    phi = torch.acos(rays[..., 1])
+    return torch.stack([theta, phi], dim=-1)
 
 
 def spherical_zbuffer_to_euclidean(spherical_tensor: Tensor) -> Tensor:

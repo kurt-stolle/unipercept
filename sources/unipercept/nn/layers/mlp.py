@@ -108,7 +108,7 @@ class MLP(nn.Module):
             msg = f"Ante bias is not supported. Got {bias=}"
             raise NotImplementedError(msg)
         ante_dropout, intra_dropout, post_dropout = _decompose_ante_intra_post(
-            dropout, default=(None, 0.0, 0.0)
+            dropout, default_ante=None, default_post=dropout
         )
         if ante_dropout is not None:
             msg = f"Ante dropout is not supported. Got {dropout=}"
@@ -257,21 +257,24 @@ _Tp = T.TypeVar("_Tp", covariant=True)
 
 
 def _decompose_ante_intra_post(
-    arg: T.Sequence[_Ti | _Ti | _Tp] | tuple[_Ti, _Ta, _Tp] | tuple[_Ti, _Tp] | _Ti,
+    arg: T.Sequence[_Ta | _Ti | _Tp] | tuple[_Ti, _Ta, _Tp] | tuple[_Ti, _Tp] | _Ti,
     *,
-    default: tuple[_Ti, _Ta, _Tp] = (None, None, None),
+    default_ante: _Ti = None,
+    default_post: _Tp = None,
 ) -> T.Tuple[_Ta | _Ti, _Ti, _Tp | _Ti]:
     """
     Quick macro for handling the decomposition of antre- intera- and pre- arguments.
     """
-    if isinstance(arg, T.Sequence):
+    if isinstance(arg, T.Iterable):
         *ante_intra, post = arg
         if len(ante_intra) == 1:
             intra = ante_intra[0]
-            ante = default[0]
+            ante = default_ante
         else:
             ante, intra = ante_intra
     else:
-        ante, intra, post = default
+        intra = arg
+        ante = default_ante
+        post = default_post
 
     return ante, intra, post  # type: ignore

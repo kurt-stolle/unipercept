@@ -15,6 +15,7 @@ from . import (
     upsample,
     dropout,
     dynamic_conv,
+    layer_scale,
     mlp,
     norm,
     position,

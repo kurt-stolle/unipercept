@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import argparse
 
-import rclpy
+try:
+    import rclpy
+except ImportError:
+    pass  # TODO
 
 import unipercept as up
 

@@ -256,7 +256,6 @@ def _main(args):
     _logger.info("Saving results to %s", path_export)
 
     engine = create_engine(config)
-    config.MODEL.tracker = None  # DEBUG
     model = create_model(config, state=args.weights)
     model.to(engine.xlr.device)
 

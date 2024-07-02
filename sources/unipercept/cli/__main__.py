@@ -27,7 +27,7 @@ def _import_all():
         "profile",
         "ros2",
         "run",
-        "sugreon",
+        "surgeon",
         "show",
         "train",
     ):

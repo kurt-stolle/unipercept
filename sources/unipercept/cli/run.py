@@ -24,7 +24,7 @@ KEY_SESSION_ID = "session_id"
 
 @command(help="run a model on a directory/stream of images", description=__doc__)
 @command.with_config
-def train(p: argparse.ArgumentParser):
+def run(p: argparse.ArgumentParser):
     p_size = p.add_mutually_exclusive_group(required=False)
     p_size.add_argument(
         "--size", type=int, help="Size of the input images in pixels (smallest side)"

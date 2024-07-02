@@ -21,6 +21,7 @@ CommandExtension: TypeAlias = Callable[[Command], Command]
 
 class command(Generic[CommandParams]):
     _registry = {}
+    _signatures= {}
 
     def __init__(self, name: str | None = None, **kwargs):
         self.name = name
@@ -29,9 +30,13 @@ class command(Generic[CommandParams]):
     def __call__(self, func: Command) -> Command:
         name = self.name or str(func.__name__).replace("_", "-")
         if name in self._registry:
-            raise ValueError(f"Command {name} already registered!")
+            if self._signatures[name] != hash(func):
+                msg = f"Command {name} already registered! {self._registry[name][0].__module__}"
+                raise ValueError(msg)
+            return func
 
         self._registry[name] = (func, self.kwargs)
+        self._signatures[name] = hash(func)
         return func
 
     @staticmethod

@@ -1,0 +1,9 @@
+include sources/unipercept/nn/layers/deform_conv/*
+include sources/unipercept/nn/layers/deform_conv/cpu/*
+include sources/unipercept/nn/layers/deform_conv/cuda/*
+include sources/unipercept/nn/layers/deform_attn/*
+include sources/unipercept/nn/layers/deform_attn/cpu/*
+include sources/unipercept/nn/layers/deform_attn/cuda/*
+include sources/unipercept/nn/layers/flash_attn/*
+include sources/unipercept/nn/layers/flash_attn/cpu/*
+include sources/unipercept/nn/layers/flash_attn/cuda/*

@@ -1,0 +1,66 @@
+{
+    "pylint.args": [
+        "--rcfile=pyproject.toml"
+    ],
+    "black-formatter.args": [
+        "--config=pyproject.toml"
+    ],
+    "flake8.args": [
+        "--toml-config=pyproject.toml"
+    ],
+    "isort.args": [
+        "--settings-path=pyproject.toml",
+        "--profile=black"
+    ],
+    "isort.importStrategy": "fromEnvironment",
+    "editor.formatOnSave": false,
+    "editor.codeActionsOnSave": {
+        // "source.organizeImports": "explicit",
+        // "source.fixAll": "explicit"
+    },
+    "files.exclude": {
+        "**/coverage": true,
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/.mypy_cache": true,
+        "**/.git": true,
+        "**/venv": true,
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "**/*.code-search": true,
+    },
+    "files.watcherExclude": {
+        "**/coverage": true,
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/.vscode/**": true,
+        "**/.mypy_cache": true,
+        "**/.git": true,
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "**/*.code-search": true,
+        "**/output": true,
+        "**/outputs": true,
+        "**/build": true,
+        "**/dist": true,
+        "**/scratch": true,
+        "**/venv": true,
+    },
+    "search.exclude": {
+        "**/coverage": true,
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/.vscode/**": true,
+        "**/.mypy_cache": true,
+        "**/.git": true,
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "**/*.code-search": true,
+        "**/output": true,
+        "**/outputs": true,
+        "**/build": true,
+        "**/dist": true,
+        "**/scratch": true,
+        "**/venv": true,
+    }
+}

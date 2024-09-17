@@ -1,0 +1,6 @@
+from __future__ import annotations
+
+from unipercept.types import Tensor
+
+def knn_points_idx(*args, **kwargs) -> Tensor: ...
+def knn_points_backward(*args, **kwargs) -> Tensor: ...

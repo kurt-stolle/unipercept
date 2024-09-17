@@ -1,0 +1,182 @@
+[build-system]
+requires = ["setuptools>=61.0", "torch>=2.4.0", "torchvision", "numpy"]
+build-backend = "setuptools.build_meta"
+
+[project]
+keywords = [
+    "perception",
+    "computer vision",
+    "deep learning",
+    "object detection",
+    "instance segmentation",
+    "semantic segmentation",
+]
+name = "unipercept"
+description = "UniPecept: A unified framework for perception tasks focusing on research applications that require a high degree of flexibility and customization."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Kurt Stolle", email = "k.h.w.stolle@gmail.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = [
+    #"torch >= 2.4.0",
+    #"torchvision",
+    "nvidia-ml-py",
+    "tensordict >= 0.5.0",
+    "einops >= 0.7.0",
+    "timm >= 0.6.14",
+    "bullet >= 2.2.0",
+    "accelerate >= 0.32.2",
+    "statistics",
+    "regex",
+    "scipy",
+    "h5py",
+    "opencv-python",
+    "omegaconf",
+    "hydra-core",
+    "iopath",
+    "torchdata",
+    "fvcore",
+    "transformers",
+    "seaborn",
+    "matplotlib",
+    "tabulate",
+    "termcolor",
+    "pycocotools",
+    "ftfy",
+    "wandb",
+    "libsixel-python",
+]
+dynamic = ["version"]
+
+[project.scripts]
+unipercept = "unipercept.cli:__main__"
+unipercept-train = "unipercept.cli.train:__main__"
+unipercept-evaluate = "unipercept.cli.evaluate:__main__"
+unipercept-datasets = "unipercept.cli.datasets:__main__"
+unipercept-surgeon = "unipercept.cli.surgeon:__main__"
+
+[project.entry-points.'unipercept.datasets']
+cityscapes = "unipercept.data.sets.cityscapes:CityscapesDataset"
+cityscapes-vps = "unipercept.data.sets.cityscapes:CityscapesVPSDataset"
+cityscapes-dvps = "unipercept.data.sets.cityscapes:CityscapesDVPSDataset"
+kitti-360 = "unipercept.data.sets.kitti_360:KITTI360Dataset"
+kitti-dvps = "unipercept.data.sets.kitti_dvps:KITTIDVPSDataset"
+kitti-step = "unipercept.data.sets.kitti_step:KITTISTEPDataset"
+pascal-voc = "unipercept.data.sets.pascal_voc:PascalVOCDataset"
+mapillary-vistas = "unipercept.data.sets.vistas:MapillaryVistasDataset"
+wilddash = "unipercept.data.sets.wilddash:WildDashDataset"
+
+[project.entry-points.'unipercept.backbones']
+timm = "unipercept.nn.backbones.timm:TimmBackbone"
+torchvision = "unipercept.nn.backbones.torchvision:TorchvisionBackbone"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-data]
+unipercept = ["py.typed"]
+
+[tool.setuptools.packages.find]
+where = ["sources"]
+include = ["uni*"]
+exclude = ["tests", "__pycache__"]
+namespaces = true
+
+[project.optional-dependencies]
+
+tests = [
+    "hypothesis",
+    "bandit[toml]",
+    "check-manifest",
+    "ruff",
+    "pre-commit",
+    "pytest",
+    "pytest-sugar",
+    "pytest-xdist",
+    "pytest-benchmark",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-runner",
+    "mccabe",
+]
+notebooks = [
+    "jupyterlab",
+    "ipywidgets",
+    "ipykernel",
+    "ipython-autotime",
+]
+docs = ["sphinx", "sphinx-rtd-theme", "numpydoc"]
+
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+fail_under = 100
+
+[tool.pyright]
+include = ["sources"]
+reportPrivateImportUsage = false
+reportMissingImports = true
+reportMissingTypeStubs = false
+strictListInference = true
+strictSetInference = true
+reportImportCycles = true
+reportMatchNotExhaustive = true
+reportShadowedImports = true
+reportImplicitOverride = "warning"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+exclude = ["datasets", "dependencies", "output", "**/prototypes"]
+executionEnvironments = [{ root = "sources" }]
+[tool.pytest.ini_options]
+addopts = "--doctest-modules -m 'not integration' -m 'not gpu' --benchmark-disable"
+pythonpath = ["sources"]
+testpaths = "tests"
+junit_family = "xunit2"
+junit_suite_name = "tests"
+markers = [
+    "integration: marks as integration test",
+    "notebooks: marks as notebook test",
+    "gpu: marks as gpu test",
+    "slow: marks tests as slow",
+    "unit: fast offline tests",
+]
+[tool.ruff]
+target-version = 'py312'
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "F",    # flake8
+    "E",    # pycodestyle
+    "B",    # flake8-bugbear
+    "C",    # mccabe
+    "I",    # isort
+    "ARG",  # flake8-unused-arguments
+    "C4",   # flake8-comprehensions
+    "EM",   # flake8-errmsg
+    "ICN",  # flake8-import-conventions
+    "G",    # flake8-logging-format
+    "PGH",  # pygrep-hooks
+    "PIE",  # flake8-pie
+    "PL",   # pylint
+    "PT",   # flake8-pytest-style
+    "PTH",  # flake8-use-pathlib
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print
+    "UP",   # pyupgrade
+    "NPY",  # NumPy specific rules
+    "FURB", # refurb
+    "PYI",  # flake8-pyi
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
